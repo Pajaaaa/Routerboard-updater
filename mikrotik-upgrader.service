@@ -1,0 +1,21 @@
+[Unit]
+Description=MikroTik upgrader — bezpecny hromadny upgrade RouterOS
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mtu
+Group=mtu
+WorkingDirectory=/opt/mikrotik-upgrader
+ExecStart=/usr/bin/node /opt/mikrotik-upgrader/server.js
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+ReadWritePaths=/opt/mikrotik-upgrader/data
+EnvironmentFile=/etc/default/mikrotik-upgrader
+
+[Install]
+WantedBy=multi-user.target

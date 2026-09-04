@@ -1,0 +1,14 @@
+{
+  "name": "mikrotik-upgrader",
+  "version": "0.1.0",
+  "description": "Bezpečný hromadný upgrade MikroTik RouterOS s ochranou proti umrtvení zařízení",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": { "node": ">=22.13" },
+  "dependencies": {
+    "ssh2": "^1.17.0"
+  }
+}
