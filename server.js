@@ -10,6 +10,7 @@ const V = require('./lib/versions');
 const { Runner } = require('./lib/runner');
 const { Scanner } = require('./lib/scanner');
 const { plan } = require('./lib/planner');
+const sso = require('./lib/sso');
 const { Discovery } = require('./lib/discovery');
 
 const bus = new EventEmitter();
@@ -233,9 +234,10 @@ async function api(req, res, method, p, url) {
       for (const d of devs) { const key = d.board_name || d.model || 'unknown'; if (!seen.has(key)) { seen.add(key); canaryIds.add(d.id); } }
       devs.sort((a, b2) => (canaryIds.has(b2.id) - canaryIds.has(a.id)) || b2.depth - a.depth || a.priority - b2.priority || a.host.localeCompare(b2.host));
     }
+    options.by = req.user && req.user.email ? req.user.email : 'heslo';
     const jobId = db.createJob(b.name || `Upgrade ${new Date().toLocaleString('cs-CZ')}`, options, devs.map(d => d.id));
     if (options.canary) for (const it of db.getJobItems(jobId)) if (canaryIds.has(it.device_id)) db.updateJobItem(it.id, { plan: { canary: true } });
-    db.addLog(jobId, 0, 0, 'info', `Job vytvořen: ${devs.length} zařízení, ${JSON.stringify(options)}`);
+    db.addLog(jobId, 0, 0, 'info', `Job vytvořen (${options.by}): ${devs.length} zařízení, ${JSON.stringify(options)}`);
     if (b.start) runner.start(jobId);
     bus.emit('event', { type: 'job', job: db.listJobs(1)[0] });
     return send(res, 200, { id: jobId });
@@ -246,7 +248,7 @@ async function api(req, res, method, p, url) {
     if (!job) return send(res, 404, { error: 'job neexistuje' });
     if (method === 'GET' && !seg[2]) return send(res, 200, { job, items: db.getJobItems(id), log: db.getLog(id, parseInt(q.get('after') || '0', 10)) });
     if (method === 'GET' && seg[2] === 'log') return send(res, 200, db.getLog(id, parseInt(q.get('after') || '0', 10)));
-    if (method === 'POST' && seg[2] === 'start') { runner.start(id); return send(res, 200, runner.status()); }
+    if (method === 'POST' && seg[2] === 'start') { db.addLog(id, 0, 0, 'info', `Spuštění: ${req.user && req.user.email ? req.user.email : 'heslo'}`); runner.start(id); return send(res, 200, runner.status()); }
     if (method === 'POST' && seg[2] === 'pause') { if (runner.currentJobId !== id) throw new Error('tento job neběží'); runner.pause(); return send(res, 200, runner.status()); }
     if (method === 'POST' && seg[2] === 'cancel') {
       if (runner.currentJobId === id) runner.cancel();
@@ -304,20 +306,42 @@ const server = http.createServer(async (req, res) => {
       return fs.createReadStream(pk.local).pipe(res);
     }
 
+    const cookieAttrs = `Path=${cfg.basePath || '/'}; HttpOnly; SameSite=Lax; Max-Age=${cfg.sessionDays * 86400}${req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}`;
+    // SSO (OpenID Connect)
+    if (method === 'GET' && p === '/auth/login') {
+      if (!sso.enabled()) return send(res, 404, 'SSO není nakonfigurováno');
+      try { const u = await sso.loginUrl(); res.writeHead(302, { Location: u, 'Cache-Control': 'no-store' }); return res.end(); }
+      catch (e) { return send(res, 502, 'SSO nedostupné: ' + e.message); }
+    }
+    if (method === 'GET' && p === '/auth/callback') {
+      if (!sso.enabled()) return send(res, 404, 'SSO není nakonfigurováno');
+      const err = url.searchParams.get('error');
+      if (err) return send(res, 401, `SSO odmítlo přihlášení: ${url.searchParams.get('error_description') || err}`);
+      try {
+        const u = await sso.callback(url.searchParams.get('code') || '', url.searchParams.get('state') || '');
+        const tok = makeSession(u);
+        console.log(`SSO přihlášení: ${u.email} z ${clientIp(req)}`);
+        res.writeHead(302, { Location: (cfg.basePath || '') + '/', 'Set-Cookie': `mtu_session=${tok}; ${cookieAttrs}`, 'Cache-Control': 'no-store' });
+        return res.end();
+      } catch (e) { return send(res, 401, `Přihlášení přes SSO se nezdařilo: ${e.message}`); }
+    }
     // login
     if (method === 'POST' && p === '/api/login') {
+      if (!cfg.passwordLogin) return send(res, 400, { error: 'přihlášení heslem je vypnuté, použij SSO' });
       const ip = clientIp(req);
       const a = loginAttempts.get(ip) || { n: 0, t: 0 };
       if (a.n >= 8 && Date.now() - a.t < 10 * 60e3) return send(res, 429, { error: 'příliš mnoho pokusů, zkus to za 10 minut' });
       const b = await readBody(req);
       if (!safeEqual(b.password || '', cfg.password)) { loginAttempts.set(ip, { n: a.n + 1, t: Date.now() }); return send(res, 401, { error: 'špatné heslo' }); }
       loginAttempts.delete(ip);
-      const tok = makeSession();
-      return send(res, 200, { ok: true }, { 'Set-Cookie': `mtu_session=${tok}; Path=${cfg.basePath || '/'}; HttpOnly; SameSite=Lax; Max-Age=${cfg.sessionDays * 86400}${req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}` });
+      const tok = makeSession(null);
+      return send(res, 200, { ok: true }, { 'Set-Cookie': `mtu_session=${tok}; ${cookieAttrs}` });
     }
-    const authed = checkSession(cookies(req).mtu_session);
+    const session = checkSession(cookies(req).mtu_session);
+    const authed = !!session;
+    req.user = session ? session.user : null;
     if (method === 'POST' && p === '/api/logout') return send(res, 200, { ok: true }, { 'Set-Cookie': `mtu_session=; Path=${cfg.basePath || '/'}; HttpOnly; Max-Age=0` });
-    if (p === '/api/whoami') return send(res, 200, { authed });
+    if (p === '/api/whoami') return send(res, 200, { authed, user: req.user, sso: sso.enabled(), passwordLogin: cfg.passwordLogin });
 
     if (p.startsWith('/api/')) {
       if (!authed) return send(res, 401, { error: 'nepřihlášen' });

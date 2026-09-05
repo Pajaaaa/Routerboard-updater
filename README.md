@@ -47,7 +47,7 @@ je postupně, **jedno po druhém**, upgraduje na nejnovější verzi podle track
 ## Stack
 
 Node.js 22 (`node:sqlite`, bez buildu), jediná závislost `ssh2`. Hesla routerů jsou v DB šifrovaná (AES-256-GCM, klíč `MTU_SECRET`).
-Web je za heslem (`MTU_PASSWORD`, session cookie). Živé události přes SSE.
+Přihlášení heslem (`MTU_PASSWORD`) a/nebo přes SSO (OpenID Connect, `SSO_*` v env; authorization code + PKCE, identita z userinfo, volitelný allowlist e-mailů). Kdo job založil a spustil, je v logu jobu. Živé události přes SSE.
 
 ```
 server.js        HTTP API + statika + SSE
