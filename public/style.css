@@ -137,3 +137,4 @@ td.acts{white-space:nowrap}
 .tree{color:var(--line2);white-space:pre;font-size:12px;margin-right:2px;letter-spacing:-1px}
 .rootmark{display:inline-block;color:var(--accent);margin-right:6px;font-size:12px}
 tr.root-row td{border-top:2px solid var(--line2)}
+.help p,.help li{max-width:78ch;line-height:1.55}.help ol{padding-left:22px}.help ol li{margin:6px 0}.help details{border-top:1px solid var(--line);padding:8px 0}.help details summary{color:var(--ink);font-weight:500}.help details p{margin:6px 0 0;color:var(--ink2)}.help code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-family:var(--mono);font-size:12px}

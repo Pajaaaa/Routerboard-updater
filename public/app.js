@@ -75,7 +75,7 @@ function render() {
   const navBtn = (v, ico, label) => `<button class="${state.view === v ? 'active' : ''}" data-view="${v}"><span class="ico">${ico}</span>${label}</button>`;
   app.innerHTML = `<div class="shell"><aside class="side">
     <div class="brand"><div class="mark">ROS</div><div><b>MikroTik upgrader</b><small>správa RouterOS</small></div></div>
-    <nav>${navBtn('devices', '▤', 'Zařízení')}${navBtn('jobs', '▶', 'Upgrady')}${navBtn('settings', '⚙', 'Nastavení')}</nav>
+    <nav>${navBtn('devices', '▤', 'Zařízení')}${navBtn('jobs', '▶', 'Upgrady')}${navBtn('help', '?', 'Nápověda')}${navBtn('settings', '⚙', 'Nastavení')}</nav>
     <div class="versions">${latestBar()}</div>
     <div class="spacer"></div>
     <div class="runner-pill ${running ? 'live' : ''}" id="runnerpill">${running ? `<span class="pulse"></span><b>běží job #${state.runner.jobId}</b>${rj ? ` ${esc(rj.name)}` : ''}${rd ? `<br>${esc(devName(rd))}` : ''}` : 'žádný job neběží'}</div>
@@ -90,6 +90,7 @@ function render() {
   const m = $('#main');
   if (state.view === 'devices') renderDevices(m);
   else if (state.view === 'jobs') renderJobs(m);
+  else if (state.view === 'help') renderHelp(m);
   else renderSettings(m);
   renderModal();
 }
@@ -289,6 +290,42 @@ async function itemAction(id, a) { try { await api(`/items/${id}/${a}`, { method
 const logLine = (l) => `<div class="${l.level}"><span class="t">${fmtMs(l.ts)}</span> ${esc(l.msg)}</div>`;
 async function openJob(id) { if (!state.job || state.job.job.id !== id) state.logOpen = undefined; state.job = await api(`/jobs/${id}`); state.jobLog = state.job.log; state.view = 'jobs'; render(); }
 
+function renderHelp(m) {
+  m.innerHTML = `<h1>Nápověda</h1>
+  <div class="panel help"><h2>K čemu to je</h2>
+  <p>Nástroj hromadně upgraduje MikroTik routery a antény na nejnovější RouterOS a firmware. Dělá to opatrně: jedno zařízení po druhém, vždy se zálohou, s ověřením před restartem i po něm. Když něco nesedí, zastaví se a čeká na tebe. Nic se nikdy nerestartuje bez ověřených balíčků.</p></div>
+
+  <div class="panel help"><h2>Postup krok za krokem</h2>
+  <ol>
+    <li><b>Přidej zařízení.</b> Tlačítko <b>+ Přidat zařízení</b> (IP, uživatel, heslo) nebo <b>Najít v rozsahu</b> (zadáš rozsah jako <code>10.0.0.0/24</code> a loginy, které se mají zkusit). Nalezené routery se přidají samy.</li>
+    <li><b>Počkej na kontrolu.</b> Každé nové zařízení se hned zkontroluje. Ve sloupci Stav uvidíš „aktuální“, „upgrade na …“ nebo důvod, proč to nejde (nedostupné, špatné heslo).</li>
+    <li><b>Zkontroluj strom.</b> Seznam je seřazený jako strom: hlavní prvek (router, PoE switch) nahoře, pod ním odsazené to, co napájí nebo připojuje. Nástroj si vazby většinou zjistí sám. Když je něco špatně, klikni na tužku ✎ u zařízení a nastav <b>nadřazený prvek</b> = to zařízení, které ho napájí nebo přes které je připojené. Na pořadí záleží: nejdřív se upgradují antény, nakonec to, co je napájí, aby nikomu nevypadl proud uprostřed zápisu.</li>
+    <li><b>Spusť upgrade.</b> Buď <b>Upgradovat vše potřebné</b> nahoře, nebo zaškrtni zařízení a dej <b>Upgradovat vybrané</b>, nebo <b>Upgradovat</b> u jednoho řádku. V dialogu nech výchozí volby a klikni <b>Spustit upgrade</b>.</li>
+    <li><b>Kontrola.</b> Nejdřív se všechna zařízení zkontrolují. Když je vše v pořádku, upgrade pokračuje sám. Když se něco přeskočí (chybí místo, čerstvá verze, nedostupné), ukáže se souhrn a čeká se na <b>Pokračovat</b>. Přeskočená zařízení se nedotknou.</li>
+    <li><b>Průběh.</b> Na stránce Upgrady vidíš, které zařízení se právě dělá a jaký krok. Stránku můžeš zavřít, běží to na serveru. Jedno zařízení trvá obvykle 3 až 10 minut, u přechodu z v6 na v7 i 20 minut (víc restartů).</li>
+    <li><b>Když se to zastaví.</b> Červený pruh řekne proč. Podívej se na zařízení (ping, Winbox). Když je v pořádku, klikni <b>Pokračovat</b>, chybné se přeskočí a jede se dál. Nebo u položky dej <b>znovu</b>. Nadřazený prvek chybného zařízení se neupgraduje, dokud chybu nevyřešíš.</li>
+    <li><b>Hotovo.</b> Ve Stavu zařízení je „aktuální“. Zálohy konfigurace najdeš v detailu zařízení (klik na název).</li>
+  </ol></div>
+
+  <div class="panel help"><h2>Časté otázky</h2>
+  <details><summary>Zařízení má stav „nedostupné“</summary><p>Server se na něj nedostal přes SSH. Zkontroluj, že žije a že má SSH zapnuté (IP → Services → ssh). Pak <b>Zkontrolovat</b>. Pokud má router ochranu proti hádání hesel, přidej IP serveru do výjimky.</p></details>
+  <details><summary>„Špatné přihlašovací údaje“</summary><p>Uživatel nebo heslo nesedí. Oprav v tužce ✎ a znovu <b>Zkontrolovat</b>. Uživatel musí mít plná práva (skupina full).</p></details>
+  <details><summary>„Změnil se SSH klíč, ověř zařízení“</summary><p>Router se hlásí jiným klíčem než minule. Buď byl přeinstalovaný (Netinstall, výměna kusu), nebo se na té IP ozývá něco jiného. Když víš, že je to v pořádku, dej v tužce ✎ <b>reset SSH host key</b>.</p></details>
+  <details><summary>Přeskočí se: „verze vyšla teprve před X dny“</summary><p>Čerstvé verze RouterOS mívají chyby, proto se čeká několik dní (Nastavení → min. stáří verze). Buď počkej, nebo limit sniž.</p></details>
+  <details><summary>Přeskočí se: „ve flash není místo“</summary><p>Zařízení s 16 MB flash mají na balíček málo místa. U nich se nahrání aspoň zkusí a při neúspěchu se vše uklidí. Když to nejde ani tak, pomůže jen Netinstall (fyzicky u zařízení).</p></details>
+  <details><summary>Přeskočí se: „v kořeni routeru jsou cizí balíčky .npk“</summary><p>Někdo tam nechal soubor .npk, který by se při restartu nainstaloval. Smaž ho ve Winboxu (Files) a znovu <b>Zkontrolovat</b>.</p></details>
+  <details><summary>Přeskočí se: „přechod v6→v7 s dynamickým routingem“</summary><p>Router má BGP/OSPF/routing filtry. Ve v7 se jejich konfigurace mění a chce to ruční kontrolu odborníkem. Tohle zařízení nech na něj.</p></details>
+  <details><summary>Zařízení se po upgradu neozvalo</summary><p>Nástroj čeká 15 minut (Nastavení). Když se neozve, job se zastaví. Zkontroluj napájení a ping. Většinou jen déle bootuje (přechod v6→v7). Až naběhne, dej u položky <b>znovu</b>; nástroj zjistí aktuální stav a dokončí, co chybí.</p></details>
+  <details><summary>Co znamená „čeká na potvrzení“ u prvního kusu od každého modelu</summary><p>Volba „nejdřív jeden kus od každého modelu“. Upgraduje se jeden RB4011, jeden wAP 60G atd., pak se čeká. Ověř, že tyhle kusy fungují (spoj, klienti), a klikni <b>Pokračovat</b>. Ostatní stejné modely pojedou pak samy.</p></details>
+  <details><summary>Co je „hold“ a „track“ (pokročilé)</summary><p>Track určuje cíl: v7-stable (výchozí), v7-long-term, v6-long-term (zůstat na v6), hold (nikdy neupgradovat). Nastavuje se v pokročilém zobrazení.</p></details>
+  <details><summary>Co je „jen prvek topologie“</summary><p>Zařízení bez loginu (třeba cizí PoE switch), které je v seznamu jen kvůli stromu. Neupgraduje se, ale nástroj ví, že napájí ostatní, a čeká na něj.</p></details>
+  <details><summary>Co dělá „Rozdělit flash na 2 oddíly“ v detailu zařízení</summary><p>U větších zařízení (128 MB flash a víc) vytvoří záložní oddíl. Pokud pak nová verze nenabootuje, router sám naběhne ze záložního oddílu se starou verzí. Jednorázová akce s restartem, dělej ji mimo špičku.</p></details>
+  <details><summary>Firmware se upgraduje?</summary><p>Ano, po každém upgradu RouterOS se upgraduje i RouterBOOT a udělá se ještě jeden restart. Stav „aktuální, jen firmware“ znamená, že RouterOS sedí a chybí jen tohle.</p></details>
+  <details><summary>Kde jsou zálohy</summary><p>V detailu zařízení (klik na název) v části Zálohy: textový export konfigurace (.rsc) a binární záloha (.backup) z doby těsně před upgradem. Jdou stáhnout.</p></details>
+  <details><summary>Můžu zavřít prohlížeč?</summary><p>Ano. Upgrade běží na serveru. Po návratu otevři Upgrady a klikni na běžící job.</p></details>
+  <details><summary>Jak upgrade zastavit</summary><p>Na stránce Upgrady: <b>Zastavit po aktuálním zařízení</b> (bezpečné) nebo <b>Zrušit</b>. Rozpracované zařízení se vždy nejdřív bezpečně dokončí nebo uklidí, nikdy se nenechá uprostřed.</p></details>
+  </div>`;
+}
 function renderSettings(m) {
   const s = state.settings;
   const f = (k, label, type = 'number', step = '1') => `<label>${label}<input name="${k}" type="${type}" step="${step}" value="${esc(s[k])}"></label>`;
