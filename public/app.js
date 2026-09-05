@@ -4,7 +4,7 @@ const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const MB = 1048576;
 let ADV = false; try { ADV = localStorage.getItem('mtu_adv') === '1'; } catch {}
-const state = { authed: false, view: 'devices', advanced: ADV, devices: [], jobs: [], latest: { versions: {} }, settings: {}, runner: {}, tracks: [], selected: new Set(), filter: '', group: '', sort: 'priority', modal: null, job: null, jobLog: [], detail: null, scanning: [] };
+const state = { authed: false, view: 'devices', advanced: ADV, devices: [], jobs: [], latest: { versions: {} }, settings: {}, runner: {}, tracks: [], selected: new Set(), filter: '', group: '', sort: 'tree', modal: null, job: null, jobLog: [], detail: null, scanning: [] };
 
 async function api(path, opts = {}) {
   const r = await fetch(BASE + '/api' + path, { headers: { 'Content-Type': 'application/json' }, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
@@ -107,10 +107,31 @@ function parentCell(d) {
   else if (sp && !sp.id && !par) html += ` <span class="muted" title="soused na uplinku ${esc(sp.via)} není v seznamu">(${esc(sp.identity || sp.address)})</span>`;
   return html;
 }
+function treeOrder(devs) {
+  // hloubkové procházení: kořeny (bez rodiče, nebo rodič mimo výběr) → potomci; každý dostane depth a tree-značky
+  const byId = new Map(devs.map(d => [d.id, d]));
+  const kids = new Map();
+  for (const d of devs) { const pid = d.parent_id && byId.has(d.parent_id) && d.parent_id !== d.id ? d.parent_id : 0; if (!kids.has(pid)) kids.set(pid, []); kids.get(pid).push(d); }
+  const byName = (a, b) => a.priority - b.priority || devName(a).localeCompare(devName(b), 'cs', { numeric: true });
+  const out = [], seen = new Set();
+  const walk = (pid, depth, prefix) => {
+    const list = (kids.get(pid) || []).sort(byName);
+    list.forEach((d, i) => {
+      if (seen.has(d.id)) return; seen.add(d.id);
+      const last = i === list.length - 1;
+      out.push({ ...d, _depth: depth, _prefix: prefix, _last: last, _kids: (kids.get(d.id) || []).length });
+      walk(d.id, depth + 1, prefix + (depth === 0 ? '' : (last ? '   ' : '│  ')));
+    });
+  };
+  walk(0, 0, '');
+  for (const d of devs) if (!seen.has(d.id)) { seen.add(d.id); out.push({ ...d, _depth: 0, _prefix: '', _last: true, _kids: 0 }); } // cykly
+  return out;
+}
 function filteredDevices() {
   const f = state.filter.toLowerCase();
   let list = state.devices.filter(d => (!state.group || d.group_name === state.group) && (!f || [d.host, d.name, d.identity, d.board_name, d.model, d.version, d.group_name, d.notes].join(' ').toLowerCase().includes(f)));
   const s = state.sort;
+  if (s === 'tree') return treeOrder(list);
   list.sort((a, b) => {
     if (s === 'version') return cmpVer(a.version || '0.0', b.version || '0.0') || a.host.localeCompare(b.host);
     if (s === 'name') return (a.name || a.identity || a.host).localeCompare(b.name || b.identity || b.host);
@@ -146,13 +167,13 @@ function renderDevices(m) {
     <button class="danger" id="delsel" ${state.selected.size ? '' : 'disabled'}>✕ Smazat vybrané (${state.selected.size})</button>
     <span class="spacer"></span>
     ${groups.length ? `<select id="group"><option value="">všechny skupiny</option>${groups.map(g => `<option ${g === state.group ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select>` : ''}
-    <select id="sort"><option value="priority" ${state.sort === 'priority' ? 'selected' : ''}>řadit: priorita</option><option value="name" ${state.sort === 'name' ? 'selected' : ''}>název</option><option value="version" ${state.sort === 'version' ? 'selected' : ''}>verze</option><option value="model" ${state.sort === 'model' ? 'selected' : ''}>model</option><option value="seen" ${state.sort === 'seen' ? 'selected' : ''}>naposledy viděno</option></select>
+    <select id="sort"><option value="tree" ${state.sort === 'tree' ? 'selected' : ''}>řadit: strom (topologie)</option><option value="priority" ${state.sort === 'priority' ? 'selected' : ''}>priorita</option><option value="name" ${state.sort === 'name' ? 'selected' : ''}>název</option><option value="version" ${state.sort === 'version' ? 'selected' : ''}>verze</option><option value="model" ${state.sort === 'model' ? 'selected' : ''}>model</option><option value="seen" ${state.sort === 'seen' ? 'selected' : ''}>naposledy viděno</option></select>
     <input id="filter" placeholder="hledat…" value="${esc(state.filter)}" style="width:170px"></div>
   <div class="tablewrap"><table><thead><tr><th><input type="checkbox" id="selall" ${allSel ? 'checked' : ''}></th><th>Zařízení</th><th>Model</th><th>RouterOS</th><th>Stav</th>${adv ? '<th>Firmware</th><th>Flash · RAM volné</th><th>Nadřazený</th><th>Track</th><th>Sken</th>' : ''}<th></th></tr></thead><tbody>
   ${list.map(d => { const ps = plainStatus(d); const sc = STATUS_LABEL[d.scan_status] || ['b-muted', d.scan_status]; const scanning = state.scanning.includes(d.id); const busy = state.runner.deviceId === d.id;
-    return `<tr class="${state.selected.has(d.id) ? 'selected' : ''} ${d.enabled ? '' : 'muted'}" data-id="${d.id}">
+    return `<tr class="${state.selected.has(d.id) ? 'selected' : ''} ${d.enabled ? '' : 'muted'} ${state.sort === 'tree' && d._depth === 0 && d._kids ? 'root-row' : ''}" data-id="${d.id}">
     <td><input type="checkbox" class="sel" data-id="${d.id}" ${state.selected.has(d.id) ? 'checked' : ''}></td>
-    <td class="clickable detail name" data-id="${d.id}"><b>${esc(d.name || d.identity || d.host)}</b>${busy ? ' <span class="badge b-info">právě se upgraduje</span>' : ''}${d.enabled ? '' : ' <span class="badge b-muted">vypnuto</span>'}<span class="sub"><span class="mono">${esc(d.host)}${d.port !== 22 ? ':' + d.port : ''}</span>${d.group_name ? ` · ${esc(d.group_name)}` : ''}${d.name && d.identity && d.name !== d.identity ? ` · ${esc(d.identity)}` : ''}</span></td>
+    <td class="clickable detail name" data-id="${d.id}">${d._depth > 0 ? `<span class="tree mono">${esc(d._prefix)}${d._last ? '└─' : '├─'}</span>` : ''}${d._depth === 0 && d._kids ? '<span class="rootmark" title="hlavní prvek — napájí/připojuje podřízené">▣</span>' : ''}<b>${esc(d.name || d.identity || d.host)}</b>${d._kids ? ` <span class="muted" title="počet přímo podřízených">(${d._kids})</span>` : ''}${busy ? ' <span class="badge b-info">právě se upgraduje</span>' : ''}${d.enabled ? '' : ' <span class="badge b-muted">vypnuto</span>'}<span class="sub"><span class="mono">${esc(d.host)}${d.port !== 22 ? ':' + d.port : ''}</span>${d.group_name ? ` · ${esc(d.group_name)}` : ''}${d.name && d.identity && d.name !== d.identity ? ` · ${esc(d.identity)}` : ''}</span></td>
     <td>${esc(d.board_name || d.model)}${adv && d.arch ? `<span class="sub">${esc(d.arch)}</span>` : ''}</td>
     <td class="mono"><b>${esc(d.version || '—')}</b>${adv && d.channel ? ` <span class="muted">${esc(d.channel)}</span>` : ''}${adv && d.uptime_sec ? `<span class="sub" title="uptime">${upt(d.uptime_sec)}</span>` : ''}</td>
     <td>${scanning ? '<span class="badge b-info">kontroluji…</span>' : `<span class="badge ${ps.cls}" title="${esc(d.scan_error || '')}">${esc(ps.txt)}</span>`}</td>

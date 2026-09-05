@@ -133,3 +133,7 @@ details.logbox{margin-top:12px}details.logbox summary{font-weight:500}
 details.warns summary{color:var(--warn);font-size:12px}
 .advtoggle{font-size:12px;color:var(--muted);padding:4px 10px}
 td.acts{white-space:nowrap}
+
+.tree{color:var(--line2);white-space:pre;font-size:12px;margin-right:2px;letter-spacing:-1px}
+.rootmark{display:inline-block;color:var(--accent);margin-right:6px;font-size:12px}
+tr.root-row td{border-top:2px solid var(--line2)}
