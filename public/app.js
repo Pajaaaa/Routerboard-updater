@@ -169,7 +169,7 @@ function renderDevices(m) {
     ${adv ? `<button id="scansel" ${state.selected.size ? '' : 'disabled'}>⟳ Zkontrolovat vybrané (${state.selected.size})</button>
     <button id="acceptparents" title="u zařízení bez nadřazeného prvku nastaví toho, koho vidí jako souseda na uplinku">⇡ Přebrat detekované rodiče</button>` : ''}
     <button class="ok" id="jobsel" ${state.selected.size ? '' : 'disabled'}>▶ Upgradovat vybrané (${state.selected.size})</button>
-    <button class="danger" id="delsel" ${state.selected.size ? '' : 'disabled'}>✕ Smazat vybrané (${state.selected.size})</button>
+    ${state.admin ? `<button class="danger" id="delsel" ${state.selected.size ? '' : 'disabled'}>✕ Smazat vybrané (${state.selected.size})</button>` : ''}
     <span class="spacer"></span>
     ${groups.length ? `<select id="group"><option value="">všechny skupiny</option>${groups.map(g => `<option ${g === state.group ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select>` : ''}
     <select id="sort"><option value="tree" ${state.sort === 'tree' ? 'selected' : ''}>řadit: strom (topologie)</option><option value="priority" ${state.sort === 'priority' ? 'selected' : ''}>priorita</option><option value="name" ${state.sort === 'name' ? 'selected' : ''}>název</option><option value="version" ${state.sort === 'version' ? 'selected' : ''}>verze</option><option value="model" ${state.sort === 'model' ? 'selected' : ''}>model</option><option value="seen" ${state.sort === 'seen' ? 'selected' : ''}>naposledy viděno</option></select>
@@ -326,6 +326,7 @@ function renderHelp(m) {
   <details><summary>Co dělá „Rozdělit flash na 2 oddíly“ v detailu zařízení</summary><p>U větších zařízení (128 MB flash a víc) vytvoří záložní oddíl. Pokud pak nová verze nenabootuje, router sám naběhne ze záložního oddílu se starou verzí. Jednorázová akce s restartem, dělej ji mimo špičku.</p></details>
   <details><summary>Firmware se upgraduje?</summary><p>Ano, po každém upgradu RouterOS se upgraduje i RouterBOOT a udělá se ještě jeden restart. Stav „aktuální, jen firmware“ znamená, že RouterOS sedí a chybí jen tohle.</p></details>
   <details><summary>Kde jsou zálohy</summary><p>V detailu zařízení (klik na název) v části Zálohy: textový export konfigurace (.rsc) a binární záloha (.backup) z doby těsně před upgradem. Jdou stáhnout.</p></details>
+  <details><summary>Může nás tu pracovat víc naráz?</summary><p>Ano. Každý se přihlašuje svým účtem, všichni vidí stejný seznam a stejný průběh. Upgrade běží vždy jen jeden; když někdo spustí další, dostane hlášku, že už jeden běží. V logu upgradu je, kdo ho spustil, pozastavil nebo zrušil. Hesla routerů jsou uložená šifrovaně a zobrazit je smí jen správce.</p></details>
   <details><summary>Jak se přihlásit</summary><p>Tlačítkem <b>Přihlásit přes hkfree SSO</b> stejným účtem jako do ostatních nástrojů sítě. Přihlášení vydrží 30 dní. V logu každého upgradu je vidět, kdo ho spustil.</p></details>
   <details><summary>Můžu zavřít prohlížeč?</summary><p>Ano. Upgrade běží na serveru. Po návratu otevři Upgrady a klikni na běžící job.</p></details>
   <details><summary>Jak upgrade zastavit</summary><p>Na stránce Upgrady: <b>Zastavit po aktuálním zařízení</b> (bezpečné) nebo <b>Zrušit</b>. Rozpracované zařízení se vždy nejdřív bezpečně dokončí nebo uklidí, nikdy se nenechá uprostřed.</p></details>
@@ -335,7 +336,7 @@ function renderSettings(m) {
   const s = state.settings;
   const f = (k, label, type = 'number', step = '1') => `<label>${label}<input name="${k}" type="${type}" step="${step}" value="${esc(s[k])}"></label>`;
   const c = (k, label) => `<label class="check"><input type="checkbox" name="${k}" ${s[k] ? 'checked' : ''}> ${label}</label>`;
-  m.innerHTML = `<h1>Nastavení</h1><div class="hint" style="margin-bottom:10px">Výchozí hodnoty jsou bezpečné, běžně tu není potřeba nic měnit.</div><div class="panel"><h2>Bezpečnostní limity</h2><form id="setf" class="form">
+  m.innerHTML = `<h1>Nastavení</h1><div class="hint" style="margin-bottom:10px">Výchozí hodnoty jsou bezpečné, běžně tu není potřeba nic měnit.${state.admin ? '' : ' Měnit je smí jen správce.'}</div><div class="panel"><h2>Bezpečnostní limity</h2><form id="setf" class="form" ${state.admin ? '' : 'style="pointer-events:none;opacity:.7"'}>
     ${f('min_uptime_min', 'min. uptime před upgradem (min)')}${f('min_free_mem_mb', 'min. volná RAM (MB)')}${f('space_margin_mb', 'rezerva místa navíc k balíčkům (MB)', 'number', '0.5')}
     ${f('reboot_timeout_min', 'timeout návratu po restartu (min)')}${f('pause_between_devices_sec', 'pauza mezi zařízeními (s)')}${f('ssh_timeout_sec', 'SSH timeout připojení (s)')}
     ${f('min_release_age_days', 'min. stáří verze (dní) — čerstvé verze mívají bootloopy', 'number', '0.5')}<label>zakázané verze (čárkou)<input name="bad_versions" type="text" value="${esc(s.bad_versions)}"></label>
@@ -345,6 +346,7 @@ function renderSettings(m) {
     <div class="wide">${c('allow_v7_routing_migration', 'povolit přechod v6 → v7 na zařízeních s BGP / OSPF / routing filtry / MPLS (jinak blokováno)')}</div>
     <div class="wide">${c('allow_v7_small_flash', 'povolit v6 → v7 na zařízeních s 16 MB flash bez adresáře flash (jinak blokováno)')}</div>
     <div class="wide"><button class="primary">Uložit</button></div></form></div>
+  ${state.admin ? `<div class="panel"><details id="auditbox"><summary><b>Kdo co dělal</b> (audit posledních akcí)</summary><div id="auditlist" class="hint">načítám…</div></details></div>` : ''}
   <div class="panel"><details ${state.advanced ? 'open' : ''}><summary><b>Jak to funguje</b> (podrobně)</summary><ul class="plain">
     <li><b>Sken</b> jen čte: verze, model, architektura, firmware, místo, RAM, balíčky, rizikové příznaky. Nikdy nic nemění.</li>
     <li><b>Job</b> zpracovává zařízení <b>sériově</b>, jedno po druhém. Před každým krokem znovu zjistí živý stav a přepočítá plán.</li>
@@ -359,6 +361,7 @@ function renderSettings(m) {
     <li><b>Nejčastější příčiny umrtvení dle fór/dokumentace MikroTik a opatření:</b> výpadek napájení během zápisu (→ kontrola napětí, nikdy nerestartovat nadřazený PoE prvek během upgradu potomka, servisní okno); neúplný/poškozený balíček a přesto restart (→ kontrola velikosti proti download.mikrotik.com, žádný cizí .npk, bez ověření se nerestartuje); chybějící wireless/wifi balíček po 7.13 (→ doplní se podle rozhraní, i 60GHz); „not enough space" na 16 MB flash (→ mezikrok 7.12.x, upload se při selhání uklidí); kernel bugy čerstvých verzí a bootloopy (→ min. stáří verze, zakázané verze, kanárci po modelech); starý RouterBOOT před v7 (→ firmware ještě na v6); konverze konfigurace 6→7 (BGP/OSPF/filtry/MPLS blokováno, VLAN filtering varování); protected-routerboot (varování, Netinstall nejde); auto-upgrade firmware routeru (→ čeká se na druhý restart); víc oddílů (→ kopie do záložního oddílu + fallback-to).</li>
     <li><b>Firewall na routerech:</b> nástroj se připojuje z IP serveru, na kterém běží. Pokud mají routery brute-force ochranu SSH (address-list ssh_blacklist apod.), doporučuji tuto IP přidat do výjimky — nástroj sice rozestupuje opakovaná spojení na 65 s, ale sken + job dělají několik přihlášení za sebou.</li>
     <li>Čeho se nástroj netýká: fyzicky mrtvá zařízení (výpadek napájení během zápisu) řeší jen Netinstall — proto se nikdy nerestartuje bez ověřených balíčků a zálohy.</li></ul></details></div>`;
+  const ab = $('#auditbox'); if (ab) ab.ontoggle = async () => { if (!ab.open) return; try { const rows = await api('/audit'); $('#auditlist').innerHTML = rows.length ? `<table>${rows.map(r => `<tr><td class="muted">${fmtTs(Math.floor(r.ts / 1000))}</td><td>${esc(r.user)}</td><td>${esc(r.action)}</td><td class="muted" style="white-space:normal">${esc(r.detail)}</td></tr>`).join('')}</table>` : 'zatím nic'; } catch (e) { $('#auditlist').textContent = e.message; } };
   $('#setf').onsubmit = async (e) => { e.preventDefault(); const fd = new FormData(e.target); const body = {}; for (const k of Object.keys(s)) { const el = e.target.elements[k]; if (!el) continue; body[k] = el.type === 'checkbox' ? el.checked : el.type === 'text' ? el.value : parseFloat(el.value); } try { state.settings = await api('/settings', { method: 'PUT', body }); toast('uloženo'); render(); } catch (e2) { toast(e2.message, true); } };
 }
 
@@ -408,11 +411,11 @@ function renderModal() {
       <label class="check"><input type="checkbox" name="enabled" ${d.enabled ? 'checked' : ''}> zapnuto (vypnuté se neskenuje ani neupgraduje)</label>
       <label class="check"><input type="checkbox" name="unmanaged" ${d.managed ? '' : 'checked'}> jen prvek topologie (bez loginu, neupgraduje se)</label>
       ${d.suggested_parent && d.suggested_parent.via ? `<div class="wide muted">detekovaný uplink: ${esc(d.suggested_parent.via)} → ${esc(d.suggested_parent.identity || '')} ${esc(d.suggested_parent.address || '')}${d.suggested_parent.id ? ` = <b>${esc(d.suggested_parent.name)}</b>` : ' (není v seznamu)'}</div>` : ''}
-      <div class="wide row"><button class="primary">Uložit</button><button type="button" id="showpw">ukázat heslo</button><button type="button" id="resethk" title="po netinstallu/výměně zařízení">reset SSH host key</button><span style="flex:1"></span><button type="button" class="danger" id="del">Smazat zařízení</button><button type="button" id="mclose">Zavřít</button></div></form></div>`;
+      <div class="wide row"><button class="primary">Uložit</button>${state.admin ? '<button type="button" id="showpw">ukázat heslo</button>' : ''}<button type="button" id="resethk" title="po netinstallu/výměně zařízení">reset SSH host key</button><span style="flex:1"></span>${state.admin ? '<button type="button" class="danger" id="del">Smazat zařízení</button>' : ''}<button type="button" id="mclose">Zavřít</button></div></form></div>`;
     $('#editf').onsubmit = async (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); b.enabled = !!b.enabled; b.managed = !b.unmanaged; delete b.unmanaged; b.parent_id = +b.parent_id; b.port = +b.port; b.priority = +b.priority; if (!b.password) delete b.password; try { await api(`/devices/${d.id}`, { method: 'PUT', body: b }); toast('uloženo'); closeModal(); await loadState(); render(); } catch (e2) { toast(e2.message, true); } };
-    $('#showpw').onclick = async () => { const r = await api(`/devices/${d.id}/password`); alert(`Heslo: ${r.password}`); };
+    const sp = $('#showpw'); if (sp) sp.onclick = async () => { const r = await api(`/devices/${d.id}/password`); alert(`Heslo: ${r.password}`); };
     $('#resethk').onclick = async () => { await api(`/devices/${d.id}/reset-hostkey`, { method: 'POST' }); toast('host key smazán, skenuji'); };
-    $('#del').onclick = async () => { if (!confirm(`Smazat ${d.host} včetně historie a záloh z evidence?`)) return; try { await api(`/devices/${d.id}`, { method: 'DELETE' }); state.selected.delete(d.id); closeModal(); await loadState(); render(); } catch (e2) { toast(e2.message, true); } };
+    const delb = $('#del'); if (delb) delb.onclick = async () => { if (!confirm(`Smazat ${d.host} včetně historie a záloh z evidence?`)) return; try { await api(`/devices/${d.id}`, { method: 'DELETE' }); state.selected.delete(d.id); closeModal(); await loadState(); render(); } catch (e2) { toast(e2.message, true); } };
   } else if (md.type === 'detail') {
     const { device: d, history, backups, log, plan } = md.data;
     const vs = verStatus(d);
@@ -436,7 +439,7 @@ function renderModal() {
         <h3 style="font-size:14px">Zálohy</h3><table>${backups.map(b => `<tr><td>${fmtTs(b.created_at)}</td><td>${esc(b.kind)} <span class="muted">${esc(b.version)}</span></td><td>${(b.size / 1024).toFixed(1)} kB</td><td><a href="${BASE}/api/backups/${b.id}">stáhnout</a></td></tr>`).join('') || '<tr><td class="muted">zatím žádné</td></tr>'}</table>
         <h3 style="font-size:14px">Log z jobů</h3><div class="log" style="height:220px">${log.map(logLine).join('') || '<span class="muted">—</span>'}</div>
         </div></div>
-      <div class="row" style="margin-top:10px"><button id="mscan">⟳ Skenovat</button><button id="medit">✎ Upravit</button><button id="mjob" class="ok">▶ Job jen pro toto zařízení</button>${canRepartition(d) ? `<button id="mrepart" title="rozdělí flash na 2 oddíly = automatický fallback při nenabootování po upgradu">⛁ Rozdělit flash na 2 oddíly</button>` : ''}<span style="flex:1"></span><button id="mclose">Zavřít</button></div></div>`;
+      <div class="row" style="margin-top:10px"><button id="mscan">⟳ Skenovat</button><button id="medit">✎ Upravit</button><button id="mjob" class="ok">▶ Job jen pro toto zařízení</button>${canRepartition(d) && state.admin ? `<button id="mrepart" title="rozdělí flash na 2 oddíly = automatický fallback při nenabootování po upgradu">⛁ Rozdělit flash na 2 oddíly</button>` : ''}<span style="flex:1"></span><button id="mclose">Zavřít</button></div></div>`;
     $('#mscan').onclick = async () => { toast('skenuji…'); try { const r = await api(`/devices/${d.id}/scan`, { method: 'POST' }); if (!r.ok) toast(r.error || r.skipped, true); await openDetail(d.id); } catch (e) { toast(e.message, true); } };
     $('#medit').onclick = () => openModal({ type: 'edit', id: d.id });
     $('#mjob').onclick = () => openModal({ type: 'newjob', ids: [d.id] });
@@ -521,7 +524,7 @@ async function loadPlan(id, mode) {
 // ---------- data / SSE ----------
 async function loadState() {
   const s = await api('/state');
-  Object.assign(state, { devices: s.devices, jobs: s.jobs, latest: s.latest, settings: s.settings, runner: s.runner, tracks: s.tracks, scanning: s.scanning, discovery: s.discovery });
+  Object.assign(state, { devices: s.devices, jobs: s.jobs, latest: s.latest, settings: s.settings, runner: s.runner, tracks: s.tracks, scanning: s.scanning, discovery: s.discovery, admin: s.admin, auth: { ...state.auth, user: s.user } });
 }
 let es;
 function connectSSE() {

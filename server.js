@@ -78,6 +78,16 @@ function validateDevice(d) {
   if (d.track && !TRACKS.includes(d.track)) throw new Error('neplatný track');
 }
 
+const who = (req) => (req.user && req.user.email) || 'heslo';
+function isAdmin(req) {
+  const admins = cfg.sso.adminEmails;
+  if (!admins.length) return true;               // bez seznamu správců je správce každý
+  if (!req.user || !req.user.email) return true;  // přihlášení sdíleným heslem = správce
+  return admins.includes(req.user.email.toLowerCase());
+}
+const audit = (req, action, detail) => db.audit(who(req), action, detail);
+function adminOnly(req, res) { if (isAdmin(req)) return true; send(res, 403, { error: 'tuhle akci smí jen správce' }); return false; }
+
 // ---------- API ----------
 async function api(req, res, method, p, url) {
   const parts = p.split('/').filter(Boolean); // ['api', ...]
@@ -88,14 +98,15 @@ async function api(req, res, method, p, url) {
   if (method === 'GET' && p === '/api/state') {
     const latest = V.getLatest();
     if (!latest.fetchedAt) await V.refreshLatest().catch(() => {});
-    return send(res, 200, { latest: V.getLatest(), settings: db.getSettings(), devices: withSuggestions(db.listDevices()), jobs: db.listJobs(30), runner: runner.status(), tracks: TRACKS, scanning: [...scanner.inProgress], discovery: discovery.status() });
+    return send(res, 200, { latest: V.getLatest(), settings: db.getSettings(), devices: withSuggestions(db.listDevices()), jobs: db.listJobs(30), runner: runner.status(), tracks: TRACKS, scanning: [...scanner.inProgress], discovery: discovery.status(), admin: isAdmin(req), user: req.user });
   }
   if (method === 'POST' && p === '/api/versions/refresh') { const l = await V.refreshLatest(true); bus.emit('event', { type: 'latest', latest: l }); return send(res, 200, l); }
   if (method === 'GET' && seg[0] === 'changelog' && seg[1]) return send(res, 200, await V.getChangelog(seg[1]));
 
   // nastavení
   if (method === 'GET' && p === '/api/settings') return send(res, 200, db.getSettings());
-  if (method === 'PUT' && p === '/api/settings') { const b = await readBody(req); db.setSettings(b); return send(res, 200, db.getSettings()); }
+  if (method === 'PUT' && p === '/api/settings') { if (!adminOnly(req, res)) return; const b = await readBody(req); db.setSettings(b); audit(req, 'nastavení', JSON.stringify(b)); return send(res, 200, db.getSettings()); }
+  if (method === 'GET' && p === '/api/audit') { if (!adminOnly(req, res)) return; return send(res, 200, db.listAudit(300)); }
 
   // zařízení
   if (method === 'GET' && p === '/api/devices') return send(res, 200, withSuggestions(db.listDevices()));
@@ -106,6 +117,7 @@ async function api(req, res, method, p, url) {
     if (b.managed && typeof b.password !== 'string') throw new Error('chybí heslo');
     if (db.findDeviceByHost(b.host, b.port)) throw new Error(`zařízení ${b.host}:${b.port} už existuje`);
     const id = db.insertDevice({ ...b, parent_id: +b.parent_id || 0, password_enc: b.managed ? encrypt(b.password) : '' });
+    audit(req, 'zařízení přidáno', `${b.host}:${b.port} ${b.name || ''}`);
     if (b.managed) scanner.scanOne(id).catch(() => {});
     return send(res, 200, db.getDevice(id));
   }
@@ -116,6 +128,7 @@ async function api(req, res, method, p, url) {
     const creds = String(b.creds || '').split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('#')).map(l => { const [username, ...rest] = l.split(/\s+/); let password = rest.join(' '); if (password === '""' || password === "''") password = ''; return { username, password }; }).filter(c => c.username);
     const o = { ranges, creds, port: parseInt(b.port || 22, 10), group_name: b.group_name || '', track: b.track || 'v7-stable', parallel: parseInt(b.parallel || 24, 10) };
     discovery.prepare(o); // validace → 400 s popisem chyby
+    audit(req, 'sken rozsahu', ranges.join(' '));
     discovery.run(o).catch(e => bus.emit('event', { type: 'discovery-error', error: e.message }));
     await new Promise(r => setTimeout(r, 50));
     return send(res, 200, discovery.status());
@@ -123,6 +136,7 @@ async function api(req, res, method, p, url) {
   if (method === 'GET' && p === '/api/discover') return send(res, 200, discovery.status());
   // hromadné smazání vybraných zařízení
   if (method === 'POST' && p === '/api/devices/bulk-delete') {
+    if (!adminOnly(req, res)) return;
     const b = await readBody(req);
     const ids = (b.ids || []).map(Number).filter(Number.isFinite);
     let deleted = 0; const skipped = [];
@@ -131,6 +145,7 @@ async function api(req, res, method, p, url) {
       if (!d) continue;
       if (runner.isDeviceBusy(id)) { skipped.push(`${d.host} je právě v jobu`); continue; }
       db.deleteDevice(id); deleted++;
+      audit(req, 'zařízení smazáno', `${d.host} ${d.name || d.identity || ''}`);
       bus.emit('event', { type: 'device-deleted', id });
     }
     return send(res, 200, { deleted, skipped });
@@ -165,6 +180,7 @@ async function api(req, res, method, p, url) {
       } catch (e) { errors.push(`${d.host}: ${e.message}`); }
     }
     if (added.length) scanner.scanAll(added).catch(() => {});
+    audit(req, 'hromadné přidání', `${added.length} zařízení`);
     return send(res, 200, { added: added.length, skipped, errors });
   }
   if (method === 'POST' && p === '/api/scan') { const b = await readBody(req).catch(() => ({})); scanner.scanAll(b.ids).catch(() => {}); return send(res, 200, { started: true }); }
@@ -183,10 +199,11 @@ async function api(req, res, method, p, url) {
       if (b.password) f.password_enc = encrypt(b.password);
       if (f.host && f.host !== dev.host) f.host_key = '';
       db.updateDevice(id, f);
+      audit(req, 'zařízení upraveno', `${dev.host}: ${Object.keys(f).filter(k => k !== 'password_enc').join(',')}${b.password ? ',heslo' : ''}`);
       const d2 = db.getDevice(id); bus.emit('event', { type: 'device', device: d2 });
       return send(res, 200, d2);
     }
-    if (method === 'DELETE' && !seg[2]) { if (runner.isDeviceBusy(id)) throw new Error('zařízení je právě v jobu'); db.deleteDevice(id); bus.emit('event', { type: 'device-deleted', id }); return send(res, 200, { ok: true }); }
+    if (method === 'DELETE' && !seg[2]) { if (!adminOnly(req, res)) return; if (runner.isDeviceBusy(id)) throw new Error('zařízení je právě v jobu'); db.deleteDevice(id); audit(req, 'zařízení smazáno', `${dev.host} ${dev.name || dev.identity || ''}`); bus.emit('event', { type: 'device-deleted', id }); return send(res, 200, { ok: true }); }
     if (method === 'POST' && seg[2] === 'scan') { const r = await scanner.scanOne(id); return send(res, 200, { ...r, device: db.getDevice(id) }); }
     if (method === 'POST' && seg[2] === 'reset-hostkey') { db.updateDevice(id, { host_key: '', scan_status: 'never', scan_error: '' }); scanner.scanOne(id).catch(() => {}); return send(res, 200, { ok: true }); }
     if (method === 'GET' && seg[2] === 'plan') {
@@ -195,8 +212,8 @@ async function api(req, res, method, p, url) {
       const pl = await plan(dev, { track: q.get('track') || dev.track, settings: db.getSettings(), latest: V.getLatest(), options: opts });
       return send(res, 200, pl);
     }
-    if (method === 'GET' && seg[2] === 'password') return send(res, 200, { password: decrypt(db.getDeviceRaw(id).password_enc) });
-    if (method === 'POST' && seg[2] === 'repartition') { const b = await readBody(req).catch(() => ({})); const jobId = runner.repartition(id, parseInt(b.count || 2, 10)); return send(res, 200, { jobId }); }
+    if (method === 'GET' && seg[2] === 'password') { if (!adminOnly(req, res)) return; audit(req, 'zobrazení hesla', dev.host); return send(res, 200, { password: decrypt(db.getDeviceRaw(id).password_enc) }); }
+    if (method === 'POST' && seg[2] === 'repartition') { if (!adminOnly(req, res)) return; const b = await readBody(req).catch(() => ({})); audit(req, 'rozdělení flash', dev.host); const jobId = runner.repartition(id, parseInt(b.count || 2, 10)); return send(res, 200, { jobId }); }
   }
 
   // zálohy
@@ -248,28 +265,30 @@ async function api(req, res, method, p, url) {
     if (!job) return send(res, 404, { error: 'job neexistuje' });
     if (method === 'GET' && !seg[2]) return send(res, 200, { job, items: db.getJobItems(id), log: db.getLog(id, parseInt(q.get('after') || '0', 10)) });
     if (method === 'GET' && seg[2] === 'log') return send(res, 200, db.getLog(id, parseInt(q.get('after') || '0', 10)));
-    if (method === 'POST' && seg[2] === 'start') { db.addLog(id, 0, 0, 'info', `Spuštění: ${req.user && req.user.email ? req.user.email : 'heslo'}`); runner.start(id); return send(res, 200, runner.status()); }
-    if (method === 'POST' && seg[2] === 'pause') { if (runner.currentJobId !== id) throw new Error('tento job neběží'); runner.pause(); return send(res, 200, runner.status()); }
+    if (method === 'POST' && seg[2] === 'start') { db.addLog(id, 0, 0, 'info', `Spuštění: ${who(req)}`); audit(req, 'job spuštěn', `#${id} ${job.name}`); runner.start(id); return send(res, 200, runner.status()); }
+    if (method === 'POST' && seg[2] === 'pause') { if (runner.currentJobId !== id) throw new Error('tento job neběží'); db.addLog(id, 0, 0, 'info', `Pozastavení: ${who(req)}`); audit(req, 'job pozastaven', `#${id}`); runner.pause(); return send(res, 200, runner.status()); }
     if (method === 'POST' && seg[2] === 'cancel') {
+      db.addLog(id, 0, 0, 'warn', `Zrušení: ${who(req)}`); audit(req, 'job zrušen', `#${id}`);
       if (runner.currentJobId === id) runner.cancel();
       else { db.updateJob(id, { status: 'cancelled', status_note: 'zrušeno', finished_at: db.now() }); for (const it of db.getJobItems(id)) if (it.status === 'pending') db.updateJobItem(it.id, { status: 'skipped', error: 'job zrušen' }); }
       bus.emit('event', { type: 'job', job: db.listJobs(200).find(j => j.id === id) });
       return send(res, 200, runner.status());
     }
     if (method === 'POST' && seg[2] === 'continue') {
+      db.addLog(id, 0, 0, 'info', `Pokračování: ${who(req)}`); audit(req, 'job pokračuje', `#${id}`);
       if (job.options.canary && job.status === 'waiting' && !/^kontrola hotová/.test(job.status_note || '')) db.updateJob(id, { options: { ...job.options, canaryDone: true } });
       runner.start(id);
       return send(res, 200, runner.status());
     }
-    if (method === 'POST' && seg[2] === 'skip-current') { if (runner.currentJobId !== id) throw new Error('tento job neběží'); runner.skipCurrent(); return send(res, 200, { ok: true }); }
-    if (method === 'DELETE' && !seg[2]) { if (runner.currentJobId === id) throw new Error('job právě běží'); db.deleteJob(id); bus.emit('event', { type: 'job-deleted', id }); return send(res, 200, { ok: true }); }
+    if (method === 'POST' && seg[2] === 'skip-current') { if (runner.currentJobId !== id) throw new Error('tento job neběží'); db.addLog(id, 0, 0, 'warn', `Přeskočení aktuálního: ${who(req)}`); audit(req, 'job přeskočení', `#${id}`); runner.skipCurrent(); return send(res, 200, { ok: true }); }
+    if (method === 'DELETE' && !seg[2]) { if (runner.currentJobId === id) throw new Error('job právě běží'); audit(req, 'job smazán', `#${id} ${job.name}`); db.deleteJob(id); bus.emit('event', { type: 'job-deleted', id }); return send(res, 200, { ok: true }); }
   }
   if (seg[0] === 'items' && seg[1] && method === 'POST') {
     const it = db.getJobItem(parseInt(seg[1], 10));
     if (!it) return send(res, 404, { error: 'položka neexistuje' });
     if (runner.currentItemId === it.id) throw new Error('položka právě běží');
-    if (seg[2] === 'skip') { db.updateJobItem(it.id, { status: 'skipped', error: 'přeskočeno uživatelem', finished_at: db.now() }); }
-    else if (seg[2] === 'retry') { db.updateJobItem(it.id, { status: 'pending', error: '', step: '', started_at: 0, finished_at: 0 }); const j = db.getJob(it.job_id); if (['done', 'cancelled'].includes(j.status)) db.updateJob(it.job_id, { status: 'paused', status_note: 'položka vrácena do fronty', finished_at: 0 }); }
+    if (seg[2] === 'skip') { db.updateJobItem(it.id, { status: 'skipped', error: `přeskočeno (${who(req)})`, finished_at: db.now() }); db.addLog(it.job_id, it.id, it.device_id, 'warn', `Položka přeskočena: ${who(req)}`); }
+    else if (seg[2] === 'retry') { db.addLog(it.job_id, it.id, it.device_id, 'info', `Položka znovu do fronty: ${who(req)}`); db.updateJobItem(it.id, { status: 'pending', error: '', step: '', started_at: 0, finished_at: 0 }); const j = db.getJob(it.job_id); if (['done', 'cancelled'].includes(j.status)) db.updateJob(it.job_id, { status: 'paused', status_note: 'položka vrácena do fronty', finished_at: 0 }); }
     else return send(res, 404, { error: 'neznámá akce' });
     runner.emitItem(it.id); runner.emitJob(it.job_id);
     return send(res, 200, db.getJobItem(it.id));
@@ -321,6 +340,7 @@ const server = http.createServer(async (req, res) => {
         const u = await sso.callback(url.searchParams.get('code') || '', url.searchParams.get('state') || '');
         const tok = makeSession(u);
         console.log(`SSO přihlášení: ${u.email} z ${clientIp(req)}`);
+        db.audit(u.email, 'přihlášení SSO', clientIp(req));
         res.writeHead(302, { Location: (cfg.basePath || '') + '/', 'Set-Cookie': `mtu_session=${tok}; ${cookieAttrs}`, 'Cache-Control': 'no-store' });
         return res.end();
       } catch (e) { return send(res, 401, `Přihlášení přes SSO se nezdařilo: ${e.message}`); }
@@ -334,6 +354,7 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req);
       if (!safeEqual(b.password || '', cfg.password)) { loginAttempts.set(ip, { n: a.n + 1, t: Date.now() }); return send(res, 401, { error: 'špatné heslo' }); }
       loginAttempts.delete(ip);
+      db.audit('heslo', 'přihlášení heslem', ip);
       const tok = makeSession(null);
       return send(res, 200, { ok: true }, { 'Set-Cookie': `mtu_session=${tok}; ${cookieAttrs}` });
     }
@@ -341,7 +362,7 @@ const server = http.createServer(async (req, res) => {
     const authed = !!session;
     req.user = session ? session.user : null;
     if (method === 'POST' && p === '/api/logout') return send(res, 200, { ok: true }, { 'Set-Cookie': `mtu_session=; Path=${cfg.basePath || '/'}; HttpOnly; Max-Age=0` });
-    if (p === '/api/whoami') return send(res, 200, { authed, user: req.user, sso: sso.enabled(), passwordLogin: cfg.passwordLogin });
+    if (p === '/api/whoami') return send(res, 200, { authed, user: req.user, admin: authed && isAdmin(req), sso: sso.enabled(), passwordLogin: cfg.passwordLogin });
 
     if (p.startsWith('/api/')) {
       if (!authed) return send(res, 401, { error: 'nepřihlášen' });
