@@ -220,6 +220,7 @@ async function api(req, res, method, p, url) {
       canary: !!o.canary, window: (o.window || '').trim(), pause_sec: Number.isFinite(+o.pause_sec) ? +o.pause_sec : undefined,
       require_binary_backup: !!o.require_binary_backup, allow_routing_migration: !!o.allow_routing_migration, allow_small_flash: !!o.allow_small_flash,
       device_mode: o.device_mode !== false,
+      precheck: o.precheck !== false,
     };
     if (options.window && !/^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}$/.test(options.window)) throw new Error('servisní okno zadej jako HH:MM-HH:MM');
     // pořadí: nejdřív potomci (hloubka v topologii sestupně), pak priorita; u kanárků první zařízení každého modelu napřed
@@ -254,7 +255,7 @@ async function api(req, res, method, p, url) {
       return send(res, 200, runner.status());
     }
     if (method === 'POST' && seg[2] === 'continue') {
-      if (job.options.canary) db.updateJob(id, { options: { ...job.options, canaryDone: true } });
+      if (job.options.canary && job.status === 'waiting' && !/^kontrola hotová/.test(job.status_note || '')) db.updateJob(id, { options: { ...job.options, canaryDone: true } });
       runner.start(id);
       return send(res, 200, runner.status());
     }
