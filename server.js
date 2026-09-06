@@ -210,6 +210,22 @@ async function api(req, res, method, p, url) {
     }
     return send(res, 200, { deleted, skipped });
   }
+  // hromadné předání zařízení jinému vlastníkovi (jen správce)
+  if (method === 'POST' && p === '/api/devices/bulk-owner') {
+    if (!adminOnly(req, res)) return;
+    const b = await readBody(req);
+    const target = parseInt(b.owner_id, 10);
+    const tu = db.getUser(target);
+    if (!tu) throw new Error('cílový uživatel neexistuje');
+    const ids = (b.ids || []).map(Number).filter(i => db.getDevice(i));
+    let n = 0;
+    for (const id of ids) { const d = db.getDevice(id); if (d.owner_id === target) continue; db.updateDevice(id, { owner_id: target }); n++; bus.emit('event', { type: 'device', device: db.getDevice(id) }); }
+    // rodič mimo nového vlastníka by uživatel neviděl → vazbu zrušit, ať netrčí do cizího seznamu
+    for (const id of ids) { const d = db.getDevice(id); if (d.parent_id) { const par = db.getDevice(d.parent_id); if (par && par.owner_id !== target) db.updateDevice(id, { parent_id: 0 }); } }
+    audit(req, 'zařízení předána', `${n}× → ${tu.name}`);
+    bus.emit('event', { type: 'devices-changed' });
+    return send(res, 200, { moved: n, owner: tu.name });
+  }
   // hromadné přebrání detekovaných rodičů (jen kde není nastaven)
   if (method === 'POST' && p === '/api/devices/accept-parents') {
     const b = await readBody(req).catch(() => ({}));

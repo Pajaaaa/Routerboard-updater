@@ -171,6 +171,7 @@ function renderDevices(m) {
     ${adv ? `<button id="scansel" ${state.selected.size ? '' : 'disabled'}>⟳ Zkontrolovat vybrané (${state.selected.size})</button>
     <button id="acceptparents" title="u zařízení bez nadřazeného prvku nastaví toho, koho vidí jako souseda na uplinku">⇡ Přebrat detekované rodiče</button>` : ''}
     <button class="ok" id="jobsel" ${state.selected.size ? '' : 'disabled'}>▶ Upgradovat vybrané (${state.selected.size})</button>
+    ${state.admin && state.users && state.users.length > 1 ? `<button id="movesel" ${state.selected.size ? '' : 'disabled'} title="předat vybraná zařízení jinému uživateli">⇄ Přesunout vybrané (${state.selected.size})</button>` : ''}
     ${state.admin ? `<button class="danger" id="delsel" ${state.selected.size ? '' : 'disabled'}>✕ Smazat vybrané (${state.selected.size})</button>` : ''}
     <span class="spacer"></span>
     ${state.admin && state.users && state.users.length > 1 ? `<select id="ownerf" title="zobrazit zařízení jednoho uživatele"><option value="0">všichni vlastníci</option>${state.users.map(u => `<option value="${u.id}" ${u.id === state.owner ? 'selected' : ''}>${esc(u.name)} (${state.devices.filter(d => d.owner_id === u.id).length})</option>`).join('')}</select>` : ''}
@@ -209,6 +210,7 @@ function renderDevices(m) {
   m.querySelectorAll('.acceptp').forEach(b => b.onclick = async () => { try { await api(`/devices/${b.dataset.id}`, { method: 'PUT', body: { parent_id: +b.dataset.pid } }); await loadState(); render(); } catch (e) { toast(e.message, true); } });
   const g = $('#group'); if (g) g.onchange = (e) => { state.group = e.target.value; render(); };
   const of = $('#ownerf'); if (of) of.onchange = (e) => { state.owner = +e.target.value; state.selected.clear(); render(); };
+  const mv = $('#movesel'); if (mv) mv.onclick = () => openModal({ type: 'move', ids: [...state.selected] });
   $('#sort').onchange = (e) => { state.sort = e.target.value; render(); };
   $('#filter').oninput = (e) => { state.filter = e.target.value; const pos = e.target.selectionStart; render(); const f = $('#filter'); f.focus(); f.setSelectionRange(pos, pos); };
   $('#selall').onchange = (e) => { for (const d of list) e.target.checked ? state.selected.add(d.id) : state.selected.delete(d.id); render(); };
@@ -428,7 +430,15 @@ function renderModal() {
   if (!state.modal) { if (bg) bg.remove(); return; }
   if (!bg) { bg = document.createElement('div'); bg.id = 'modalbg'; bg.className = 'modal-bg'; document.body.appendChild(bg); bg.onclick = (e) => { if (e.target === bg) closeModal(); }; }
   const md = state.modal;
-  if (md.type === 'password') {
+  if (md.type === 'move') {
+    const devs = md.ids.map(i => state.devices.find(d => d.id === i)).filter(Boolean);
+    bg.innerHTML = `<div class="modal" style="width:min(520px,96vw)"><h2>Přesunout ${devs.length} zařízení k uživateli</h2>
+      <div class="hint" style="margin-bottom:10px">${esc(devs.map(devName).join(', ')).slice(0, 400)}</div>
+      <form id="movef" class="form"><label class="wide">nový vlastník<select name="owner_id">${state.users.map(u => `<option value="${u.id}">${esc(u.name)}${u.role === 'admin' ? ' (správce)' : ''}</option>`).join('')}</select></label>
+      <div class="wide hint">Zařízení uvidí a bude upgradovat nový vlastník. Vazba na nadřazený prvek jiného vlastníka se zruší.</div>
+      <div class="wide row"><button class="primary">Přesunout</button><button type="button" id="mclose">Zavřít</button></div></form></div>`;
+    $('#movef').onsubmit = async (e) => { e.preventDefault(); const owner_id = +new FormData(e.target).get('owner_id'); try { const r = await api('/devices/bulk-owner', { method: 'POST', body: { ids: md.ids, owner_id } }); toast(`předáno ${r.moved} zařízení → ${r.owner}`); state.selected.clear(); closeModal(); await loadState(); render(); } catch (e2) { toast(e2.message, true); } };
+  } else if (md.type === 'password') {
     bg.innerHTML = `<div class="modal" style="width:min(420px,96vw)"><h2>Změna hesla</h2><form id="pwf" class="form">
       <label class="wide">současné heslo<input name="old" type="password" autocomplete="current-password"></label>
       <label class="wide">nové heslo (aspoň 8 znaků)<input name="password" type="password" autocomplete="new-password" required minlength="8"></label>
