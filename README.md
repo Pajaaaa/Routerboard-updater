@@ -30,10 +30,10 @@ je postupně, **jedno po druhém**, upgraduje na nejnovější verzi podle track
 
 ## Topologie a pořadí
 
-- U zařízení lze nastavit **nadřazený prvek** (co ho napájí/připojuje: sektor, PoE switch, router). Neřízené prvky (bez loginu) jdou přidat jen kvůli topologii.
+- U zařízení lze nastavit **nadřazený prvek** (co ho napájí/připojuje: sektor, PoE switch, router). Neřízené prvky (bez loginu, jen kvůli topologii) = přidané zařízení přepnuté v editaci na „jen prvek topologie".
 - Uplink se detekuje ze skenu: rozhraní default route + `/ip neighbor` (rodič se navrhne jen když adresa souseda = brána, nebo je brána v seznamu). Tlačítko „Přebrat detekované rodiče".
 - Job jde vždy od listů: antény → sektory → nadřazené. Nadřazený prvek se nerestartuje, dokud jeho potomci v jobu neskončili; když potomek skončí chybou/neznámým stavem, rodič se **zablokuje**. Po restartu rodiče se čeká, až se potomci zase ozvou (TCP probe).
-- **Sken rozsahu**: CIDR / `a.b.c.x-y`, seznam loginů; TCP probe → SSH login → RouterOS se založí do seznamu.
+- **Přidávání zařízení jen skenem**: IP adresy / CIDR / `a.b.c.x-y` + seznam loginů; TCP probe → SSH login → RouterOS se založí do seznamu. Ruční formulář ani hromadné vložení nejsou.
 
 ## Opatření proti umrtvení (rešerše fór a dokumentace MikroTik, 9/2026)
 
@@ -73,11 +73,3 @@ public/          UI (vanilla JS)
 - Reverse proxy (nginx) `location /mikrotik/` → `http://127.0.0.1:2820/mikrotik/`, `proxy_buffering off` kvůli SSE.
 - Data (DB, zálohy, cache balíčků) v `data/` — nejsou v gitu. Server musí mít přístup na routery přes SSH a na download.mikrotik.com.
 - `deploy.sh` nasazuje přes ssh a restartuje službu až ve chvíli, kdy neběží žádný job (cíl v `deploy.env`, viz skript).
-
-## Formát hromadného vložení
-
-```
-host[:port] uživatel heslo [skupina] [název…]
-192.0.2.1 admin tajne pater Router skola
-192.0.2.2 admin "" test mAP bez hesla
-```

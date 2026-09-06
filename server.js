@@ -53,23 +53,6 @@ function cookies(req) {
 const loginAttempts = new Map();
 function clientIp(req) { return (req.headers['x-real-ip'] || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim(); }
 
-function parseBulk(text) {
-  // řádky: host[:port] user password [skupina] [název]   (oddělovač mezera, tabulátor nebo ;)
-  const out = [], errors = [];
-  text.split(/\r?\n/).forEach((line, i) => {
-    const t = line.trim();
-    if (!t || t.startsWith('#')) return;
-    const parts = t.split(/[;\t]+|\s+/).filter(Boolean);
-    if (parts.length < 3) { errors.push(`řádek ${i + 1}: očekávám "host user heslo [skupina] [název]"`); return; }
-    let [hostport, username, password, group_name = '', ...rest] = parts;
-    if (password === '""' || password === "''") password = ''; // prázdné heslo
-    let host = hostport, port = 22;
-    const m = hostport.match(/^(.+):(\d+)$/);
-    if (m) { host = m[1]; port = +m[2]; }
-    out.push({ host, port, username, password, group_name, name: rest.join(' ') });
-  });
-  return { devices: out, errors };
-}
 function validateDevice(d) {
   if (!d.host || !/^[A-Za-z0-9.:_-]+$/.test(d.host)) throw new Error('neplatný host');
   if (!d.username && d.managed !== false) throw new Error('chybí uživatel');
@@ -110,17 +93,6 @@ async function api(req, res, method, p, url) {
 
   // zařízení
   if (method === 'GET' && p === '/api/devices') return send(res, 200, withSuggestions(db.listDevices()));
-  if (method === 'POST' && p === '/api/devices') {
-    const b = await readBody(req);
-    b.managed = b.managed !== false;
-    validateDevice(b);
-    if (b.managed && typeof b.password !== 'string') throw new Error('chybí heslo');
-    if (db.findDeviceByHost(b.host, b.port)) throw new Error(`zařízení ${b.host}:${b.port} už existuje`);
-    const id = db.insertDevice({ ...b, parent_id: +b.parent_id || 0, password_enc: b.managed ? encrypt(b.password) : '' });
-    audit(req, 'zařízení přidáno', `${b.host}:${b.port} ${b.name || ''}`);
-    if (b.managed) scanner.scanOne(id).catch(() => {});
-    return send(res, 200, db.getDevice(id));
-  }
   // sken rozsahů
   if (method === 'POST' && p === '/api/discover') {
     const b = await readBody(req);
@@ -162,26 +134,6 @@ async function api(req, res, method, p, url) {
     }
     bus.emit('event', { type: 'devices-changed' });
     return send(res, 200, { updated: n });
-  }
-  if (method === 'POST' && p === '/api/devices/bulk') {
-    const b = await readBody(req);
-    const { devices, errors } = parseBulk(b.text || '');
-    const added = [], skipped = [];
-    for (const d of devices) {
-      try {
-        validateDevice(d);
-        const ex = db.findDeviceByHost(d.host, d.port);
-        if (ex) {
-          if (b.update) { db.updateDevice(ex.id, { username: d.username, password_enc: encrypt(d.password), ...(d.group_name ? { group_name: d.group_name } : {}), ...(d.name ? { name: d.name } : {}) }); added.push(ex.id); }
-          else skipped.push(`${d.host}:${d.port} už existuje`);
-          continue;
-        }
-        added.push(db.insertDevice({ ...d, track: b.track || 'v7-stable', password_enc: encrypt(d.password) }));
-      } catch (e) { errors.push(`${d.host}: ${e.message}`); }
-    }
-    if (added.length) scanner.scanAll(added).catch(() => {});
-    audit(req, 'hromadné přidání', `${added.length} zařízení`);
-    return send(res, 200, { added: added.length, skipped, errors });
   }
   if (method === 'POST' && p === '/api/scan') { const b = await readBody(req).catch(() => ({})); scanner.scanAll(b.ids).catch(() => {}); return send(res, 200, { started: true }); }
   if (seg[0] === 'devices' && seg[1]) {

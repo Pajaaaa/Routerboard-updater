@@ -163,8 +163,7 @@ function renderDevices(m) {
     <div class="bar">${segs.map(([k, , c]) => `<span style="width:${cnt[k] / total * 100}%;background:${c}" title="${cnt[k]}"></span>`).join('')}</div>
     <div class="legend">${segs.filter(([k]) => cnt[k]).map(([k, l, c]) => `<span><i class="sw" style="background:${c}"></i>${l} <b>${cnt[k]}</b></span>`).join('')}</div></div>
   <div class="panel"><div class="toolbar">
-    <button id="addbtn">+ Přidat zařízení</button>
-    <button id="discover">🔍 Najít v rozsahu</button>
+    <button id="discover">+ Přidat zařízení (sken)</button>
     <button id="scanall">⟳ Zkontrolovat stav</button>
     ${adv ? `<button id="scansel" ${state.selected.size ? '' : 'disabled'}>⟳ Zkontrolovat vybrané (${state.selected.size})</button>
     <button id="acceptparents" title="u zařízení bez nadřazeného prvku nastaví toho, koho vidí jako souseda na uplinku">⇡ Přebrat detekované rodiče</button>` : ''}
@@ -188,10 +187,9 @@ function renderDevices(m) {
     <td>${d.managed ? `<select class="track small" data-id="${d.id}">${state.tracks.map(t => `<option value="${t}" ${t === d.track ? 'selected' : ''}>${t.replace('long-term', 'LT')}</option>`).join('')}</select>` : '<span class="badge b-muted">neřízený</span>'}</td>
     <td>${!d.managed ? '<span class="muted">—</span>' : `<span class="badge ${sc[0]}" title="${esc(d.scan_error)}">${esc(sc[1])}</span> <span class="muted" title="naposledy viděno ${fmtTs(d.last_seen_at)}">${ago(d.last_seen_at)}</span>`}</td>` : ''}
     <td class="acts">${ps.act === 'upgrade' && !running ? `<button class="small ok up1" data-id="${d.id}">▶ Upgradovat</button>` : ''} ${ps.act === 'scan' ? `<button class="small scan1" data-id="${d.id}">⟳ Zkontrolovat</button>` : adv ? `<button class="small scan1" data-id="${d.id}" title="zkontrolovat">⟳</button>` : ''} <button class="small edit1" data-id="${d.id}" title="upravit">✎</button></td></tr>`; }).join('')}
-  ${list.length ? '' : `<tr><td colspan="${adv ? 11 : 6}" class="empty">Zatím žádná zařízení. Přidej je jednotlivě, hromadně vložením řádků „host uživatel heslo", nebo je najdi v rozsahu sítě.</td></tr>`}
+  ${list.length ? '' : `<tr><td colspan="${adv ? 11 : 6}" class="empty">Zatím žádná zařízení. Přidej je skenem: zadáš IP adresy nebo rozsahy a loginy, nalezené routery se založí samy.</td></tr>`}
   </tbody></table></div></div>`;
   const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
-  on('#addbtn', () => openModal({ type: 'add' }));
   on('#discover', () => openModal({ type: 'discover' }));
   on('#scanall', async () => { await api('/scan', { method: 'POST', body: {} }); toast('kontrola všech zařízení spuštěna'); });
   on('#scansel', async () => { await api('/scan', { method: 'POST', body: { ids: [...state.selected] } }); toast('kontrola spuštěna'); });
@@ -301,7 +299,7 @@ function renderHelp(m) {
 
   <div class="panel help"><h2>Postup krok za krokem</h2>
   <ol>
-    <li><b>Přidej zařízení.</b> Tlačítko <b>+ Přidat zařízení</b> (IP, uživatel, heslo) nebo <b>Najít v rozsahu</b> (zadáš rozsah jako <code>10.0.0.0/24</code> a loginy, které se mají zkusit). Nalezené routery se přidají samy.</li>
+    <li><b>Přidej zařízení.</b> Tlačítko <b>+ Přidat zařízení (sken)</b>: zadáš IP adresy nebo rozsahy (třeba <code>10.0.0.5 10.0.1.0/24</code>) a loginy, které se mají zkusit. Zařízení, kde login projde a běží RouterOS, se přidají sama. Prvek jen pro topologii (PoE switch bez loginu) uděláš z přidaného zařízení tužkou ✎ zaškrtnutím „jen prvek topologie".</li>
     <li><b>Počkej na kontrolu.</b> Každé nové zařízení se hned zkontroluje. Ve sloupci Stav uvidíš „aktuální“, „upgrade na …“ nebo důvod, proč to nejde (nedostupné, špatné heslo).</li>
     <li><b>Zkontroluj strom.</b> Seznam je seřazený jako strom: hlavní prvek (router, PoE switch) nahoře, pod ním odsazené to, co napájí nebo připojuje. Nástroj si vazby většinou zjistí sám. Když je něco špatně, klikni na tužku ✎ u zařízení a nastav <b>nadřazený prvek</b> = to zařízení, které ho napájí nebo přes které je připojené. Na pořadí záleží: nejdřív se upgradují antény, nakonec to, co je napájí, aby nikomu nevypadl proud uprostřed zápisu.</li>
     <li><b>Spusť upgrade.</b> Buď <b>Upgradovat vše potřebné</b> nahoře, nebo zaškrtni zařízení a dej <b>Upgradovat vybrané</b>, nebo <b>Upgradovat</b> u jednoho řádku. V dialogu nech výchozí volby a klikni <b>Spustit upgrade</b>.</li>
@@ -384,25 +382,9 @@ function renderModal() {
   if (!state.modal) { if (bg) bg.remove(); return; }
   if (!bg) { bg = document.createElement('div'); bg.id = 'modalbg'; bg.className = 'modal-bg'; document.body.appendChild(bg); bg.onclick = (e) => { if (e.target === bg) closeModal(); }; }
   const md = state.modal;
-  if (md.type === 'add') {
-    bg.innerHTML = `<div class="modal"><h2>Přidat zařízení</h2><div class="grid2">
-      <form id="addf" class="form"><h3 style="grid-column:1/-1;margin:0;font-size:14px">Jednotlivě</h3>
-        <label>IP adresa<input name="host" required></label>${state.advanced ? '<label>port<input name="port" type="number" value="22"></label>' : '<input type="hidden" name="port" value="22">'}<label>uživatel<input name="username" value="admin" required></label><label>heslo<input name="password" type="password"></label>
-        <label>název (nepovinné, jinak se vezme z routeru)<input name="name"></label><label>skupina / lokalita<input name="group_name"></label>${state.advanced ? '<label>priorita (menší = dřív)<input name="priority" type="number" value="100"></label>' : '<input type="hidden" name="priority" value="100">'}
-        ${state.advanced ? `<label>track<select name="track">${state.tracks.map(t => `<option>${t}</option>`).join('')}</select></label>` : '<input type="hidden" name="track" value="v7-stable">'}<label>nadřazený prvek (co ho napájí / připojuje)<select name="parent_id">${parentOptions(0)}</select></label>${state.advanced ? '<label class="wide">poznámka<input name="notes"></label>' : ''}
-        <label class="check wide"><input type="checkbox" name="unmanaged"> jen prvek topologie (PoE switch apod.) — bez loginu, neskenuje se, neupgraduje se</label>
-        <div class="wide"><button class="primary">Přidat</button></div></form>
-      <form id="bulkf" class="form"><h3 style="grid-column:1/-1;margin:0;font-size:14px">Hromadně</h3>
-        <label class="wide">řádky: <code>host[:port] uživatel heslo [skupina] [název…]</code> (oddělovač mezera/tab/; · prázdné heslo zapiš jako <code>""</code>)<textarea name="text" rows="10" placeholder="192.0.2.1 admin heslo123 pater Router skola&#10;192.0.2.2:22 admin heslo AP-sektor"></textarea></label>
-        <label>track<select name="track">${state.tracks.map(t => `<option>${t}</option>`).join('')}</select></label>
-        <label class="check"><input type="checkbox" name="update"> existující (host:port) přepsat loginem</label>
-        <div class="wide"><button class="primary">Vložit</button></div></form></div>
-      <div class="row" style="margin-top:10px"><button id="mclose">Zavřít</button></div></div>`;
-    $('#addf').onsubmit = async (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); b.managed = !b.unmanaged; delete b.unmanaged; b.parent_id = +b.parent_id; try { await api('/devices', { method: 'POST', body: b }); toast('přidáno, skenuji'); closeModal(); await loadState(); render(); } catch (e2) { toast(e2.message, true); } };
-    $('#bulkf').onsubmit = async (e) => { e.preventDefault(); const fd = new FormData(e.target); try { const r = await api('/devices/bulk', { method: 'POST', body: { text: fd.get('text'), track: fd.get('track'), update: !!fd.get('update') } }); toast(`přidáno ${r.added}${r.skipped.length ? `, přeskočeno ${r.skipped.length}` : ''}${r.errors.length ? `, chyby: ${r.errors.join('; ')}` : ''}`, r.errors.length > 0); if (!r.errors.length) closeModal(); await loadState(); render(); } catch (e2) { toast(e2.message, true); } };
-  } else if (md.type === 'discover') {
-    bg.innerHTML = `<div class="modal"><h2>Skenovat rozsah</h2><form id="discf" class="form">
-      <label class="wide">rozsahy (CIDR nebo a.b.c.x-y, více oddělených mezerou/čárkou)<input name="ranges" placeholder="192.0.2.0/24 198.51.100.0/24" required></label>
+  if (md.type === 'discover') {
+    bg.innerHTML = `<div class="modal"><h2>Přidat zařízení skenem</h2><form id="discf" class="form">
+      <label class="wide">IP adresy nebo rozsahy (CIDR, a.b.c.x-y; více oddělených mezerou/čárkou)<input name="ranges" placeholder="192.0.2.7 192.0.2.0/24 198.51.100.10-50" required></label>
       <label class="wide">loginy k vyzkoušení, jeden na řádek: <code>uživatel heslo</code> (prázdné heslo jako <code>""</code>)<textarea name="creds" rows="4" placeholder="admin tajneheslo&#10;admin &quot;&quot;"></textarea></label>
       <label>SSH port<input name="port" type="number" value="22"></label><label>skupina pro nové<input name="group_name"></label>
       <label>track pro nové<select name="track">${state.tracks.map(t => `<option>${t}</option>`).join('')}</select></label><label>souběžně<input name="parallel" type="number" value="24" min="1" max="64"></label>
@@ -506,7 +488,7 @@ function parentOptions(sel, selfId = 0) {
   return `<option value="0" ${!sel ? 'selected' : ''}>— žádný —</option>` + list.map(d => `<option value="${d.id}" ${d.id === sel ? 'selected' : ''}>${esc(devName(d))} (${esc(d.host)})${d.managed ? '' : ' [neřízený]'}</option>`).join('');
 }
 function discoveryHtml(st) {
-  if (!st || st.total === undefined) return '<span class="muted">Zatím žádný sken. Zadej rozsah a aspoň jeden login.</span>';
+  if (!st || st.total === undefined) return '<span class="muted">Zatím žádný sken. Zadej adresy nebo rozsah a aspoň jeden login.</span>';
   st = { found: [], authFailed: [], errors: [], ...st };
   const running = !st.finishedAt;
   return `<div>${running ? '⏳ běží' : '✔ hotovo'}: ${st.done}/${st.total} adres, ${st.open} s otevřeným SSH, <b>${st.added} nových založeno</b>, ${st.existing} už v seznamu, ${st.authFailed.length} bez platného loginu, ${st.errors.length} chyb</div>
