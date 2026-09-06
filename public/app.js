@@ -343,6 +343,7 @@ function renderSettings(m) {
     <div class="wide">${c('use_partition_fallback', 'u zařízení s více oddíly (/partitions) před upgradem zkopírovat běžící systém do záložního oddílu = automatický fallback při nenabootování')}</div>
     <div class="wide">${c('allow_v7_routing_migration', 'povolit přechod v6 → v7 na zařízeních s BGP / OSPF / routing filtry / MPLS (jinak blokováno)')}</div>
     <div class="wide">${c('allow_v7_small_flash', 'povolit v6 → v7 na zařízeních s 16 MB flash bez adresáře flash (jinak blokováno)')}</div>
+    <div class="wide">${c('allow_v7_low_ram', 'povolit v7 na zařízeních s méně než 64 MB RAM (RB750, hAP lite — MikroTik nedoporučuje, hrozí OOM bootloop)')}</div>
     <div class="wide"><h2 style="margin-top:8px">Bezdrátové spoje a verze</h2></div>
     ${f('zero_release_min_days', 'min. stáří první verze větve x.y.0 (dní) — od 7.13 dostala každá do 14 dní opravu')}${f('link_wait_min', 'čekání na obnovení spojů po restartu (min; DFS až 10)')}${f('link_return_pct', 'kolik % klientů sektoru se musí vrátit (jinak položka selže)')}
     <div class="wide">${c('require_peer_in_job', 'blokovat upgrade, když druhý konec 60 GHz spoje není ve stejném jobu (jinak jen varování)')}</div>
