@@ -17,6 +17,9 @@ je postupně, **jedno po druhém**, upgraduje na nejnovější verzi podle track
 - **Ověření před restartem:** balíčky se stahují z download.mikrotik.com na server (kontrola velikosti), nahrají přes SFTP
   (fallback `/tool fetch` z tohoto webu s jednorázovým tokenem) a na routeru se ověří název + velikost + že tam není žádný jiný `.npk`.
   Bez úspěšného ověření se **nerestartuje** a nahrané soubory se smažou.
+- **Nic nevisí navždy:** každý SSH příkaz má timeout, SFTP přenos se přeruší po 2 min bez postupu (nebo 30 min celkem), pád spojení
+  uprostřed operace ji hned ukončí chybou, „Zrušit"/„Přeskočit" přeruší i rozběhnutý přenos a watchdog runneru zabije spojení po 30 min
+  bez aktivity. Po přerušeném uploadu se tool znovu připojí a částečně nahraný `.npk` z routeru smaže.
 - **Po restartu:** čeká se na výpadek a návrat (timeout v nastavení), ověří se identita/sériové číslo, verze, rozhraní, IP adresy, bezdrát.
   Pak volitelně `/system routerboard upgrade` (přes dočasný skript, bez interaktivního dotazu) + další restart + ověření.
 - **Stop při chybě** (výchozí), **dry run** (jen plán), **kanárci** (první kus od každého modelu, pak čekání na potvrzení), **servisní okno**, pauza mezi zařízeními.
