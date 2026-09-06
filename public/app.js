@@ -436,9 +436,10 @@ function renderModal() {
       <div class="wide row"><button class="primary">Změnit</button><button type="button" id="mclose">Zavřít</button></div></form></div>`;
     $('#pwf').onsubmit = async (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); if (b.password !== b.again) return toast('hesla se neshodují', true); try { await api('/me/password', { method: 'POST', body: { old: b.old, password: b.password } }); toast('heslo změněno'); closeModal(); } catch (e2) { toast(e2.message, true); } };
   } else if (md.type === 'discover') {
+    const nh = esc(state.netHint || '192.0.2');
     bg.innerHTML = `<div class="modal"><h2>Přidat zařízení skenem</h2><form id="discf" class="form">
-      <label class="wide">seznam zařízení, jedno na řádek: <code>ip uživatel heslo [název]</code> (prázdné heslo jako <code>""</code>, port jako <code>ip:port</code>)<textarea name="entries" rows="7" placeholder="192.0.2.7 admin tajne sektor sever&#10;192.0.2.8 admin tajne&#10;192.0.2.9:2222 admin &quot;&quot;"></textarea></label>
-      <label class="wide">a/nebo rozsahy k prohledání (CIDR, a.b.c.x-y; více oddělených mezerou/čárkou)<input name="ranges" placeholder="192.0.2.0/24 198.51.100.10-50"></label>
+      <label class="wide">seznam zařízení, jedno na řádek: <code>ip uživatel heslo [název]</code> (prázdné heslo jako <code>""</code>, port jako <code>ip:port</code>)<textarea name="entries" rows="7" placeholder="${nh}.12.7 admin tajne sektor sever&#10;${nh}.12.8 admin tajne&#10;${nh}.12.9:2222 admin &quot;&quot;"></textarea></label>
+      <label class="wide">a/nebo rozsahy k prohledání (CIDR, a.b.c.x-y; více oddělených mezerou/čárkou)<input name="ranges" placeholder="${nh}.12.0/24 ${nh}.13.10-50"></label>
       <label class="wide">společné loginy k vyzkoušení (nutné pro rozsahy, u seznamu jen jako záloha), jeden na řádek: <code>uživatel heslo</code><textarea name="creds" rows="3" placeholder="admin tajneheslo&#10;admin &quot;&quot;"></textarea></label>
       <label>SSH port<input name="port" type="number" value="22"></label>
       <label>track pro nové<select name="track">${state.tracks.map(t => `<option>${t}</option>`).join('')}</select></label><label>souběžně<input name="parallel" type="number" value="24" min="1" max="64"></label>
@@ -596,7 +597,7 @@ function connectSSE() {
   es.onerror = () => { setTimeout(() => { if (state.authed) connectSSE(); }, 5000); };
 }
 (async () => {
-  try { const w = await api('/whoami'); state.authed = w.authed; state.auth = { sso: w.sso, passwordLogin: w.passwordLogin, registration: w.registration, user: w.user }; } catch { state.authed = false; }
+  try { const w = await api('/whoami'); state.authed = w.authed; state.netHint = w.netHint || '192.0.2'; state.auth = { sso: w.sso, passwordLogin: w.passwordLogin, registration: w.registration, user: w.user }; } catch { state.authed = false; }
   if (state.authed) { await loadState(); connectSSE(); }
   render();
   setInterval(() => { if (state.authed && state.view === 'devices' && !state.modal) render(); }, 60000);
