@@ -68,9 +68,11 @@ function render() {
   const app = $('#app');
   if (!state.authed) { app.innerHTML = `<div class="login panel"><h2>MikroTik upgrader</h2><p>Bezpečný hromadný upgrade RouterOS.</p>
       ${state.auth.sso ? `<a class="ssobtn" href="${BASE}/auth/login">Přihlásit přes hkfree SSO</a>` : ''}
-      ${state.auth.passwordLogin ? `${state.auth.sso ? '<div class="hint" style="margin:14px 0 6px">nebo heslem</div>' : ''}<form id="loginf"><input type="password" id="pw" placeholder="heslo" ${state.auth.sso ? '' : 'autofocus'}><button class="${state.auth.sso ? '' : 'primary'}" style="width:100%">Přihlásit heslem</button></form>` : ''}
+      ${state.auth.passwordLogin ? `${state.auth.sso ? '<div class="hint" style="margin:14px 0 6px">nebo účtem</div>' : ''}<form id="loginf"><input type="text" id="un" placeholder="uživatel" autocomplete="username" ${state.auth.sso ? '' : 'autofocus'}><input type="password" id="pw" placeholder="heslo" autocomplete="current-password"><button class="${state.auth.sso ? '' : 'primary'}" style="width:100%">Přihlásit</button></form>
+      ${state.auth.registration ? `<details id="regbox" style="margin-top:14px"><summary class="hint">Nemáš účet? Zaregistruj se</summary><form id="regf" style="margin-top:8px"><input type="text" id="run" placeholder="jméno (2–64 znaků)" autocomplete="username"><input type="password" id="rpw" placeholder="heslo (aspoň 8 znaků)" autocomplete="new-password"><input type="password" id="rpw2" placeholder="heslo znovu" autocomplete="new-password"><button style="width:100%">Založit účet a přihlásit</button><div class="hint" style="margin-top:6px">Uvidíš jen zařízení, která si sám přidáš.</div></form></details>` : ''}` : ''}
       ${location.search.includes('sso_error') ? '<div class="banner err">Přihlášení přes SSO se nezdařilo.</div>' : ''}</div>`;
-    const lf = $('#loginf'); if (lf) lf.onsubmit = async (e) => { e.preventDefault(); try { await api('/login', { method: 'POST', body: { password: $('#pw').value } }); state.authed = true; await loadState(); connectSSE(); render(); } catch (e2) { toast(e2.message, true); } };
+    const lf = $('#loginf'); if (lf) lf.onsubmit = async (e) => { e.preventDefault(); try { await api('/login', { method: 'POST', body: { username: $('#un').value, password: $('#pw').value } }); state.authed = true; await loadState(); connectSSE(); render(); } catch (e2) { toast(e2.message, true); } };
+    const rf = $('#regf'); if (rf) rf.onsubmit = async (e) => { e.preventDefault(); if ($('#rpw').value !== $('#rpw2').value) return toast('hesla se neshodují', true); try { await api('/register', { method: 'POST', body: { username: $('#run').value, password: $('#rpw').value } }); state.authed = true; await loadState(); connectSSE(); render(); toast('účet založen'); } catch (e2) { toast(e2.message, true); } };
     return; }
   const running = state.runner.running;
   const rj = running ? state.jobs.find(j => j.id === state.runner.jobId) : null;
@@ -81,15 +83,16 @@ function render() {
     <nav>${navBtn('devices', '▤', 'Zařízení')}${navBtn('jobs', '▶', 'Upgrady')}${navBtn('help', '?', 'Nápověda')}${navBtn('settings', '⚙', 'Nastavení')}</nav>
     <div class="versions">${latestBar()}</div>
     <div class="spacer"></div>
-    <div class="runner-pill ${running ? 'live' : ''}" id="runnerpill">${running ? `<span class="pulse"></span><b>běží job #${state.runner.jobId}</b>${rj ? ` ${esc(rj.name)}` : ''}${rd ? `<br>${esc(devName(rd))}` : ''}` : 'žádný job neběží'}</div>
+    <div class="runner-pill ${running ? 'live' : ''}" id="runnerpill">${running ? (state.runner.foreign ? '<span class="pulse"></span><b>běží job jiného uživatele</b><br>upgrady jdou po jednom, počkej' : `<span class="pulse"></span><b>běží job #${state.runner.jobId}</b>${rj ? ` ${esc(rj.name)}` : ''}${rd ? `<br>${esc(devName(rd))}` : ''}`) : 'žádný job neběží'}</div>
     <label class="check advtoggle"><input type="checkbox" id="advtoggle" ${state.advanced ? 'checked' : ''}> Pokročilé zobrazení</label>
-    ${state.auth.user && state.auth.user.email ? `<div class="hint" style="padding:0 10px 4px" title="${esc(state.auth.user.email)}">👤 ${esc(state.auth.user.name || state.auth.user.email)}</div>` : ''}
+    ${state.auth.user ? `<div class="hint" style="padding:0 10px 4px">👤 ${esc(state.auth.user.name)}${state.admin ? ' <span class="chip">správce</span>' : ''} · <a href="#" id="chpw">heslo</a></div>` : ''}
     <div class="foot"><button class="small" id="refreshver" title="obnovit verze z upgrade.mikrotik.com">↻ verze</button><button class="small" id="logout">Odhlásit</button></div>
   </aside><main id="main"></main></div>`;
   app.querySelectorAll('nav button').forEach(b => b.onclick = () => { state.view = b.dataset.view; render(); });
   $('#logout').onclick = async () => { await api('/logout', { method: 'POST' }); state.authed = false; render(); };
   $('#refreshver').onclick = async () => { state.latest = await api('/versions/refresh', { method: 'POST' }); toast('verze obnoveny'); render(); };
-  $('#runnerpill').onclick = () => { if (running) openJob(state.runner.jobId); };
+  $('#runnerpill').onclick = () => { if (running && state.runner.jobId) openJob(state.runner.jobId); };
+  const cp = $('#chpw'); if (cp) cp.onclick = (e) => { e.preventDefault(); openModal({ type: 'password' }); };
   $('#advtoggle').onchange = (e) => { state.advanced = e.target.checked; try { localStorage.setItem('mtu_adv', state.advanced ? '1' : '0'); } catch {} render(); };
   const m = $('#main');
   if (state.view === 'devices') renderDevices(m);
@@ -324,8 +327,8 @@ function renderHelp(m) {
   <details><summary>Co dělá „Rozdělit flash na 2 oddíly“ v detailu zařízení</summary><p>U větších zařízení (128 MB flash a víc) vytvoří záložní oddíl. Pokud pak nová verze nenabootuje, router sám naběhne ze záložního oddílu se starou verzí. Jednorázová akce s restartem, dělej ji mimo špičku.</p></details>
   <details><summary>Firmware se upgraduje?</summary><p>Ano, po každém upgradu RouterOS se upgraduje i RouterBOOT a udělá se ještě jeden restart. Stav „aktuální, jen firmware“ znamená, že RouterOS sedí a chybí jen tohle.</p></details>
   <details><summary>Kde jsou zálohy</summary><p>V detailu zařízení (klik na název) v části Zálohy: textový export konfigurace (.rsc) a binární záloha (.backup) z doby těsně před upgradem. Jdou stáhnout.</p></details>
-  <details><summary>Může nás tu pracovat víc naráz?</summary><p>Ano. Každý se přihlašuje svým účtem, všichni vidí stejný seznam a stejný průběh. Upgrade běží vždy jen jeden; když někdo spustí další, dostane hlášku, že už jeden běží. V logu upgradu je, kdo ho spustil, pozastavil nebo zrušil. Hesla routerů jsou uložená šifrovaně a zobrazit je smí jen správce.</p></details>
-  <details><summary>Jak se přihlásit</summary><p>Tlačítkem <b>Přihlásit přes hkfree SSO</b> stejným účtem jako do ostatních nástrojů sítě. Přihlášení vydrží 30 dní. V logu každého upgradu je vidět, kdo ho spustil.</p></details>
+  <details><summary>Může nás tu pracovat víc naráz?</summary><p>Ano. Každý má vlastní účet a vidí jen zařízení, která sám přidal (správce vidí vše a může zařízení přidělit někomu jinému). Upgrade běží vždy jen jeden pro celý server; když běží cizí, uvidíš vlevo dole „běží job jiného uživatele“ a počkáš. V logu upgradu je, kdo ho spustil, pozastavil nebo zrušil. Hesla routerů jsou uložená šifrovaně a zobrazit je smí jen správce.</p></details>
+  <details><summary>Jak se přihlásit</summary><p>Jménem a heslem účtu, který ti založil správce (Nastavení → Uživatelé). Přihlášení vydrží 30 dní, heslo si změníš odkazem „heslo“ vlevo dole.</p></details>
   <details><summary>Můžu zavřít prohlížeč?</summary><p>Ano. Upgrade běží na serveru. Po návratu otevři Upgrady a klikni na běžící job.</p></details>
   <details><summary>Jak upgrade zastavit</summary><p>Na stránce Upgrady: <b>Zastavit po aktuálním zařízení</b> (bezpečné) nebo <b>Zrušit</b>. Rozpracované zařízení se vždy nejdřív bezpečně dokončí nebo uklidí, nikdy se nenechá uprostřed.</p></details>
   </div>`;
@@ -360,7 +363,11 @@ function renderSettings(m) {
     <label>název logging action<input name="remote_log_name" type="text" value="${esc(s.remote_log_name)}" placeholder="remote"></label>
     <label>témata (čárkou)<input name="remote_log_topics" type="text" value="${esc(s.remote_log_topics)}" placeholder="critical,error,info,warning"></label>
     <div class="wide"><button class="primary">Uložit</button></div></form></div>
-  ${state.admin ? `<div class="panel"><details id="auditbox"><summary><b>Kdo co dělal</b> (audit posledních akcí)</summary><div id="auditlist" class="hint">načítám…</div></details></div>` : ''}
+  ${state.admin ? `<div class="panel"><h2>Uživatelé</h2><div class="hint" style="margin-bottom:8px">Každý vidí a upgraduje jen zařízení, která sám přidal (nebo mu je správce přidělil v editaci zařízení). Správce vidí vše a spravuje účty i nastavení.</div>
+    <label class="check" style="margin-bottom:8px"><input type="checkbox" id="regtoggle" ${s.allow_registration ? 'checked' : ''}> povolit samoregistraci na přihlašovací stránce (nový účet = role uživatel)</label>
+    <div id="userlist">načítám…</div>
+    <form id="useradd" class="form" style="margin-top:12px"><h2>Nový účet</h2><label>jméno<input name="name" required autocomplete="off"></label><label>heslo (aspoň 8 znaků)<input name="password" type="password" required minlength="8" autocomplete="new-password"></label><label>role<select name="role"><option value="user">uživatel</option><option value="admin">správce</option></select></label><label>&nbsp;<button class="primary">Založit</button></label></form></div>
+  <div class="panel"><details id="auditbox"><summary><b>Kdo co dělal</b> (audit posledních akcí)</summary><div id="auditlist" class="hint">načítám…</div></details></div>` : ''}
   <div class="panel"><details ${state.advanced ? 'open' : ''}><summary><b>Jak to funguje</b> (podrobně)</summary><ul class="plain">
     <li><b>Sken</b> jen čte: verze, model, architektura, firmware, místo, RAM, balíčky, rizikové příznaky. Nikdy nic nemění.</li>
     <li><b>Job</b> zpracovává zařízení <b>sériově</b>, jedno po druhém. Před každým krokem znovu zjistí živý stav a přepočítá plán.</li>
@@ -379,6 +386,34 @@ function renderSettings(m) {
     <li><b>Nejčastější příčiny umrtvení dle fór/dokumentace MikroTik a opatření:</b> výpadek napájení během zápisu (→ kontrola napětí, nikdy nerestartovat nadřazený PoE prvek během upgradu potomka, servisní okno); neúplný/poškozený balíček a přesto restart (→ kontrola velikosti proti download.mikrotik.com, žádný cizí .npk, bez ověření se nerestartuje); chybějící wireless/wifi balíček po 7.13 (→ doplní se podle rozhraní, i 60GHz); „not enough space" na 16 MB flash (→ mezikrok 7.12.x, upload se při selhání uklidí); kernel bugy čerstvých verzí a bootloopy (→ min. stáří verze, zakázané verze, kanárci po modelech); starý RouterBOOT před v7 (→ firmware ještě na v6); konverze konfigurace 6→7 (BGP/OSPF/filtry/MPLS blokováno, VLAN filtering varování); protected-routerboot (varování, Netinstall nejde); auto-upgrade firmware routeru (→ čeká se na druhý restart); víc oddílů (→ kopie do záložního oddílu + fallback-to).</li>
     <li><b>Firewall na routerech:</b> nástroj se připojuje z IP serveru, na kterém běží. Pokud mají routery brute-force ochranu SSH (address-list ssh_blacklist apod.), doporučuji tuto IP přidat do výjimky — nástroj sice rozestupuje opakovaná spojení na 65 s, ale sken + job dělají několik přihlášení za sebou.</li>
     <li>Čeho se nástroj netýká: fyzicky mrtvá zařízení (výpadek napájení během zápisu) řeší jen Netinstall — proto se nikdy nerestartuje bez ověřených balíčků a zálohy.</li></ul></details></div>`;
+  const ul = $('#userlist');
+  if (ul) {
+    const renderUsers = async () => {
+      try { state.users = await api('/users'); } catch (e) { ul.textContent = e.message; return; }
+      const me = state.auth.user;
+      ul.innerHTML = `<table><thead><tr><th>jméno</th><th>role</th><th>naposledy přihlášen</th><th>stav</th><th></th></tr></thead><tbody>${state.users.map(u => `<tr class="${u.disabled ? 'muted' : ''}"><td>${esc(u.name)}${me && u.id === me.id ? ' <span class="muted">(ty)</span>' : ''}</td><td>${u.role === 'admin' ? 'správce' : 'uživatel'}</td><td class="muted">${u.last_login_at ? fmtTs(Math.floor(u.last_login_at / 1000)) : '—'}</td><td>${u.disabled ? '<span class="badge b-err">vypnutý</span>' : '<span class="badge b-ok">aktivní</span>'}</td><td class="acts">
+        <button class="small" data-act="pw" data-id="${u.id}">nové heslo</button> <button class="small" data-act="role" data-id="${u.id}">${u.role === 'admin' ? 'odebrat správce' : 'udělat správcem'}</button> <button class="small" data-act="dis" data-id="${u.id}">${u.disabled ? 'zapnout' : 'vypnout'}</button> <button class="small danger" data-act="del" data-id="${u.id}">smazat</button></td></tr>`).join('')}</tbody></table>`;
+      ul.querySelectorAll('button[data-act]').forEach(b => b.onclick = async () => {
+        const id = +b.dataset.id, u = state.users.find(x => x.id === id);
+        try {
+          if (b.dataset.act === 'pw') { const pw = prompt(`Nové heslo pro ${u.name} (aspoň 8 znaků):`); if (!pw) return; await api(`/users/${id}`, { method: 'PUT', body: { password: pw } }); toast('heslo nastaveno'); }
+          else if (b.dataset.act === 'role') { await api(`/users/${id}`, { method: 'PUT', body: { role: u.role === 'admin' ? 'user' : 'admin' } }); toast('role změněna'); }
+          else if (b.dataset.act === 'dis') { await api(`/users/${id}`, { method: 'PUT', body: { disabled: !u.disabled } }); toast(u.disabled ? 'účet zapnut' : 'účet vypnut'); }
+          else if (b.dataset.act === 'del') {
+            if (!confirm(`Smazat účet ${u.name}?`)) return;
+            const others = state.users.filter(x => x.id !== id);
+            try { await api(`/users/${id}`, { method: 'DELETE', body: {} }); }
+            catch (e) { if (!/transfer_to/.test(e.message)) throw e; const t = prompt(`${e.message.split(' — ')[0]}. Komu je předat? (${others.map(x => x.name).join(', ')})`); const tu = others.find(x => x.name === (t || '').trim()); if (!tu) return toast('nezadán platný uživatel', true); await api(`/users/${id}`, { method: 'DELETE', body: { transfer_to: tu.id } }); }
+            toast('účet smazán');
+          }
+          await renderUsers();
+        } catch (e) { toast(e.message, true); }
+      });
+    };
+    renderUsers();
+    $('#regtoggle').onchange = async (e) => { try { state.settings = await api('/settings', { method: 'PUT', body: { allow_registration: e.target.checked } }); toast(e.target.checked ? 'registrace povolena' : 'registrace vypnuta'); } catch (e2) { toast(e2.message, true); } };
+    $('#useradd').onsubmit = async (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); try { await api('/users', { method: 'POST', body: b }); toast(`účet ${b.name} založen`); e.target.reset(); await renderUsers(); } catch (e2) { toast(e2.message, true); } };
+  }
   const ab = $('#auditbox'); if (ab) ab.ontoggle = async () => { if (!ab.open) return; try { const rows = await api('/audit'); $('#auditlist').innerHTML = rows.length ? `<table>${rows.map(r => `<tr><td class="muted">${fmtTs(Math.floor(r.ts / 1000))}</td><td>${esc(r.user)}</td><td class="mono">${esc(r.ip || '')}</td><td>${esc(r.action)}</td><td class="muted" style="white-space:normal">${esc(r.detail)}</td></tr>`).join('')}</table>` : 'zatím nic'; } catch (e) { $('#auditlist').textContent = e.message; } };
   $('#setf').onsubmit = async (e) => { e.preventDefault(); const fd = new FormData(e.target); const body = {}; for (const k of Object.keys(s)) { const el = e.target.elements[k]; if (!el) continue; body[k] = el.type === 'checkbox' ? el.checked : el.type === 'text' ? el.value : parseFloat(el.value); } try { state.settings = await api('/settings', { method: 'PUT', body }); toast('uloženo'); render(); } catch (e2) { toast(e2.message, true); } };
 }
@@ -391,7 +426,14 @@ function renderModal() {
   if (!state.modal) { if (bg) bg.remove(); return; }
   if (!bg) { bg = document.createElement('div'); bg.id = 'modalbg'; bg.className = 'modal-bg'; document.body.appendChild(bg); bg.onclick = (e) => { if (e.target === bg) closeModal(); }; }
   const md = state.modal;
-  if (md.type === 'discover') {
+  if (md.type === 'password') {
+    bg.innerHTML = `<div class="modal" style="width:min(420px,96vw)"><h2>Změna hesla</h2><form id="pwf" class="form">
+      <label class="wide">současné heslo<input name="old" type="password" autocomplete="current-password"></label>
+      <label class="wide">nové heslo (aspoň 8 znaků)<input name="password" type="password" autocomplete="new-password" required minlength="8"></label>
+      <label class="wide">nové heslo znovu<input name="again" type="password" autocomplete="new-password" required></label>
+      <div class="wide row"><button class="primary">Změnit</button><button type="button" id="mclose">Zavřít</button></div></form></div>`;
+    $('#pwf').onsubmit = async (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); if (b.password !== b.again) return toast('hesla se neshodují', true); try { await api('/me/password', { method: 'POST', body: { old: b.old, password: b.password } }); toast('heslo změněno'); closeModal(); } catch (e2) { toast(e2.message, true); } };
+  } else if (md.type === 'discover') {
     bg.innerHTML = `<div class="modal"><h2>Přidat zařízení skenem</h2><form id="discf" class="form">
       <label class="wide">seznam zařízení, jedno na řádek: <code>ip uživatel heslo [název]</code> (prázdné heslo jako <code>""</code>, port jako <code>ip:port</code>)<textarea name="entries" rows="7" placeholder="192.0.2.7 admin tajne sektor sever&#10;192.0.2.8 admin tajne&#10;192.0.2.9:2222 admin &quot;&quot;"></textarea></label>
       <label class="wide">a/nebo rozsahy k prohledání (CIDR, a.b.c.x-y; více oddělených mezerou/čárkou)<input name="ranges" placeholder="192.0.2.0/24 198.51.100.10-50"></label>
@@ -410,12 +452,13 @@ function renderModal() {
       <label>název<input name="name" value="${esc(d.name)}"></label><label>skupina / lokalita<input name="group_name" value="${esc(d.group_name)}"></label>${adv ? `<label>priorita<input name="priority" type="number" value="${d.priority}"></label>` : `<input type="hidden" name="priority" value="${d.priority}">`}
       ${adv ? `<label>track<select name="track">${state.tracks.map(t => `<option ${t === d.track ? 'selected' : ''}>${t}</option>`).join('')}</select></label>` : `<input type="hidden" name="track" value="${esc(d.track)}">`}
       <label>nadřazený prvek (napájí / připojuje toto zařízení)<select name="parent_id">${parentOptions(d.parent_id, d.id)}</select></label>
+      ${state.admin && state.users ? `<label>vlastník (kdo zařízení vidí)<select name="owner_id">${state.users.map(u => `<option value="${u.id}" ${u.id === d.owner_id ? 'selected' : ''}>${esc(u.name)}${u.role === 'admin' ? ' (správce)' : ''}</option>`).join('')}</select></label>` : ''}
       ${adv ? `<label class="wide">poznámka<input name="notes" value="${esc(d.notes)}"></label>` : `<input type="hidden" name="notes" value="${esc(d.notes)}">`}
       <label class="check"><input type="checkbox" name="enabled" ${d.enabled ? 'checked' : ''}> zapnuto (vypnuté se neskenuje ani neupgraduje)</label>
       <label class="check"><input type="checkbox" name="unmanaged" ${d.managed ? '' : 'checked'}> jen prvek topologie (bez loginu, neupgraduje se)</label>
       ${d.suggested_parent && d.suggested_parent.via ? `<div class="wide muted">detekovaný uplink: ${esc(d.suggested_parent.via)} → ${esc(d.suggested_parent.identity || '')} ${esc(d.suggested_parent.address || '')}${d.suggested_parent.id ? ` = <b>${esc(d.suggested_parent.name)}</b>` : ' (není v seznamu)'}</div>` : ''}
       <div class="wide row"><button class="primary">Uložit</button>${state.admin ? '<button type="button" id="showpw">ukázat heslo</button>' : ''}<button type="button" id="resethk" title="po netinstallu/výměně zařízení">reset SSH host key</button><span style="flex:1"></span>${state.admin ? '<button type="button" class="danger" id="del">Smazat zařízení</button>' : ''}<button type="button" id="mclose">Zavřít</button></div></form></div>`;
-    $('#editf').onsubmit = async (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); b.enabled = !!b.enabled; b.managed = !b.unmanaged; delete b.unmanaged; b.parent_id = +b.parent_id; b.port = +b.port; b.priority = +b.priority; if (!b.password) delete b.password; try { await api(`/devices/${d.id}`, { method: 'PUT', body: b }); toast('uloženo'); closeModal(); await loadState(); render(); } catch (e2) { toast(e2.message, true); } };
+    $('#editf').onsubmit = async (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); b.enabled = !!b.enabled; b.managed = !b.unmanaged; delete b.unmanaged; b.parent_id = +b.parent_id; b.port = +b.port; b.priority = +b.priority; if ('owner_id' in b) b.owner_id = +b.owner_id; if (!b.password) delete b.password; try { await api(`/devices/${d.id}`, { method: 'PUT', body: b }); toast('uloženo'); closeModal(); await loadState(); render(); } catch (e2) { toast(e2.message, true); } };
     const sp = $('#showpw'); if (sp) sp.onclick = async () => { const r = await api(`/devices/${d.id}/password`); alert(`Heslo: ${r.password}`); };
     $('#resethk').onclick = async () => { await api(`/devices/${d.id}/reset-hostkey`, { method: 'POST' }); toast('host key smazán, skenuji'); };
     const delb = $('#del'); if (delb) delb.onclick = async () => { if (!confirm(`Smazat ${d.host} včetně historie a záloh z evidence?`)) return; try { await api(`/devices/${d.id}`, { method: 'DELETE' }); state.selected.delete(d.id); closeModal(); await loadState(); render(); } catch (e2) { toast(e2.message, true); } };
@@ -528,6 +571,7 @@ async function loadPlan(id, mode) {
 async function loadState() {
   const s = await api('/state');
   Object.assign(state, { devices: s.devices, jobs: s.jobs, latest: s.latest, settings: s.settings, runner: s.runner, tracks: s.tracks, scanning: s.scanning, discovery: s.discovery, admin: s.admin, auth: { ...state.auth, user: s.user } });
+  if (s.admin) { try { state.users = await api('/users'); } catch { state.users = null; } }
 }
 let es;
 function connectSSE() {
@@ -550,7 +594,7 @@ function connectSSE() {
   es.onerror = () => { setTimeout(() => { if (state.authed) connectSSE(); }, 5000); };
 }
 (async () => {
-  try { const w = await api('/whoami'); state.authed = w.authed; state.auth = { sso: w.sso, passwordLogin: w.passwordLogin, user: w.user }; } catch { state.authed = false; }
+  try { const w = await api('/whoami'); state.authed = w.authed; state.auth = { sso: w.sso, passwordLogin: w.passwordLogin, registration: w.registration, user: w.user }; } catch { state.authed = false; }
   if (state.authed) { await loadState(); connectSSE(); }
   render();
   setInterval(() => { if (state.authed && state.view === 'devices' && !state.modal) render(); }, 60000);

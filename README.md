@@ -39,6 +39,10 @@ je postupně, **jedno po druhém**, upgraduje na nejnovější verzi podle track
 - U zařízení lze nastavit **nadřazený prvek** (co ho napájí/připojuje: sektor, PoE switch, router). Neřízené prvky (bez loginu, jen kvůli topologii) = přidané zařízení přepnuté v editaci na „jen prvek topologie".
 - Uplink se detekuje ze skenu: rozhraní default route + `/ip neighbor` (rodič se navrhne jen když adresa souseda = brána, nebo je brána v seznamu). Tlačítko „Přebrat detekované rodiče".
 - Job jde vždy od listů: antény → sektory → nadřazené. Nadřazený prvek se nerestartuje, dokud jeho potomci v jobu neskončili; když potomek skončí chybou/neznámým stavem, rodič se **zablokuje**. Po restartu rodiče se čeká, až se potomci zase ozvou (TCP probe).
+- **Účty:** každý uživatel vidí a upgraduje jen zařízení, která sám přidal; správce vidí vše, přiděluje zařízení jiným vlastníkům
+  (editace zařízení), spravuje účty a nastavení. Samoregistrace na přihlašovací stránce (role uživatel) jde v nastavení vypnout.
+  První správce vznikne při startu z `MTU_ADMIN_USER` + `MTU_PASSWORD`; dosavadní zařízení připadnou jemu. Hesla scrypt, session
+  podepsaná cookie, uživatel se ověřuje z DB při každém požadavku (vypnutí účtu platí hned). Upgrady běží pro celý server po jednom.
 - **Přidávání zařízení jen skenem**: seznam řádků `ip[:port] uživatel heslo [název]` (každé zařízení vlastní login) a/nebo rozsahy CIDR / `a.b.c.x-y` se společnými loginy; TCP probe → SSH login → RouterOS se založí do seznamu. Ruční formulář není.
 
 ## Opatření proti umrtvení (rešerše fór a dokumentace MikroTik, 9/2026)
