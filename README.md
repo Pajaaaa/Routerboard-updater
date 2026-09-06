@@ -25,6 +25,12 @@ je postupně, **jedno po druhém**, upgraduje na nejnovější verzi podle track
 - **Služby routeru:** volitelně (Nastavení) při ostrém běhu `/ip service`: služby mimo seznam vypnout, všem nastavit povolené adresy.
   ssh se nikdy nevypne, adresy se použijí jen když obsahují i IP serveru (ochrana proti zamknutí); mění se jen odchylky, dry run jen vypíše.
 - **Vzdálené logování:** volitelně (Nastavení) při ostrém běhu `/system logging action` target=remote + pravidlo pro každé téma; přidá jen, co chybí.
+- **Bezdrátové spoje:** sken ukládá stav každého rádiového spoje (stanice→AP MAC, klienti sektoru, 60 GHz protějšky s MCS/RSSI, CAP↔CAPsMAN).
+  Po každém restartu se čeká na obnovení (stanice na stejném AP, ≥ 80 % klientů zpět, 60 GHz MCS ≥ 1, CAP registrován); jinak položka selže
+  a job se zastaví před nadřazeným prvkem. Ovladač rádia (wireless vs. wifi-qcom) se nikdy nemění. Druhý konec spoje mimo job = varování.
+- **Známé vadné verze:** x.y.0 až po 14 dnech, seznam regresí per HW (60 GHz 7.19.4/7.5/6.47.x, RB2011, RB3011, IPQ-40xx, CRS3xx, PPC, CHR)
+  a obecných (7.17, 7.19, 7.20, 7.23.4, 7.24…). Vadné bloky flash > 5 % blokují, „kernel failure" v logu varuje, otisk zneužití SSH
+  zranitelnosti (9/2026) a device-mode „flagged" se hlásí. Podrobná rešerše: `docs/reserse-bezpecny-upgrade.md`.
 - **Stop při chybě** (výchozí), **dry run** (jen plán), **kanárci** (první kus od každého modelu, pak čekání na potvrzení), **servisní okno**, pauza mezi zařízeními.
 - Restart serveru uprostřed jobu → job se pozastaví, rozpracovaná položka dostane stav „neznámý" (nutný sken).
 
