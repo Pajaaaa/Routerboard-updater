@@ -393,9 +393,9 @@ function renderModal() {
       <label class="wide">seznam zařízení, jedno na řádek: <code>ip uživatel heslo [název]</code> (prázdné heslo jako <code>""</code>, port jako <code>ip:port</code>)<textarea name="entries" rows="7" placeholder="192.0.2.7 admin tajne sektor sever&#10;192.0.2.8 admin tajne&#10;192.0.2.9:2222 admin &quot;&quot;"></textarea></label>
       <label class="wide">a/nebo rozsahy k prohledání (CIDR, a.b.c.x-y; více oddělených mezerou/čárkou)<input name="ranges" placeholder="192.0.2.0/24 198.51.100.10-50"></label>
       <label class="wide">společné loginy k vyzkoušení (nutné pro rozsahy, u seznamu jen jako záloha), jeden na řádek: <code>uživatel heslo</code><textarea name="creds" rows="3" placeholder="admin tajneheslo&#10;admin &quot;&quot;"></textarea></label>
-      <label>SSH port<input name="port" type="number" value="22"></label><label>skupina pro nové<input name="group_name"></label>
+      <label>SSH port<input name="port" type="number" value="22"></label>
       <label>track pro nové<select name="track">${state.tracks.map(t => `<option>${t}</option>`).join('')}</select></label><label>souběžně<input name="parallel" type="number" value="24" min="1" max="64"></label>
-      <div class="wide row"><button class="primary" ${state.discovery && !state.discovery.finishedAt ? 'disabled' : ''}>Spustit sken</button><span class="muted">U seznamu se zkusí login z řádku (pak společné), u rozsahů společné loginy. RouterOS se založí do seznamu a hned zkontroluje. Nic se na zařízeních nemění.</span></div></form>
+      <div class="wide row"><button class="primary" ${state.discovery && !state.discovery.finishedAt ? 'disabled' : ''}>Spustit sken</button></div></form>
       <div class="panel" style="margin-top:10px"><h2>Výsledek</h2><div id="discres">${discoveryHtml(state.discovery)}</div></div>
       <div class="row"><button id="mclose">Zavřít</button></div></div>`;
     $('#discf').onsubmit = async (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); try { state.discovery = await api('/discover', { method: 'POST', body: b }); renderModal(); } catch (e2) { toast(e2.message, true); } };
