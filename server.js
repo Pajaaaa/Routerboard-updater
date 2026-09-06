@@ -303,7 +303,12 @@ async function api(req, res, method, p, url) {
       precheck: o.precheck !== false,
     };
     // naplánovaný start: čas v sekundách; v minulosti nebo prázdné = hned
-    if (o.start_at) { const t = Math.floor(new Date(o.start_at).getTime() / 1000); if (!Number.isFinite(t)) throw new Error('čas spuštění nejde přečíst'); if (t > Date.now() / 1000 + 60) options.start_at = t; }
+    if (o.start_at) {
+      const t = Math.floor(new Date(o.start_at).getTime() / 1000);
+      if (!Number.isFinite(t)) throw new Error(`čas spuštění nejde přečíst: ${o.start_at}`);
+      if (t < Date.now() / 1000 - 60) throw new Error(`čas spuštění ${new Date(t * 1000).toLocaleString('cs-CZ')} je v minulosti — pro dnešní noc vyber zítřejší datum`);
+      if (t > Date.now() / 1000 + 60) options.start_at = t;
+    }
     // pořadí: nejdřív potomci (hloubka v topologii sestupně), pak priorita; u kanárků první zařízení každého modelu napřed
     const depth = (id) => db.ancestorIds(id).length;
     const devs = ids.map(id => db.getDevice(id)).filter(d => d.managed).map(d => ({ ...d, depth: depth(d.id) })).sort((a, b2) => b2.depth - a.depth || a.priority - b2.priority || a.host.localeCompare(b2.host));

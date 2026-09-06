@@ -525,16 +525,17 @@ function renderModal() {
         <label class="check"><input type="checkbox" name="device_mode" checked> device-mode plné ovládání (potvrzení PoE restartem přes nadřazený MikroTik)</label>
         <label class="check"><input type="checkbox" name="precheck" checked> nejdřív zkontrolovat všechna zařízení; při přeskočení/upozornění počkat na potvrzení</label>
         <label>režim<select name="mode"><option value="upload">upload — server nahraje balíčky přes SFTP (doporučeno)</option><option value="router">router — vlastní updater routeru (potřebuje internet)</option></select></label>
-        <label>spustit v (prázdné = hned)<input name="start_at" type="datetime-local" min="${localDt(Date.now())}"></label>
+        <label>spustit v (datum i čas; prázdné = hned)<input name="start_at" type="datetime-local" min="${localDt(Date.now())}"></label>
         <label>pauza mezi zařízeními (s)<input name="pause_sec" type="number" value="${esc(state.settings.pause_between_devices_sec)}"></label>
         <label class="check"><input type="checkbox" name="allow_routing_migration"> povolit v6→v7 i s BGP/OSPF/filtry (jen pro tento job)</label>
         <label class="check"><input type="checkbox" name="allow_small_flash"> povolit v6→v7 na 16 MB flash (jen pro tento job)</label>` : `
-        <label>spustit v (prázdné = hned)<input name="start_at" type="datetime-local" min="${localDt(Date.now())}"></label>`}
+        <label>spustit v (datum i čas; prázdné = hned)<input name="start_at" type="datetime-local" min="${localDt(Date.now())}"></label>`}
         <div class="wide row"><button class="primary" name="go" value="start">▶ Spustit upgrade</button><button name="go" value="check">Jen zkontrolovat (nic se nezmění)</button>${adv ? '<button name="go" value="create">Jen vytvořit</button>' : ''}<button type="button" id="mclose">Zavřít</button></div></form></div>`;
     $('#jobf').onsubmit = async (e) => { e.preventDefault(); const fd = new FormData(e.target); const go = e.submitter && e.submitter.value;
       const o = { dry_run: go === 'check', firmware: adv ? !!fd.get('firmware') : true, stop_on_failure: adv ? !!fd.get('stop_on_failure') : true, canary: !!fd.get('canary'), require_binary_backup: adv ? !!fd.get('require_binary_backup') : false, device_mode: adv ? !!fd.get('device_mode') : true, precheck: adv ? !!fd.get('precheck') : true, allow_routing_migration: adv ? !!fd.get('allow_routing_migration') : false, allow_small_flash: adv ? !!fd.get('allow_small_flash') : false, mode: adv ? fd.get('mode') : 'upload', start_at: fd.get('start_at') || '', pause_sec: adv ? +fd.get('pause_sec') : undefined };
+      if (o.start_at && new Date(o.start_at).getTime() < Date.now() - 60000) return toast(`čas spuštění ${new Date(o.start_at).toLocaleString('cs-CZ')} je v minulosti — pro dnešní noc vyber zítřejší datum`, true);
       const start = go === 'start' || go === 'check';
-      if (go === 'start' && !confirm(`Spustit upgrade ${devs.length} zařízení?\n\nNejdřív proběhne kontrola. Pak se každé zařízení zálohuje, nahraje, ověří a restartuje (chvíli bude nedostupné).`)) return;
+      if (go === 'start' && !confirm(o.start_at ? `Naplánovat upgrade ${devs.length} zařízení na ${new Date(o.start_at).toLocaleString('cs-CZ')}?` : `Spustit upgrade ${devs.length} zařízení hned?\n\nNejdřív proběhne kontrola. Pak se každé zařízení zálohuje, nahraje, ověří a restartuje (chvíli bude nedostupné).`)) return;
       try { const r = await api('/jobs', { method: 'POST', body: { name: fd.get('name'), deviceIds: devs.map(d => d.id), options: o, start } }); closeModal(); state.selected.clear(); await loadState(); await openJob(r.id); } catch (e2) { toast(e2.message, true); } };
   }
   const c = $('#mclose'); if (c) c.onclick = closeModal;
