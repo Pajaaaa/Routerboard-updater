@@ -299,7 +299,7 @@ function renderHelp(m) {
 
   <div class="panel help"><h2>Postup krok za krokem</h2>
   <ol>
-    <li><b>Přidej zařízení.</b> Tlačítko <b>+ Přidat zařízení (sken)</b>: zadáš IP adresy nebo rozsahy (třeba <code>10.0.0.5 10.0.1.0/24</code>) a loginy, které se mají zkusit. Zařízení, kde login projde a běží RouterOS, se přidají sama. Prvek jen pro topologii (PoE switch bez loginu) uděláš z přidaného zařízení tužkou ✎ zaškrtnutím „jen prvek topologie".</li>
+    <li><b>Přidej zařízení.</b> Tlačítko <b>+ Přidat zařízení (sken)</b>: nasypeš seznam řádků <code>ip uživatel heslo</code> (každé zařízení se svým loginem), a/nebo rozsahy (třeba <code>10.0.1.0/24</code>) se společnými loginy. Zařízení, kde login projde a běží RouterOS, se přidají sama. Prvek jen pro topologii (PoE switch bez loginu) uděláš z přidaného zařízení tužkou ✎ zaškrtnutím „jen prvek topologie".</li>
     <li><b>Počkej na kontrolu.</b> Každé nové zařízení se hned zkontroluje. Ve sloupci Stav uvidíš „aktuální“, „upgrade na …“ nebo důvod, proč to nejde (nedostupné, špatné heslo).</li>
     <li><b>Zkontroluj strom.</b> Seznam je seřazený jako strom: hlavní prvek (router, PoE switch) nahoře, pod ním odsazené to, co napájí nebo připojuje. Nástroj si vazby většinou zjistí sám. Když je něco špatně, klikni na tužku ✎ u zařízení a nastav <b>nadřazený prvek</b> = to zařízení, které ho napájí nebo přes které je připojené. Na pořadí záleží: nejdřív se upgradují antény, nakonec to, co je napájí, aby nikomu nevypadl proud uprostřed zápisu.</li>
     <li><b>Spusť upgrade.</b> Buď <b>Upgradovat vše potřebné</b> nahoře, nebo zaškrtni zařízení a dej <b>Upgradovat vybrané</b>, nebo <b>Upgradovat</b> u jednoho řádku. V dialogu nech výchozí volby a klikni <b>Spustit upgrade</b>.</li>
@@ -390,11 +390,12 @@ function renderModal() {
   const md = state.modal;
   if (md.type === 'discover') {
     bg.innerHTML = `<div class="modal"><h2>Přidat zařízení skenem</h2><form id="discf" class="form">
-      <label class="wide">IP adresy nebo rozsahy (CIDR, a.b.c.x-y; více oddělených mezerou/čárkou)<input name="ranges" placeholder="192.0.2.7 192.0.2.0/24 198.51.100.10-50" required></label>
-      <label class="wide">loginy k vyzkoušení, jeden na řádek: <code>uživatel heslo</code> (prázdné heslo jako <code>""</code>)<textarea name="creds" rows="4" placeholder="admin tajneheslo&#10;admin &quot;&quot;"></textarea></label>
+      <label class="wide">seznam zařízení, jedno na řádek: <code>ip uživatel heslo [název]</code> (prázdné heslo jako <code>""</code>, port jako <code>ip:port</code>)<textarea name="entries" rows="7" placeholder="192.0.2.7 admin tajne sektor sever&#10;192.0.2.8 admin tajne&#10;192.0.2.9:2222 admin &quot;&quot;"></textarea></label>
+      <label class="wide">a/nebo rozsahy k prohledání (CIDR, a.b.c.x-y; více oddělených mezerou/čárkou)<input name="ranges" placeholder="192.0.2.0/24 198.51.100.10-50"></label>
+      <label class="wide">společné loginy k vyzkoušení (nutné pro rozsahy, u seznamu jen jako záloha), jeden na řádek: <code>uživatel heslo</code><textarea name="creds" rows="3" placeholder="admin tajneheslo&#10;admin &quot;&quot;"></textarea></label>
       <label>SSH port<input name="port" type="number" value="22"></label><label>skupina pro nové<input name="group_name"></label>
       <label>track pro nové<select name="track">${state.tracks.map(t => `<option>${t}</option>`).join('')}</select></label><label>souběžně<input name="parallel" type="number" value="24" min="1" max="64"></label>
-      <div class="wide row"><button class="primary" ${state.discovery && !state.discovery.finishedAt ? 'disabled' : ''}>Spustit sken</button><span class="muted">TCP probe portu → pokus o SSH login → RouterOS se založí do seznamu. Nic se na zařízeních nemění.</span></div></form>
+      <div class="wide row"><button class="primary" ${state.discovery && !state.discovery.finishedAt ? 'disabled' : ''}>Spustit sken</button><span class="muted">U seznamu se zkusí login z řádku (pak společné), u rozsahů společné loginy. RouterOS se založí do seznamu a hned zkontroluje. Nic se na zařízeních nemění.</span></div></form>
       <div class="panel" style="margin-top:10px"><h2>Výsledek</h2><div id="discres">${discoveryHtml(state.discovery)}</div></div>
       <div class="row"><button id="mclose">Zavřít</button></div></div>`;
     $('#discf').onsubmit = async (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); try { state.discovery = await api('/discover', { method: 'POST', body: b }); renderModal(); } catch (e2) { toast(e2.message, true); } };

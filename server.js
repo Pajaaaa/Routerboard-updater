@@ -98,9 +98,22 @@ async function api(req, res, method, p, url) {
     const b = await readBody(req);
     const ranges = String(b.ranges || '').split(/[\s,;]+/).filter(Boolean);
     const creds = String(b.creds || '').split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('#')).map(l => { const [username, ...rest] = l.split(/\s+/); let password = rest.join(' '); if (password === '""' || password === "''") password = ''; return { username, password }; }).filter(c => c.username);
-    const o = { ranges, creds, port: parseInt(b.port || 22, 10), group_name: b.group_name || '', track: b.track || 'v7-stable', parallel: parseInt(b.parallel || 24, 10) };
+    // seznam zařízení: řádky "host[:port] uživatel heslo [název…]" (oddělovač mezera/tab/;, prázdné heslo jako "")
+    const entries = [], entryErrors = [];
+    String(b.entries || '').split(/\r?\n/).forEach((line, i) => {
+      const t = line.trim(); if (!t || t.startsWith('#')) return;
+      const parts = t.split(/[;\t]+|\s+/).filter(Boolean);
+      if (parts.length < 2) { entryErrors.push(`řádek ${i + 1}: očekávám "ip uživatel heslo"`); return; }
+      let [hostport, username, password = '', ...rest] = parts;
+      if (password === '""' || password === "''") password = '';
+      let host = hostport, port = 0; const m = hostport.match(/^(.+):(\d+)$/); if (m) { host = m[1]; port = +m[2]; }
+      if (!/^[A-Za-z0-9.:_-]+$/.test(host)) { entryErrors.push(`řádek ${i + 1}: neplatná adresa ${host}`); return; }
+      entries.push({ host, port, username, password, name: rest.join(' ') });
+    });
+    if (entryErrors.length) throw new Error(entryErrors.join('; '));
+    const o = { ranges, entries, creds, port: parseInt(b.port || 22, 10), group_name: b.group_name || '', track: b.track || 'v7-stable', parallel: parseInt(b.parallel || 24, 10) };
     discovery.prepare(o); // validace → 400 s popisem chyby
-    audit(req, 'sken rozsahu', ranges.join(' '));
+    audit(req, 'sken rozsahu', [...ranges, ...(entries.length ? [`${entries.length} zařízení ze seznamu`] : [])].join(' '));
     discovery.run(o).catch(e => bus.emit('event', { type: 'discovery-error', error: e.message }));
     await new Promise(r => setTimeout(r, 50));
     return send(res, 200, discovery.status());

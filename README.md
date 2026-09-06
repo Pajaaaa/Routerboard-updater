@@ -39,7 +39,7 @@ je postupně, **jedno po druhém**, upgraduje na nejnovější verzi podle track
 - U zařízení lze nastavit **nadřazený prvek** (co ho napájí/připojuje: sektor, PoE switch, router). Neřízené prvky (bez loginu, jen kvůli topologii) = přidané zařízení přepnuté v editaci na „jen prvek topologie".
 - Uplink se detekuje ze skenu: rozhraní default route + `/ip neighbor` (rodič se navrhne jen když adresa souseda = brána, nebo je brána v seznamu). Tlačítko „Přebrat detekované rodiče".
 - Job jde vždy od listů: antény → sektory → nadřazené. Nadřazený prvek se nerestartuje, dokud jeho potomci v jobu neskončili; když potomek skončí chybou/neznámým stavem, rodič se **zablokuje**. Po restartu rodiče se čeká, až se potomci zase ozvou (TCP probe).
-- **Přidávání zařízení jen skenem**: IP adresy / CIDR / `a.b.c.x-y` + seznam loginů; TCP probe → SSH login → RouterOS se založí do seznamu. Ruční formulář ani hromadné vložení nejsou.
+- **Přidávání zařízení jen skenem**: seznam řádků `ip[:port] uživatel heslo [název]` (každé zařízení vlastní login) a/nebo rozsahy CIDR / `a.b.c.x-y` se společnými loginy; TCP probe → SSH login → RouterOS se založí do seznamu. Ruční formulář není.
 
 ## Opatření proti umrtvení (rešerše fór a dokumentace MikroTik, 9/2026)
 
