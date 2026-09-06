@@ -4,7 +4,7 @@ const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const MB = 1048576;
 let ADV = false; try { ADV = localStorage.getItem('mtu_adv') === '1'; } catch {}
-const state = { authed: false, auth: { sso: false, passwordLogin: true, user: null }, view: 'devices', advanced: ADV, devices: [], jobs: [], latest: { versions: {} }, settings: {}, runner: {}, tracks: [], selected: new Set(), filter: '', group: '', sort: 'tree', modal: null, job: null, jobLog: [], detail: null, scanning: [] };
+const state = { owner: 0, authed: false, auth: { sso: false, passwordLogin: true, user: null }, view: 'devices', advanced: ADV, devices: [], jobs: [], latest: { versions: {} }, settings: {}, runner: {}, tracks: [], selected: new Set(), filter: '', group: '', sort: 'tree', modal: null, job: null, jobLog: [], detail: null, scanning: [] };
 
 async function api(path, opts = {}) {
   const r = await fetch(BASE + '/api' + path, { headers: { 'Content-Type': 'application/json' }, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
@@ -137,7 +137,7 @@ function treeOrder(devs) {
 }
 function filteredDevices() {
   const f = state.filter.toLowerCase();
-  let list = state.devices.filter(d => (!state.group || d.group_name === state.group) && (!f || [d.host, d.name, d.identity, d.board_name, d.model, d.version, d.group_name, d.notes].join(' ').toLowerCase().includes(f)));
+  let list = state.devices.filter(d => (!state.owner || d.owner_id === state.owner) && (!state.group || d.group_name === state.group) && (!f || [d.host, d.name, d.identity, d.board_name, d.model, d.version, d.group_name, d.notes].join(' ').toLowerCase().includes(f)));
   const s = state.sort;
   if (s === 'tree') return treeOrder(list);
   list.sort((a, b) => {
@@ -173,10 +173,11 @@ function renderDevices(m) {
     <button class="ok" id="jobsel" ${state.selected.size ? '' : 'disabled'}>▶ Upgradovat vybrané (${state.selected.size})</button>
     ${state.admin ? `<button class="danger" id="delsel" ${state.selected.size ? '' : 'disabled'}>✕ Smazat vybrané (${state.selected.size})</button>` : ''}
     <span class="spacer"></span>
+    ${state.admin && state.users && state.users.length > 1 ? `<select id="ownerf" title="zobrazit zařízení jednoho uživatele"><option value="0">všichni vlastníci</option>${state.users.map(u => `<option value="${u.id}" ${u.id === state.owner ? 'selected' : ''}>${esc(u.name)} (${state.devices.filter(d => d.owner_id === u.id).length})</option>`).join('')}</select>` : ''}
     ${groups.length ? `<select id="group"><option value="">všechny skupiny</option>${groups.map(g => `<option ${g === state.group ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select>` : ''}
     <select id="sort"><option value="tree" ${state.sort === 'tree' ? 'selected' : ''}>řadit: strom (topologie)</option><option value="priority" ${state.sort === 'priority' ? 'selected' : ''}>priorita</option><option value="name" ${state.sort === 'name' ? 'selected' : ''}>název</option><option value="version" ${state.sort === 'version' ? 'selected' : ''}>verze</option><option value="model" ${state.sort === 'model' ? 'selected' : ''}>model</option><option value="seen" ${state.sort === 'seen' ? 'selected' : ''}>naposledy viděno</option></select>
     <input id="filter" placeholder="hledat…" value="${esc(state.filter)}" style="width:170px"></div>
-  <div class="tablewrap"><table><thead><tr><th><input type="checkbox" id="selall" ${allSel ? 'checked' : ''}></th><th>Zařízení</th><th>Model</th><th>RouterOS</th><th>Stav</th>${adv ? '<th>Firmware</th><th>Flash · RAM volné</th><th>Nadřazený</th><th>Track</th><th>Sken</th>' : ''}<th></th></tr></thead><tbody>
+  <div class="tablewrap"><table><thead><tr><th><input type="checkbox" id="selall" ${allSel ? 'checked' : ''}></th><th>Zařízení</th><th>Model</th><th>RouterOS</th><th>Stav</th>${adv ? '<th>Firmware</th><th>Flash · RAM volné</th><th>Nadřazený</th><th>Track</th><th>Sken</th>' + (state.admin && state.users ? '<th>Vlastník</th>' : '') : ''}<th></th></tr></thead><tbody>
   ${list.map(d => { const ps = plainStatus(d); const sc = STATUS_LABEL[d.scan_status] || ['b-muted', d.scan_status]; const scanning = state.scanning.includes(d.id); const busy = state.runner.deviceId === d.id;
     return `<tr class="${state.selected.has(d.id) ? 'selected' : ''} ${d.enabled ? '' : 'muted'} ${state.sort === 'tree' && d._depth === 0 && d._kids ? 'root-row' : ''}" data-id="${d.id}">
     <td><input type="checkbox" class="sel" data-id="${d.id}" ${state.selected.has(d.id) ? 'checked' : ''}></td>
@@ -188,7 +189,7 @@ function renderDevices(m) {
     <td>${d.total_hdd ? `<span title="flash volné / celkem">${mb(d.free_hdd)}/${mb(d.total_hdd)}</span>${d.flags && d.flags.flash_dir ? '<span class="muted" title="kořen FS v RAM, adresář flash">ᶠ</span>' : ''} <span class="muted">·</span> <span title="RAM volná / celkem">${mb(d.free_mem)}/${mb(d.total_mem)}</span> <span class="muted">MB</span>` : '—'}</td>
     <td class="parent">${parentCell(d)}</td>
     <td>${d.managed ? `<select class="track small" data-id="${d.id}">${state.tracks.map(t => `<option value="${t}" ${t === d.track ? 'selected' : ''}>${t.replace('long-term', 'LT')}</option>`).join('')}</select>` : '<span class="badge b-muted">neřízený</span>'}</td>
-    <td>${!d.managed ? '<span class="muted">—</span>' : `<span class="badge ${sc[0]}" title="${esc(d.scan_error)}">${esc(sc[1])}</span> <span class="muted" title="naposledy viděno ${fmtTs(d.last_seen_at)}">${ago(d.last_seen_at)}</span>`}</td>` : ''}
+    <td>${!d.managed ? '<span class="muted">—</span>' : `<span class="badge ${sc[0]}" title="${esc(d.scan_error)}">${esc(sc[1])}</span> <span class="muted" title="naposledy viděno ${fmtTs(d.last_seen_at)}">${ago(d.last_seen_at)}</span>`}</td>${state.admin && state.users ? `<td class="muted">${esc((state.users.find(u => u.id === d.owner_id) || {}).name || '—')}</td>` : ''}` : ''}
     <td class="acts">${ps.act === 'upgrade' && !running ? `<button class="small ok up1" data-id="${d.id}">▶ Upgradovat</button>` : ''} ${ps.act === 'scan' ? `<button class="small scan1" data-id="${d.id}">⟳ Zkontrolovat</button>` : adv ? `<button class="small scan1" data-id="${d.id}" title="zkontrolovat">⟳</button>` : ''} <button class="small edit1" data-id="${d.id}" title="upravit">✎</button></td></tr>`; }).join('')}
   ${list.length ? '' : `<tr><td colspan="${adv ? 11 : 6}" class="empty">Zatím žádná zařízení. Přidej je skenem: zadáš IP adresy nebo rozsahy a loginy, nalezené routery se založí samy.</td></tr>`}
   </tbody></table></div></div>`;
@@ -207,6 +208,7 @@ function renderDevices(m) {
   });
   m.querySelectorAll('.acceptp').forEach(b => b.onclick = async () => { try { await api(`/devices/${b.dataset.id}`, { method: 'PUT', body: { parent_id: +b.dataset.pid } }); await loadState(); render(); } catch (e) { toast(e.message, true); } });
   const g = $('#group'); if (g) g.onchange = (e) => { state.group = e.target.value; render(); };
+  const of = $('#ownerf'); if (of) of.onchange = (e) => { state.owner = +e.target.value; state.selected.clear(); render(); };
   $('#sort').onchange = (e) => { state.sort = e.target.value; render(); };
   $('#filter').oninput = (e) => { state.filter = e.target.value; const pos = e.target.selectionStart; render(); const f = $('#filter'); f.focus(); f.setSelectionRange(pos, pos); };
   $('#selall').onchange = (e) => { for (const d of list) e.target.checked ? state.selected.add(d.id) : state.selected.delete(d.id); render(); };
