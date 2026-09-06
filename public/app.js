@@ -529,7 +529,6 @@ function renderModal() {
         <label>pauza mezi zařízeními (s)<input name="pause_sec" type="number" value="${esc(state.settings.pause_between_devices_sec)}"></label>
         <label class="check"><input type="checkbox" name="allow_routing_migration"> povolit v6→v7 i s BGP/OSPF/filtry (jen pro tento job)</label>
         <label class="check"><input type="checkbox" name="allow_small_flash"> povolit v6→v7 na 16 MB flash (jen pro tento job)</label>` : `
-        <label class="check wide"><input type="checkbox" name="canary" ${devs.length > 3 ? 'checked' : ''}> nejdřív jeden kus od každého modelu, pak se zastavit a počkat na moje potvrzení</label>
         <label>spustit v (prázdné = hned)<input name="start_at" type="datetime-local" min="${localDt(Date.now())}"></label>`}
         <div class="wide row"><button class="primary" name="go" value="start">▶ Spustit upgrade</button><button name="go" value="check">Jen zkontrolovat (nic se nezmění)</button>${adv ? '<button name="go" value="create">Jen vytvořit</button>' : ''}<button type="button" id="mclose">Zavřít</button></div></form></div>`;
     $('#jobf').onsubmit = async (e) => { e.preventDefault(); const fd = new FormData(e.target); const go = e.submitter && e.submitter.value;
