@@ -42,7 +42,7 @@ function verStatus(d) {
 }
 const STATUS_LABEL = { ok: ['b-ok', 'OK'], unreachable: ['b-err', 'nedostupný'], auth: ['b-err', 'špatný login'], hostkey: ['b-err', 'host key!'], never: ['b-muted', 'neskenováno'] };
 const ITEM_LABEL = { pending: ['b-muted', 'čeká'], checking: ['b-info', 'kontrola'], backup: ['b-info', 'záloha'], upload: ['b-info', 'nahrávání'], reboot: ['b-warn', 'restart'], verify: ['b-info', 'ověření'], firmware: ['b-info', 'firmware'], done: ['b-ok', 'hotovo'], blocked: ['b-warn', 'přeskočeno'], failed: ['b-err', 'chyba'], skipped: ['b-muted', 'vynecháno'], unknown: ['b-err', 'neznámý stav'] };
-const JOB_LABEL = { queued: ['b-muted', 'připraven'], running: ['b-info', 'probíhá'], paused: ['b-err', 'zastaven'], waiting: ['b-warn', 'čeká na potvrzení'], 'waiting-window': ['b-warn', 'čeká na okno'], done: ['b-ok', 'hotovo'], cancelled: ['b-muted', 'zrušen'] };
+const JOB_LABEL = { queued: ['b-muted', 'připraven'], running: ['b-info', 'probíhá'], paused: ['b-err', 'zastaven'], waiting: ['b-warn', 'čeká na potvrzení'], scheduled: ['b-warn', 'naplánován'], 'waiting-window': ['b-warn', 'čeká na okno'], done: ['b-ok', 'hotovo'], cancelled: ['b-muted', 'zrušen'] };
 /** srozumitelný stav zařízení pro jednoduchý režim */
 function plainStatus(d) {
   if (!d.managed) return { cls: 'b-muted', txt: 'jen v topologii', act: null };
@@ -83,7 +83,7 @@ function render() {
     <nav>${navBtn('devices', '▤', 'Zařízení')}${navBtn('jobs', '▶', 'Upgrady')}${navBtn('help', '?', 'Nápověda')}${navBtn('settings', '⚙', 'Nastavení')}</nav>
     <div class="versions">${latestBar()}</div>
     <div class="spacer"></div>
-    <div class="runner-pill ${running ? 'live' : ''}" id="runnerpill">${running ? (state.runner.foreign ? '<span class="pulse"></span><b>běží job jiného uživatele</b><br>upgrady jdou po jednom, počkej' : `<span class="pulse"></span><b>běží job #${state.runner.jobId}</b>${rj ? ` ${esc(rj.name)}` : ''}${rd ? `<br>${esc(devName(rd))}` : ''}`) : 'žádný job neběží'}</div>
+    <div class="runner-pill ${running ? 'live' : ''}" id="runnerpill">${running ? `<span class="pulse"></span><b>běží job #${state.runner.jobId}</b>${rj ? ` ${esc(rj.name)}` : ''}${rd ? `<br>${esc(devName(rd))}` : ''}` : 'žádný tvůj job neběží'}${(state.runner.others || []).length ? `<div class="hint" style="margin-top:6px">ostatní: ${state.runner.others.map(o => `${esc(o.user)} #${o.jobId}`).join(', ')}</div>` : ''}</div>
     <label class="check advtoggle"><input type="checkbox" id="advtoggle" ${state.advanced ? 'checked' : ''}> Pokročilé zobrazení</label>
     ${state.auth.user ? `<div class="hint" style="padding:0 10px 4px">👤 ${esc(state.auth.user.name)}${state.admin ? ' <span class="chip">správce</span>' : ''} · <a href="#" id="chpw">heslo</a></div>` : ''}
     <div class="foot"><button class="small" id="refreshver" title="obnovit verze z upgrade.mikrotik.com">↻ verze</button><button class="small" id="logout">Odhlásit</button></div>
@@ -222,13 +222,13 @@ function renderDevices(m) {
   m.querySelectorAll('.track').forEach(s => s.onchange = async () => { try { await api(`/devices/${s.dataset.id}`, { method: 'PUT', body: { track: s.value } }); toast('track uložen'); } catch (e) { toast(e.message, true); } });
 }
 
-const JOB_PLAIN = { queued: 'připraven ke spuštění', running: 'probíhá', paused: 'zastaven', waiting: 'čeká na potvrzení', 'waiting-window': 'čeká na servisní okno', done: 'hotovo', cancelled: 'zrušen' };
+const JOB_PLAIN = { queued: 'připraven ke spuštění', running: 'probíhá', paused: 'zastaven', waiting: 'čeká na potvrzení', scheduled: 'naplánován', 'waiting-window': 'čeká na servisní okno', done: 'hotovo', cancelled: 'zrušen' };
 function renderJobs(m) {
   const cur = state.job;
   const adv = state.advanced;
   m.innerHTML = `<h1>Upgrady</h1><div class="stack"><div class="panel"><h2>Přehled</h2><div class="tablewrap"><table><thead><tr>${adv ? '<th>#</th>' : ''}<th>Název</th><th>Stav</th><th>Průběh</th><th>Vytvořen</th><th></th></tr></thead><tbody>
     ${state.jobs.map(j => { const c = j.counts || {}; const done = (c.done || 0) + (c.failed || 0) + (c.blocked || 0) + (c.skipped || 0) + (c.unknown || 0);
-      return `<tr class="clickable ${cur && cur.job.id === j.id ? 'selected' : ''}" data-id="${j.id}">${adv ? `<td>${j.id}</td>` : ''}<td>${esc(j.name)}${j.options.dry_run ? ' <span class="badge b-info">jen kontrola</span>' : ''}${j.options.op ? ' <span class="badge b-muted">operace</span>' : ''}</td><td>${badge(JOB_LABEL, j.status)}${adv ? `<div class="muted" style="font-size:11px;white-space:normal">${esc(j.status_note)}</div>` : ''}</td>
+      return `<tr class="clickable ${cur && cur.job.id === j.id ? 'selected' : ''}" data-id="${j.id}">${adv ? `<td>${j.id}</td>` : ''}<td>${esc(j.name)}${state.admin && j.owner_name ? ` <span class="chip" title="vlastník">${esc(j.owner_name)}</span>` : ''}${j.options.dry_run ? ' <span class="badge b-info">jen kontrola</span>' : ''}${j.options.op ? ' <span class="badge b-muted">operace</span>' : ''}</td><td>${badge(JOB_LABEL, j.status)}${adv ? `<div class="muted" style="font-size:11px;white-space:normal">${esc(j.status_note)}</div>` : ''}</td>
       <td>${done}/${j.total} <span class="muted">(${c.done || 0} ok${c.failed ? `, <span style="color:var(--err)">${c.failed} chyb</span>` : ''}${c.blocked ? `, ${c.blocked} přeskočeno` : ''})</span><div class="progress"><div style="width:${j.total ? done / j.total * 100 : 0}%"></div></div></td><td>${fmtTs(j.created_at)}</td>
       <td>${['queued', 'paused'].includes(j.status) && !state.runner.running ? `<button class="small ok jstart" data-id="${j.id}">▶ Spustit</button>` : ''} ${j.status === 'waiting' && !state.runner.running ? `<button class="small ok jcont" data-id="${j.id}">Pokračovat</button>` : ''} ${!['running'].includes(j.status) ? `<button class="small danger jdel" data-id="${j.id}" title="smazat">✕</button>` : ''}</td></tr>`; }).join('')}
     ${state.jobs.length ? '' : '<tr><td colspan="6" class="empty">Zatím žádný upgrade. V seznamu zařízení klikni na „Upgradovat vše potřebné" nebo na „Upgradovat" u zařízení.</td></tr>'}</tbody></table></div></div>
@@ -249,6 +249,7 @@ function jobBanner(job, items) {
   if (job.status === 'running') return { cls: 'info', html: `<b>Probíhá${o.dry_run || /kontrola/.test(job.status_note || '') ? ' kontrola' : ' upgrade'}.</b> ${cur ? `Teď: <b>${esc(cur.dev_name || cur.identity || cur.host)}</b> — ${esc(cur.step || 'připojení')}.` : ''} Zbývá ${c.pending || 0}. Stránku můžeš zavřít, běží to na serveru.` };
   if (job.status === 'waiting' && /^kontrola hotová/.test(job.status_note || '')) return { cls: 'warn', html: `<b>Kontrola hotová, upgrade ještě nezačal.</b> ${esc(job.status_note.replace(/^kontrola hotová: /, '').replace(/ — .*$/, ''))}. Projdi řádky s „přeskočí se" a upozorněními níže. Klikni <b>Pokračovat</b>, upgrade pojede jen na připravených zařízeních. Každé trvá obvykle 3–10 minut.` };
   if (job.status === 'waiting') return { cls: 'warn', html: `<b>Čeká na tebe.</b> První kus od každého modelu je hotový. Ověř, že fungují, a klikni <b>Pokračovat</b>.` };
+  if (job.status === 'scheduled') return { cls: 'info', html: `<b>Naplánováno na ${o.start_at ? new Date(o.start_at * 1000).toLocaleString('cs-CZ') : '?'}.</b> Spustí se samo; když bude v tu chvíli běžet tvůj jiný upgrade, počká, až skončí. Zrušit jde tlačítkem Zrušit.` };
   if (job.status === 'waiting-window') return { cls: 'info', html: `<b>Čeká na servisní okno</b> ${esc(o.window)}. Spustí se samo.` };
   if (job.status === 'paused') return { cls: 'err', html: `<b>Zastaveno.</b> ${esc(job.status_note)}<br><span class="hint">Podívej se na řádek s chybou níže. Když je zařízení v pořádku, klikni <b>Pokračovat</b> (chybná položka se přeskočí), nebo ji dej <b>znovu</b>.</span>` };
   if (job.status === 'done') return { cls: c.failed || c.unknown ? 'warn' : 'ok', html: `<b>Hotovo.</b> ${sum}.${o.dry_run ? ' Byla to jen kontrola, nic se nezměnilo. Pokud je vše zelené, spusť to samé ostře.' : ''}` };
@@ -331,7 +332,7 @@ function renderHelp(m) {
   <details><summary>Co dělá „Rozdělit flash na 2 oddíly“ v detailu zařízení</summary><p>U větších zařízení (128 MB flash a víc) vytvoří záložní oddíl. Pokud pak nová verze nenabootuje, router sám naběhne ze záložního oddílu se starou verzí. Jednorázová akce s restartem, dělej ji mimo špičku.</p></details>
   <details><summary>Firmware se upgraduje?</summary><p>Ano, po každém upgradu RouterOS se upgraduje i RouterBOOT a udělá se ještě jeden restart. Stav „aktuální, jen firmware“ znamená, že RouterOS sedí a chybí jen tohle.</p></details>
   <details><summary>Kde jsou zálohy</summary><p>V detailu zařízení (klik na název) v části Zálohy: textový export konfigurace (.rsc) a binární záloha (.backup) z doby těsně před upgradem. Jdou stáhnout.</p></details>
-  <details><summary>Může nás tu pracovat víc naráz?</summary><p>Ano. Každý má vlastní účet a vidí jen zařízení, která sám přidal (správce vidí vše a může zařízení přidělit někomu jinému). Upgrade běží vždy jen jeden pro celý server; když běží cizí, uvidíš vlevo dole „běží job jiného uživatele“ a počkáš. V logu upgradu je, kdo ho spustil, pozastavil nebo zrušil. Hesla routerů jsou uložená šifrovaně a zobrazit je smí jen správce.</p></details>
+  <details><summary>Může nás tu pracovat víc naráz?</summary><p>Ano. Každý má vlastní účet a vidí jen zařízení, která sám přidal (správce vidí vše a může zařízení přidělit někomu jinému). Každý uživatel má vlastní frontu: naráz běží nejvýš jeden jeho upgrade, na ostatní uživatele se nečeká. Správce vidí vlevo dole, komu co běží. V logu upgradu je, kdo ho spustil, pozastavil nebo zrušil. Hesla routerů jsou uložená šifrovaně a zobrazit je smí jen správce.</p></details>
   <details><summary>Jak se přihlásit</summary><p>Jménem a heslem účtu, který ti založil správce (Nastavení → Uživatelé). Přihlášení vydrží 30 dní, heslo si změníš odkazem „heslo“ vlevo dole.</p></details>
   <details><summary>Můžu zavřít prohlížeč?</summary><p>Ano. Upgrade běží na serveru. Po návratu otevři Upgrady a klikni na běžící job.</p></details>
   <details><summary>Jak upgrade zastavit</summary><p>Na stránce Upgrady: <b>Zastavit po aktuálním zařízení</b> (bezpečné) nebo <b>Zrušit</b>. Rozpracované zařízení se vždy nejdřív bezpečně dokončí nebo uklidí, nikdy se nenechá uprostřed.</p></details>
@@ -347,7 +348,7 @@ function renderSettings(m) {
     <h2>Verze</h2>
     ${f('min_release_age_days', 'min. stáří verze (dní)', 'number', '0.5')}${f('zero_release_min_days', 'min. stáří první verze větve x.y.0 (dní)')}<label class="wide">zakázané verze (čárkou)<input name="bad_versions" type="text" value="${esc(s.bad_versions)}" placeholder="7.19.4, 7.23.4"></label>
     <h2>Průběh a bezdrátové spoje</h2>
-    ${f('reboot_timeout_min', 'návrat po restartu (min)')}${f('pause_between_devices_sec', 'pauza mezi zařízeními (s)')}${f('link_wait_min', 'čekání na obnovení spojů (min)')}${f('link_return_pct', 'návrat klientů sektoru (%)')}
+    ${f('reboot_timeout_min', 'návrat po restartu (min)')}${f('pause_between_devices_sec', 'pauza mezi zařízeními (s)')}${f('link_wait_min', 'čekání na obnovení spojů (min)')}${f('link_return_pct', 'návrat klientů sektoru (%)')}${f('preventive_reboot_days', 'preventivní restart při uptime nad (dní, 0 = vypnuto)')}
     ${c('confirm_after_precheck', 'po předběžné kontrole čekat na „Pokračovat“, když má některé zařízení varování nebo se přeskočí (jinak se jede rovnou a zastaví až chyba)')}
     ${c('require_peer_in_job', 'blokovat upgrade, když druhý konec 60 GHz spoje není ve stejném jobu (jinak jen varování)')}
     ${c('v7_via_712_small_flash', 'u 16 MB zařízení jít z v6 na v7 přes mezikrok 7.12.x')}
@@ -374,7 +375,7 @@ function renderSettings(m) {
   <div class="panel"><details id="auditbox"><summary><b>Kdo co dělal</b> (audit posledních akcí)</summary><div id="auditlist" class="hint">načítám…</div></details></div>` : ''}
   <div class="panel"><details ${state.advanced ? 'open' : ''}><summary><b>Jak to funguje</b> (podrobně)</summary><ul class="plain">
     <li><b>Sken</b> jen čte: verze, model, architektura, firmware, místo, RAM, balíčky, rizikové příznaky. Nikdy nic nemění.</li>
-    <li><b>Job</b> zpracovává zařízení <b>sériově</b>, jedno po druhém. Před každým krokem znovu zjistí živý stav a přepočítá plán.</li>
+    <li><b>Job</b> zpracovává zařízení <b>sériově</b>, jedno po druhém (každý uživatel má svou frontu, naráz běží nejvýš jeden job na uživatele; „spustit v“ naplánuje start na zadaný čas). Před každým krokem znovu zjistí živý stav a přepočítá plán.</li>
     <li>Pořadí hopů: v6.x → nejnovější v6 long-term → v7 (cíl podle tracku). Nikdy se nedowngraduje.</li>
     <li>Před hopem: export konfigurace (.rsc, vždy) + binární .backup (přes SFTP) se stáhnou sem na server.</li>
     <li>Balíčky (.npk) stahuje server z download.mikrotik.com, ověří velikost, nahraje přes SFTP a znovu ověří na routeru (název + velikost, žádný cizí .npk). Až potom restart.</li>
@@ -524,12 +525,12 @@ function renderModal() {
         <label class="check"><input type="checkbox" name="device_mode" checked> device-mode plné ovládání (potvrzení PoE restartem přes nadřazený MikroTik)</label>
         <label class="check"><input type="checkbox" name="precheck" checked> nejdřív zkontrolovat všechna zařízení; při přeskočení/upozornění počkat na potvrzení</label>
         <label>režim<select name="mode"><option value="upload">upload — server nahraje balíčky přes SFTP (doporučeno)</option><option value="router">router — vlastní updater routeru (potřebuje internet)</option></select></label>
-        <label>servisní okno (HH:MM-HH:MM, prázdné = hned)<input name="window" placeholder="01:00-05:00"></label>
+        <label>spustit v (prázdné = hned)<input name="start_at" type="datetime-local" min="${localDt(Date.now())}"></label>
         <label>pauza mezi zařízeními (s)<input name="pause_sec" type="number" value="${esc(state.settings.pause_between_devices_sec)}"></label>
         <label class="check"><input type="checkbox" name="allow_routing_migration"> povolit v6→v7 i s BGP/OSPF/filtry (jen pro tento job)</label>
         <label class="check"><input type="checkbox" name="allow_small_flash"> povolit v6→v7 na 16 MB flash (jen pro tento job)</label>` : `
         <label class="check wide"><input type="checkbox" name="canary" ${devs.length > 3 ? 'checked' : ''}> nejdřív jeden kus od každého modelu, pak se zastavit a počkat na moje potvrzení</label>
-        <label>servisní okno (prázdné = hned)<input name="window" placeholder="01:00-05:00"></label>`}
+        <label>spustit v (prázdné = hned)<input name="start_at" type="datetime-local" min="${localDt(Date.now())}"></label>`}
         <div class="wide row"><button class="primary" name="go" value="start">▶ Spustit upgrade</button><button name="go" value="check">Jen zkontrolovat (nic se nezmění)</button>${adv ? '<button name="go" value="create">Jen vytvořit</button>' : ''}<button type="button" id="mclose">Zavřít</button></div></form></div>`;
     $('#jobf').onsubmit = async (e) => { e.preventDefault(); const fd = new FormData(e.target); const go = e.submitter && e.submitter.value;
       const o = { dry_run: go === 'check', firmware: adv ? !!fd.get('firmware') : true, stop_on_failure: adv ? !!fd.get('stop_on_failure') : true, canary: !!fd.get('canary'), require_binary_backup: adv ? !!fd.get('require_binary_backup') : false, device_mode: adv ? !!fd.get('device_mode') : true, precheck: adv ? !!fd.get('precheck') : true, allow_routing_migration: adv ? !!fd.get('allow_routing_migration') : false, allow_small_flash: adv ? !!fd.get('allow_small_flash') : false, mode: adv ? fd.get('mode') : 'upload', window: fd.get('window') || '', pause_sec: adv ? +fd.get('pause_sec') : undefined };
@@ -539,6 +540,7 @@ function renderModal() {
   }
   const c = $('#mclose'); if (c) c.onclick = closeModal;
 }
+function localDt(ms) { const d = new Date(ms); const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
 function defaultJobName(devs) {
   const date = new Date().toLocaleDateString('cs-CZ');
   if (devs.length === 1) return `Upgrade ${devName(devs[0])} (${devs[0].host}) ${date}`;
@@ -597,7 +599,7 @@ function connectSSE() {
     else if (ev.type === 'job' && ev.job) { const i = state.jobs.findIndex(j => j.id === ev.job.id); if (i >= 0) state.jobs[i] = ev.job; else state.jobs.unshift(ev.job); if (state.job && state.job.job.id === ev.job.id) { state.job.job = { ...state.job.job, ...ev.job }; } if (state.view === 'jobs') render(); }
     else if (ev.type === 'item' && state.job && ev.item.job_id === state.job.job.id) { const i = state.job.items.findIndex(x => x.id === ev.item.id); if (i >= 0) state.job.items[i] = { ...state.job.items[i], ...ev.item }; if (state.view === 'jobs') renderJobDetail(); }
     else if (ev.type === 'log' && state.job && ev.log.job_id === state.job.job.id) { state.jobLog.push(ev.log); const l = $('#joblog'); if (l) { const atBottom = l.scrollTop + l.clientHeight >= l.scrollHeight - 30; l.insertAdjacentHTML('beforeend', logLine(ev.log)); if (atBottom) l.scrollTop = l.scrollHeight; } }
-    else if (ev.type === 'runner') { state.runner = ev.status; render(); }
+    else if (ev.type === 'runner') { if (state.auth.user && ev.status.ownerId === state.auth.user.id) { state.runner = { ...ev.status, others: state.runner.others }; render(); } else if (state.admin) loadState().then(render); }
     else if (ev.type === 'discovery' || ev.type === 'discovery-done') { state.discovery = ev.state; const r = $('#discres'); if (r) r.innerHTML = discoveryHtml(ev.state); if (ev.type === 'discovery-done') { toast(`sken rozsahu hotov: ${ev.state.added} nových zařízení`); loadState().then(() => { if (state.modal && state.modal.type === 'discover') renderModal(); else render(); }); } }
     else if (ev.type === 'discovery-error') toast('sken rozsahu: ' + ev.error, true);
     else if (ev.type === 'devices-changed') loadState().then(render);

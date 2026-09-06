@@ -7,7 +7,7 @@ const cfg = require('./lib/config');
 const db = require('./lib/db');
 const { encrypt, decrypt, makeSession, checkSession, hashPassword, verifyPassword } = require('./lib/crypto');
 const V = require('./lib/versions');
-const { Runner } = require('./lib/runner');
+const { RunnerPool } = require('./lib/runner');
 const { Scanner } = require('./lib/scanner');
 const { plan } = require('./lib/planner');
 const sso = require('./lib/sso');
@@ -15,7 +15,7 @@ const { Discovery } = require('./lib/discovery');
 
 const bus = new EventEmitter();
 bus.setMaxListeners(200);
-const runner = new Runner();
+const runner = new RunnerPool(); // jeden runner na uživatele
 runner.on('event', (ev) => bus.emit('event', ev));
 const scanner = new Scanner(runner, bus);
 const discovery = new Discovery(bus);
@@ -69,10 +69,9 @@ const ownsJob = (req, job) => !!job && (isAdmin(req) || job.owner_id === req.use
 const visDevices = (req) => isAdmin(req) ? db.listDevices() : db.listDevices(req.user.id);
 const visJobs = (req, n) => isAdmin(req) ? db.listJobs(n) : db.listJobs(n, req.user.id);
 const runnerStatusFor = (req) => {
-  const st = runner.status();
-  if (!st.running || isAdmin(req)) return st;
-  const job = db.getJob(st.jobId);
-  return ownsJob(req, job) ? st : { running: true, foreign: true, jobId: 0, itemId: 0, deviceId: 0 };
+  const st = runner.status(req.user.id);
+  if (isAdmin(req)) st.others = runner.running().filter(x => x.ownerId !== req.user.id).map(x => { const j = db.getJob(x.jobId); const u = db.getUser(x.ownerId); return { jobId: x.jobId, name: j ? j.name : '', user: u ? u.name : '?' }; });
+  return st;
 };
 const discoveryFor = (req) => { const st = discovery.status(); return st && (isAdmin(req) || st.ownerId === req.user.id) ? st : null; };
 /** SSE: událost projde jen tomu, kdo smí vidět dotčené zařízení / job */
@@ -85,7 +84,7 @@ function eventFor(req, ev) {
     case 'job': return ev.job && ev.job.owner_id === uid ? ev : null;
     case 'item': { const j = ev.item && db.getJob(ev.item.job_id); return j && j.owner_id === uid ? ev : null; }
     case 'log': { const j = ev.log && db.getJob(ev.log.job_id); return j && j.owner_id === uid ? ev : null; }
-    case 'runner': return { ...ev, status: runnerStatusFor(req) };
+    case 'runner': return ev.status && ev.status.ownerId === uid ? ev : null;
     case 'discovery': case 'discovery-done': return ev.state && ev.state.ownerId === uid ? ev : null;
     case 'discovery-error': case 'devices-changed': case 'latest': case 'scan-done': return ev;
     default: return null;
@@ -298,12 +297,13 @@ async function api(req, res, method, p, url) {
     const o = b.options || {};
     const options = {
       dry_run: !!o.dry_run, mode: o.mode === 'router' ? 'router' : 'upload', firmware: o.firmware !== false, stop_on_failure: o.stop_on_failure !== false,
-      canary: !!o.canary, window: (o.window || '').trim(), pause_sec: Number.isFinite(+o.pause_sec) ? +o.pause_sec : undefined,
+      canary: !!o.canary, pause_sec: Number.isFinite(+o.pause_sec) ? +o.pause_sec : undefined,
       require_binary_backup: !!o.require_binary_backup, allow_routing_migration: !!o.allow_routing_migration, allow_small_flash: !!o.allow_small_flash,
       device_mode: o.device_mode !== false,
       precheck: o.precheck !== false,
     };
-    if (options.window && !/^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}$/.test(options.window)) throw new Error('servisní okno zadej jako HH:MM-HH:MM');
+    // naplánovaný start: čas v sekundách; v minulosti nebo prázdné = hned
+    if (o.start_at) { const t = Math.floor(new Date(o.start_at).getTime() / 1000); if (!Number.isFinite(t)) throw new Error('čas spuštění nejde přečíst'); if (t > Date.now() / 1000 + 60) options.start_at = t; }
     // pořadí: nejdřív potomci (hloubka v topologii sestupně), pak priorita; u kanárků první zařízení každého modelu napřed
     const depth = (id) => db.ancestorIds(id).length;
     const devs = ids.map(id => db.getDevice(id)).filter(d => d.managed).map(d => ({ ...d, depth: depth(d.id) })).sort((a, b2) => b2.depth - a.depth || a.priority - b2.priority || a.host.localeCompare(b2.host));
@@ -318,8 +318,9 @@ async function api(req, res, method, p, url) {
     const jobId = db.createJob(b.name || `Upgrade ${new Date().toLocaleString('cs-CZ')}`, options, devs.map(d => d.id), req.user.id);
     if (options.canary) for (const it of db.getJobItems(jobId)) if (canaryIds.has(it.device_id)) db.updateJobItem(it.id, { plan: { canary: true } });
     db.addLog(jobId, 0, 0, 'info', `Job vytvořen (${options.by}): ${devs.length} zařízení, ${JSON.stringify(options)}`);
-    if (b.start) runner.start(jobId);
-    bus.emit('event', { type: 'job', job: db.listJobs(1)[0] });
+    if (b.start && options.start_at) { db.updateJob(jobId, { status: 'scheduled', status_note: `spustí se ${new Date(options.start_at * 1000).toLocaleString('cs-CZ')}` }); db.addLog(jobId, 0, 0, 'info', `Naplánováno na ${new Date(options.start_at * 1000).toLocaleString('cs-CZ')} (${who(req)}).`); }
+    else if (b.start) runner.start(jobId);
+    bus.emit('event', { type: 'job', job: db.listJobs(200).find(j => j.id === jobId) });
     return send(res, 200, { id: jobId });
   }
   if (seg[0] === 'jobs' && seg[1]) {
@@ -328,28 +329,29 @@ async function api(req, res, method, p, url) {
     if (!ownsJob(req, job)) return send(res, 404, { error: 'job neexistuje' });
     if (method === 'GET' && !seg[2]) return send(res, 200, { job, items: db.getJobItems(id), log: db.getLog(id, parseInt(q.get('after') || '0', 10)) });
     if (method === 'GET' && seg[2] === 'log') return send(res, 200, db.getLog(id, parseInt(q.get('after') || '0', 10)));
-    if (method === 'POST' && seg[2] === 'start') { db.addLog(id, 0, 0, 'info', `Spuštění: ${who(req)}`); audit(req, 'job spuštěn', `#${id} ${job.name}`); runner.start(id); return send(res, 200, runner.status()); }
-    if (method === 'POST' && seg[2] === 'pause') { if (runner.currentJobId !== id) throw new Error('tento job neběží'); db.addLog(id, 0, 0, 'info', `Pozastavení: ${who(req)}`); audit(req, 'job pozastaven', `#${id}`); runner.pause(); return send(res, 200, runner.status()); }
+    const rj = runner.runnerOfJob(id); // runner, ve kterém job právě běží (null = neběží)
+    if (method === 'POST' && seg[2] === 'start') { db.addLog(id, 0, 0, 'info', `Spuštění: ${who(req)}`); audit(req, 'job spuštěn', `#${id} ${job.name}`); runner.start(id); return send(res, 200, runnerStatusFor(req)); }
+    if (method === 'POST' && seg[2] === 'pause') { if (!rj) throw new Error('tento job neběží'); db.addLog(id, 0, 0, 'info', `Pozastavení: ${who(req)}`); audit(req, 'job pozastaven', `#${id}`); rj.pause(); return send(res, 200, runnerStatusFor(req)); }
     if (method === 'POST' && seg[2] === 'cancel') {
       db.addLog(id, 0, 0, 'warn', `Zrušení: ${who(req)}`); audit(req, 'job zrušen', `#${id}`);
-      if (runner.currentJobId === id) runner.cancel();
+      if (rj) rj.cancel();
       else { db.updateJob(id, { status: 'cancelled', status_note: 'zrušeno', finished_at: db.now() }); for (const it of db.getJobItems(id)) if (it.status === 'pending') db.updateJobItem(it.id, { status: 'skipped', error: 'job zrušen' }); }
       bus.emit('event', { type: 'job', job: db.listJobs(200).find(j => j.id === id) });
-      return send(res, 200, runner.status());
+      return send(res, 200, runnerStatusFor(req));
     }
     if (method === 'POST' && seg[2] === 'continue') {
       db.addLog(id, 0, 0, 'info', `Pokračování: ${who(req)}`); audit(req, 'job pokračuje', `#${id}`);
       if (job.options.canary && job.status === 'waiting' && !/^kontrola hotová/.test(job.status_note || '')) db.updateJob(id, { options: { ...job.options, canaryDone: true } });
       runner.start(id);
-      return send(res, 200, runner.status());
+      return send(res, 200, runnerStatusFor(req));
     }
-    if (method === 'POST' && seg[2] === 'skip-current') { if (runner.currentJobId !== id) throw new Error('tento job neběží'); db.addLog(id, 0, 0, 'warn', `Přeskočení aktuálního: ${who(req)}`); audit(req, 'job přeskočení', `#${id}`); runner.skipCurrent(); return send(res, 200, { ok: true }); }
-    if (method === 'DELETE' && !seg[2]) { if (runner.currentJobId === id) throw new Error('job právě běží'); audit(req, 'job smazán', `#${id} ${job.name}`); db.deleteJob(id); bus.emit('event', { type: 'job-deleted', id }); return send(res, 200, { ok: true }); }
+    if (method === 'POST' && seg[2] === 'skip-current') { if (!rj) throw new Error('tento job neběží'); db.addLog(id, 0, 0, 'warn', `Přeskočení aktuálního: ${who(req)}`); audit(req, 'job přeskočení', `#${id}`); rj.skipCurrent(); return send(res, 200, { ok: true }); }
+    if (method === 'DELETE' && !seg[2]) { if (rj) throw new Error('job právě běží'); audit(req, 'job smazán', `#${id} ${job.name}`); db.deleteJob(id); bus.emit('event', { type: 'job-deleted', id }); return send(res, 200, { ok: true }); }
   }
   if (seg[0] === 'items' && seg[1] && method === 'POST') {
     const it = db.getJobItem(parseInt(seg[1], 10));
     if (!it || !ownsJob(req, db.getJob(it.job_id))) return send(res, 404, { error: 'položka neexistuje' });
-    if (runner.currentItemId === it.id) throw new Error('položka právě běží');
+    if (runner.isItemBusy(it.id)) throw new Error('položka právě běží');
     if (seg[2] === 'skip') { db.updateJobItem(it.id, { status: 'skipped', error: `přeskočeno (${who(req)})`, finished_at: db.now() }); db.addLog(it.job_id, it.id, it.device_id, 'warn', `Položka přeskočena: ${who(req)}`); }
     else if (seg[2] === 'retry') { db.addLog(it.job_id, it.id, it.device_id, 'info', `Položka znovu do fronty: ${who(req)}`); db.updateJobItem(it.id, { status: 'pending', error: '', step: '', started_at: 0, finished_at: 0 }); const j = db.getJob(it.job_id); if (['done', 'cancelled'].includes(j.status)) db.updateJob(it.job_id, { status: 'paused', status_note: 'položka vrácena do fronty', finished_at: 0 }); }
     else return send(res, 404, { error: 'neznámá akce' });
