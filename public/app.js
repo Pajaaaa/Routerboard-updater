@@ -303,7 +303,7 @@ function renderHelp(m) {
     <li><b>Počkej na kontrolu.</b> Každé nové zařízení se hned zkontroluje. Ve sloupci Stav uvidíš „aktuální“, „upgrade na …“ nebo důvod, proč to nejde (nedostupné, špatné heslo).</li>
     <li><b>Zkontroluj strom.</b> Seznam je seřazený jako strom: hlavní prvek (router, PoE switch) nahoře, pod ním odsazené to, co napájí nebo připojuje. Nástroj si vazby většinou zjistí sám. Když je něco špatně, klikni na tužku ✎ u zařízení a nastav <b>nadřazený prvek</b> = to zařízení, které ho napájí nebo přes které je připojené. Na pořadí záleží: nejdřív se upgradují antény, nakonec to, co je napájí, aby nikomu nevypadl proud uprostřed zápisu.</li>
     <li><b>Spusť upgrade.</b> Buď <b>Upgradovat vše potřebné</b> nahoře, nebo zaškrtni zařízení a dej <b>Upgradovat vybrané</b>, nebo <b>Upgradovat</b> u jednoho řádku. V dialogu nech výchozí volby a klikni <b>Spustit upgrade</b>.</li>
-    <li><b>Kontrola.</b> Nejdřív se všechna zařízení zkontrolují. Když je vše v pořádku, upgrade pokračuje sám. Když se něco přeskočí (chybí místo, čerstvá verze, nedostupné), ukáže se souhrn a čeká se na <b>Pokračovat</b>. Přeskočená zařízení se nedotknou.</li>
+    <li><b>Kontrola.</b> Nejdřív se všechna zařízení zkontrolují a upgrade pokračuje hned sám. Zařízení s překážkou (chybí místo, čerstvá verze, nedostupné) se přeskočí a nedotknou, upozornění zůstanou v logu. Zastaví se až skutečná chyba při upgradu. Kdo chce po kontrole potvrzovat ručně, zapne to v Nastavení.</li>
     <li><b>Průběh.</b> Na stránce Upgrady vidíš, které zařízení se právě dělá a jaký krok. Stránku můžeš zavřít, běží to na serveru. Jedno zařízení trvá obvykle 3 až 10 minut, u přechodu z v6 na v7 i 20 minut (víc restartů).</li>
     <li><b>Když se to zastaví.</b> Červený pruh řekne proč. Podívej se na zařízení (ping, Winbox). Když je v pořádku, klikni <b>Pokračovat</b>, chybné se přeskočí a jede se dál. Nebo u položky dej <b>znovu</b>. Nadřazený prvek chybného zařízení se neupgraduje, dokud chybu nevyřešíš.</li>
     <li><b>Hotovo.</b> Ve Stavu zařízení je „aktuální“. Zálohy konfigurace najdeš v detailu zařízení (klik na název).</li>
@@ -341,6 +341,7 @@ function renderSettings(m) {
     ${f('min_release_age_days', 'min. stáří verze (dní)', 'number', '0.5')}${f('zero_release_min_days', 'min. stáří první verze větve x.y.0 (dní)')}<label class="wide">zakázané verze (čárkou)<input name="bad_versions" type="text" value="${esc(s.bad_versions)}" placeholder="7.19.4, 7.23.4"></label>
     <h2>Průběh a bezdrátové spoje</h2>
     ${f('reboot_timeout_min', 'návrat po restartu (min)')}${f('pause_between_devices_sec', 'pauza mezi zařízeními (s)')}${f('link_wait_min', 'čekání na obnovení spojů (min)')}${f('link_return_pct', 'návrat klientů sektoru (%)')}
+    ${c('confirm_after_precheck', 'po předběžné kontrole čekat na „Pokračovat“, když má některé zařízení varování nebo se přeskočí (jinak se jede rovnou a zastaví až chyba)')}
     ${c('require_peer_in_job', 'blokovat upgrade, když druhý konec 60 GHz spoje není ve stejném jobu (jinak jen varování)')}
     ${c('v7_via_712_small_flash', 'u 16 MB zařízení jít z v6 na v7 přes mezikrok 7.12.x')}
     ${c('firmware_before_v7', 'před přechodem 6 → 7 nejdřív upgradovat RouterBOOT ještě na v6')}
