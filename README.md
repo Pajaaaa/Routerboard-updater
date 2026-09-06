@@ -22,6 +22,9 @@ je postupně, **jedno po druhém**, upgraduje na nejnovější verzi podle track
   bez aktivity. Po přerušeném uploadu se tool znovu připojí a částečně nahraný `.npk` z routeru smaže.
 - **Po restartu:** čeká se na výpadek a návrat (timeout v nastavení), ověří se identita/sériové číslo, verze, rozhraní, IP adresy, bezdrát.
   Pak volitelně `/system routerboard upgrade` (přes dočasný skript, bez interaktivního dotazu) + další restart + ověření.
+- **Služby routeru:** volitelně (Nastavení) při ostrém běhu `/ip service`: služby mimo seznam vypnout, všem nastavit povolené adresy.
+  ssh se nikdy nevypne, adresy se použijí jen když obsahují i IP serveru (ochrana proti zamknutí); mění se jen odchylky, dry run jen vypíše.
+- **Vzdálené logování:** volitelně (Nastavení) při ostrém běhu `/system logging action` target=remote + pravidlo pro každé téma; přidá jen, co chybí.
 - **Stop při chybě** (výchozí), **dry run** (jen plán), **kanárci** (první kus od každého modelu, pak čekání na potvrzení), **servisní okno**, pauza mezi zařízeními.
 - Restart serveru uprostřed jobu → job se pozastaví, rozpracovaná položka dostane stav „neznámý" (nutný sken).
 
