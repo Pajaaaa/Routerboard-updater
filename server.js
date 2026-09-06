@@ -68,7 +68,7 @@ function isAdmin(req) {
   if (!req.user || !req.user.email) return true;  // přihlášení sdíleným heslem = správce
   return admins.includes(req.user.email.toLowerCase());
 }
-const audit = (req, action, detail) => db.audit(who(req), action, detail);
+const audit = (req, action, detail) => db.audit(who(req), action, detail, clientIp(req));
 function adminOnly(req, res) { if (isAdmin(req)) return true; send(res, 403, { error: 'tuhle akci smí jen správce' }); return false; }
 
 // ---------- API ----------

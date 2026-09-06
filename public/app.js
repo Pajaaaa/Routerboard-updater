@@ -334,25 +334,27 @@ function renderSettings(m) {
   const s = state.settings;
   const f = (k, label, type = 'number', step = '1') => `<label>${label}<input name="${k}" type="${type}" step="${step}" value="${esc(s[k])}"></label>`;
   const c = (k, label) => `<label class="check"><input type="checkbox" name="${k}" ${s[k] ? 'checked' : ''}> ${label}</label>`;
-  m.innerHTML = `<h1>Nastavení</h1><div class="hint" style="margin-bottom:10px">Výchozí hodnoty jsou bezpečné, běžně tu není potřeba nic měnit.${state.admin ? '' : ' Měnit je smí jen správce.'}</div><div class="panel"><h2>Bezpečnostní limity</h2><form id="setf" class="form" ${state.admin ? '' : 'style="pointer-events:none;opacity:.7"'}>
-    ${f('min_uptime_min', 'min. uptime před upgradem (min)')}${f('min_free_mem_mb', 'min. volná RAM (MB)')}${f('space_margin_mb', 'rezerva místa navíc k balíčkům (MB)', 'number', '0.5')}
-    ${f('reboot_timeout_min', 'timeout návratu po restartu (min)')}${f('pause_between_devices_sec', 'pauza mezi zařízeními (s)')}${f('ssh_timeout_sec', 'SSH timeout připojení (s)')}
-    ${f('min_release_age_days', 'min. stáří verze (dní) — čerstvé verze mívají bootloopy', 'number', '0.5')}<label>zakázané verze (čárkou)<input name="bad_versions" type="text" value="${esc(s.bad_versions)}"></label>
-    <div class="wide">${c('v7_via_712_small_flash', 'u 16 MB zařízení jít z v6 na v7 přes mezikrok 7.12.x (přímý skok hlásí „not enough space for upgrade")')}</div>
-    <div class="wide">${c('firmware_before_v7', 'před přechodem 6 → 7 nejdřív upgradovat RouterBOOT ještě na v6 (doporučení MikroTik)')}</div>
-    <div class="wide">${c('use_partition_fallback', 'u zařízení s více oddíly (/partitions) před upgradem zkopírovat běžící systém do záložního oddílu = automatický fallback při nenabootování')}</div>
-    <div class="wide">${c('allow_v7_routing_migration', 'povolit přechod v6 → v7 na zařízeních s BGP / OSPF / routing filtry / MPLS (jinak blokováno)')}</div>
-    <div class="wide">${c('allow_v7_small_flash', 'povolit v6 → v7 na zařízeních s 16 MB flash bez adresáře flash (jinak blokováno)')}</div>
-    <div class="wide">${c('allow_v7_low_ram', 'povolit v7 na zařízeních s méně než 64 MB RAM (RB750, hAP lite — MikroTik nedoporučuje, hrozí OOM bootloop)')}</div>
-    <div class="wide"><h2 style="margin-top:8px">Bezdrátové spoje a verze</h2></div>
-    ${f('zero_release_min_days', 'min. stáří první verze větve x.y.0 (dní) — od 7.13 dostala každá do 14 dní opravu')}${f('link_wait_min', 'čekání na obnovení spojů po restartu (min; DFS až 10)')}${f('link_return_pct', 'kolik % klientů sektoru se musí vrátit (jinak položka selže)')}
-    <div class="wide">${c('require_peer_in_job', 'blokovat upgrade, když druhý konec 60 GHz spoje není ve stejném jobu (jinak jen varování)')}</div>
-    <div class="wide"><h2 style="margin-top:8px">Služby routeru (/ip service) při upgradu</h2></div>
-    <div class="wide">${c('harden_services', 'při ostrém běhu vypnout služby mimo seznam níže a všem službám nastavit povolené adresy (ssh se nikdy nevypne; adresy se nastaví jen když je v nich i IP tohoto serveru)')}</div>
+  m.innerHTML = `<h1>Nastavení</h1><div class="hint" style="margin-bottom:10px">Výchozí hodnoty jsou bezpečné, běžně tu není potřeba nic měnit.${state.admin ? '' : ' Měnit je smí jen správce.'}</div><div class="panel"><form id="setf" class="form" ${state.admin ? '' : 'style="pointer-events:none;opacity:.7"'}>
+    <h2>Kontroly před upgradem</h2>
+    ${f('min_uptime_min', 'min. uptime zařízení (min)')}${f('min_free_mem_mb', 'min. volná RAM (MB)')}${f('space_margin_mb', 'rezerva místa k balíčkům (MB)', 'number', '0.5')}${f('ssh_timeout_sec', 'SSH timeout připojení (s)')}
+    <h2>Verze</h2>
+    ${f('min_release_age_days', 'min. stáří verze (dní)', 'number', '0.5')}${f('zero_release_min_days', 'min. stáří první verze větve x.y.0 (dní)')}<label class="wide">zakázané verze (čárkou)<input name="bad_versions" type="text" value="${esc(s.bad_versions)}" placeholder="7.19.4, 7.23.4"></label>
+    <h2>Průběh a bezdrátové spoje</h2>
+    ${f('reboot_timeout_min', 'návrat po restartu (min)')}${f('pause_between_devices_sec', 'pauza mezi zařízeními (s)')}${f('link_wait_min', 'čekání na obnovení spojů (min)')}${f('link_return_pct', 'návrat klientů sektoru (%)')}
+    ${c('require_peer_in_job', 'blokovat upgrade, když druhý konec 60 GHz spoje není ve stejném jobu (jinak jen varování)')}
+    ${c('v7_via_712_small_flash', 'u 16 MB zařízení jít z v6 na v7 přes mezikrok 7.12.x')}
+    ${c('firmware_before_v7', 'před přechodem 6 → 7 nejdřív upgradovat RouterBOOT ještě na v6')}
+    ${c('use_partition_fallback', 'u zařízení s více oddíly zkopírovat běžící systém do záložního oddílu (fallback při nenabootování)')}
+    <h2>Povolit rizikové (jinak blokováno)</h2>
+    ${c('allow_v7_routing_migration', 'přechod v6 → v7 s BGP / OSPF / routing filtry / MPLS')}
+    ${c('allow_v7_small_flash', 'přechod v6 → v7 na 16 MB flash bez adresáře flash')}
+    ${c('allow_v7_low_ram', 'v7 na zařízeních s méně než 64 MB RAM (RB750, hAP lite — hrozí OOM bootloop)')}
+    <h2>Služby routeru (/ip service)</h2>
+    ${c('harden_services', 'při ostrém běhu vypnout služby mimo seznam a všem nastavit povolené adresy (ssh se nikdy nevypne, adresy jen když obsahují IP tohoto serveru)')}
     <label>zapnuté služby (čárkou)<input name="services_keep" type="text" value="${esc(s.services_keep)}" placeholder="ssh,winbox"></label>
-    <div class="wide"><label>povolené adresy / CIDR pro služby (čárkou; prázdné = adresy neměnit)<input name="services_address" type="text" value="${esc(s.services_address)}" placeholder="10.0.0.0/8,192.168.0.0/16,2001:db8::/32"></label></div>
-    <div class="wide"><h2 style="margin-top:8px">Vzdálené logování (syslog) při upgradu</h2></div>
-    <div class="wide">${c('remote_log_enable', 'při ostrém běhu zajistit /system logging action target=remote a pravidla pro témata níže (přidá se jen, co chybí)')}</div>
+    <label class="wide">povolené adresy / CIDR (čárkou; prázdné = adresy neměnit)<input name="services_address" type="text" value="${esc(s.services_address)}" placeholder="10.0.0.0/8,192.168.0.0/16,2001:db8::/32"></label>
+    <h2>Vzdálené logování (syslog)</h2>
+    ${c('remote_log_enable', 'při ostrém běhu zajistit logging action target=remote a pravidla pro témata (přidá se jen, co chybí)')}
     <label>IP syslog serveru<input name="remote_log_host" type="text" value="${esc(s.remote_log_host)}" placeholder="192.0.2.10"></label>
     <label>název logging action<input name="remote_log_name" type="text" value="${esc(s.remote_log_name)}" placeholder="remote"></label>
     <label>témata (čárkou)<input name="remote_log_topics" type="text" value="${esc(s.remote_log_topics)}" placeholder="critical,error,info,warning"></label>
@@ -376,7 +378,7 @@ function renderSettings(m) {
     <li><b>Nejčastější příčiny umrtvení dle fór/dokumentace MikroTik a opatření:</b> výpadek napájení během zápisu (→ kontrola napětí, nikdy nerestartovat nadřazený PoE prvek během upgradu potomka, servisní okno); neúplný/poškozený balíček a přesto restart (→ kontrola velikosti proti download.mikrotik.com, žádný cizí .npk, bez ověření se nerestartuje); chybějící wireless/wifi balíček po 7.13 (→ doplní se podle rozhraní, i 60GHz); „not enough space" na 16 MB flash (→ mezikrok 7.12.x, upload se při selhání uklidí); kernel bugy čerstvých verzí a bootloopy (→ min. stáří verze, zakázané verze, kanárci po modelech); starý RouterBOOT před v7 (→ firmware ještě na v6); konverze konfigurace 6→7 (BGP/OSPF/filtry/MPLS blokováno, VLAN filtering varování); protected-routerboot (varování, Netinstall nejde); auto-upgrade firmware routeru (→ čeká se na druhý restart); víc oddílů (→ kopie do záložního oddílu + fallback-to).</li>
     <li><b>Firewall na routerech:</b> nástroj se připojuje z IP serveru, na kterém běží. Pokud mají routery brute-force ochranu SSH (address-list ssh_blacklist apod.), doporučuji tuto IP přidat do výjimky — nástroj sice rozestupuje opakovaná spojení na 65 s, ale sken + job dělají několik přihlášení za sebou.</li>
     <li>Čeho se nástroj netýká: fyzicky mrtvá zařízení (výpadek napájení během zápisu) řeší jen Netinstall — proto se nikdy nerestartuje bez ověřených balíčků a zálohy.</li></ul></details></div>`;
-  const ab = $('#auditbox'); if (ab) ab.ontoggle = async () => { if (!ab.open) return; try { const rows = await api('/audit'); $('#auditlist').innerHTML = rows.length ? `<table>${rows.map(r => `<tr><td class="muted">${fmtTs(Math.floor(r.ts / 1000))}</td><td>${esc(r.user)}</td><td>${esc(r.action)}</td><td class="muted" style="white-space:normal">${esc(r.detail)}</td></tr>`).join('')}</table>` : 'zatím nic'; } catch (e) { $('#auditlist').textContent = e.message; } };
+  const ab = $('#auditbox'); if (ab) ab.ontoggle = async () => { if (!ab.open) return; try { const rows = await api('/audit'); $('#auditlist').innerHTML = rows.length ? `<table>${rows.map(r => `<tr><td class="muted">${fmtTs(Math.floor(r.ts / 1000))}</td><td>${esc(r.user)}</td><td class="mono">${esc(r.ip || '')}</td><td>${esc(r.action)}</td><td class="muted" style="white-space:normal">${esc(r.detail)}</td></tr>`).join('')}</table>` : 'zatím nic'; } catch (e) { $('#auditlist').textContent = e.message; } };
   $('#setf').onsubmit = async (e) => { e.preventDefault(); const fd = new FormData(e.target); const body = {}; for (const k of Object.keys(s)) { const el = e.target.elements[k]; if (!el) continue; body[k] = el.type === 'checkbox' ? el.checked : el.type === 'text' ? el.value : parseFloat(el.value); } try { state.settings = await api('/settings', { method: 'PUT', body }); toast('uloženo'); render(); } catch (e2) { toast(e2.message, true); } };
 }
 
