@@ -20,9 +20,10 @@ const udb = require('../lib/userdb');
   for (const a of w.areas) console.log(`  ${a.role === 'SO' ? 'správce ' : 'zástupce'} ${a.name} (oblast ${a.id}): ${a.aps.map(p => `${p.name} [${p.id}${p.active ? '' : ', neaktivní'}]`).join(', ')}`);
   if (args.includes('--devices')) {
     const r = await udb.devicesFor(w);
-    console.log(`zařízení: ${r.devices.length} s loginem, ${r.missing.length} bez loginu v userdb`);
+    const mem = r.devices.filter(d => d.member).length, guess = r.devices.filter(d => d.apGuess).length;
+    console.log(`zařízení: ${r.devices.length} s loginem (z toho členů ${mem}${guess ? `, u ${guess} je AP jen odhad ze subnetu` : ''}), ${r.missing.length} bez loginu v userdb`);
     let last = '';
-    for (const d of r.devices) { const g = `${d.area} / ${d.ap}`; if (g !== last) { console.log(`  [${g}]`); last = g; } console.log(`    ${d.ip.padEnd(15)} ${(d.name || d.note || '').slice(0, 34).padEnd(34)} ${d.typeName.slice(0, 18).padEnd(18)} ${d.login} / ${'*'.repeat(Math.min(d.password.length, 12))}`); }
+    for (const d of r.devices) { const g = `${d.area} / ${d.ap}`; if (g !== last) { console.log(`  [${g}]`); last = g; } console.log(`    ${d.ip.padEnd(15)} ${(d.name || d.note || '').slice(0, 30).padEnd(30)} ${d.typeName.slice(0, 14).padEnd(14)} ${(d.member ? (d.apGuess ? 'člen (odhad AP)' : 'člen') : 'AP').padEnd(15)} ${d.login} / ${'*'.repeat(Math.min(d.password.length, 12))}`); }
     for (const d of r.missing) console.log(`    ${d.ip.padEnd(15)} ${(d.name || '').slice(0, 34).padEnd(34)} ${d.typeName.slice(0, 18).padEnd(18)} (${d.area} / ${d.ap}) — bez loginu`);
     const byType = {}; for (const d of [...r.devices, ...r.missing]) byType[d.typeName] = (byType[d.typeName] || 0) + 1;
     console.log('podle typu v userdb: ' + Object.entries(byType).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', '));
