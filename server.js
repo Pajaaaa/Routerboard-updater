@@ -23,6 +23,7 @@ const discovery = new Discovery(bus);
 bus.on('event', (ev) => { if (ev.type === 'discovery-done' && ev.state) { const ids = (ev.state.found || []).filter(f => f.id).map(f => f.id); if (ids.length) scanner.scanAll(ids).catch(() => {}); } });
 
 const { suggestParent } = require('./lib/topology');
+const userdb = require('./lib/userdb');
 function withSuggestions(devs) {
   // no_v7: pravidla ze seznamu HW bez v7, která na zařízení sedí (UI podle toho ukáže „povolit v7“ jen tam, kde má smysl)
   return devs.map(d => { const rules = NO_V7.filter(r => { try { return r.test(d); } catch { return false; } }); return { ...d, suggested_parent: suggestParent(d, devs), no_v7: rules.map(r => r.why), no_v7_hard: rules.some(r => r.hard) }; });
@@ -119,6 +120,21 @@ const runnerStatusFor = (req) => {
   st.others = isAdmin(req) ? others : others.map(o => ({ user: '', total: o.total, done: o.done, jobId: 0 }));
   return st;
 };
+const userdbImports = new Map(); // userId -> souhrn posledního importu z userdb (jen v paměti)
+/** účet ↔ správce v userdb (podle uid, e-mailu nebo přezdívky); vrací záznam správce nebo null */
+async function linkUserdb(userId, who) {
+  if (!userdb.enabled()) return null;
+  const u = db.getUser(userId);
+  if (u && u.userdb_uid) return userdb.whoIs({ uid: u.userdb_uid });
+  const w = await userdb.whoIs(who);
+  if (!w) return null;
+  const other = db.getUserByUserdbUid(w.id);
+  if (other && other.id !== userId) { console.warn(`userdb: správce ${w.nick} (uid ${w.id}) je už navázaný na účet ${other.name}, účet ${u && u.name} zůstává bez vazby`); return null; }
+  db.updateUser(userId, { userdb_uid: w.id, userdb_nick: w.nick, email: (u && u.email) || w.email || '' });
+  db.audit(u ? u.name : String(userId), 'účet navázán na userdb', `${w.nick} (uid ${w.id}), ${w.areas.length} oblastí`);
+  return w;
+}
+const userdbFor = (req) => { if (!userdb.enabled()) return { enabled: false }; const u = req.user && db.getUser(req.user.id); return { enabled: true, uid: (u && u.userdb_uid) || 0, nick: (u && u.userdb_nick) || '' }; };
 const discoveryFor = (req) => { const st = discovery.status(); return st && (isAdmin(req) || st.ownerId === req.user.id) ? st : null; };
 /** SSE: událost projde jen tomu, kdo smí vidět dotčené zařízení / job */
 function eventFor(req, ev) {
@@ -195,6 +211,11 @@ async function api(req, res, method, p, url) {
       const f = {};
       if (b.password) { if (String(b.password).length < 8) throw new Error('heslo musí mít aspoň 8 znaků'); f.pass_hash = hashPassword(b.password); }
       if (b.role) f.role = b.role === 'admin' ? 'admin' : 'user';
+      if ('userdb' in b) { // vazba na správce v userdb: uid, e-mail nebo přezdívka; prázdné = zrušit
+        const q = String(b.userdb || '').trim();
+        if (!q) { f.userdb_uid = 0; f.userdb_nick = ''; }
+        else { const w = await userdb.whoIs(/^\d+$/.test(q) ? { uid: q } : q.includes('@') ? { email: q } : { nick: q }); if (!w) throw new Error(`správce „${q}“ v userdb není (nebo nemá žádnou oblast)`); const other = db.getUserByUserdbUid(w.id); if (other && other.id !== uid) throw new Error(`na ${w.nick} (uid ${w.id}) je už navázaný účet ${other.name}`); f.userdb_uid = w.id; f.userdb_nick = w.nick; if (w.email && !u.email) f.email = w.email; }
+      }
       if ('disabled' in b) f.disabled = !!b.disabled;
       const losesAdmin = u.role === 'admin' && ((f.role && f.role !== 'admin') || f.disabled);
       if (losesAdmin && db.countAdmins() <= 1) throw new Error('nelze odebrat posledního správce');
@@ -220,6 +241,68 @@ async function api(req, res, method, p, url) {
   // zařízení
   if (method === 'GET' && p === '/api/devices') return send(res, 200, withSuggestions(visDevices(req)));
   // sken rozsahů
+  // ---- userdb (evidence hkfree): oblasti/APčka správce a import zařízení včetně loginů ----
+  if (seg[0] === 'userdb') {
+    if (!userdb.enabled()) return send(res, 404, { error: 'napojení na userdb není nakonfigurováno (MTU_USERDB_USER/PASS)' });
+    // správce může pracovat s účtem jiného uživatele (?user=ID), ostatní jen se sebou
+    const forId = isAdmin(req) && parseInt(url.searchParams.get('user') || 0, 10) ? parseInt(url.searchParams.get('user'), 10) : req.user.id;
+    const acct = db.getUser(forId);
+    if (!acct) return send(res, 404, { error: 'uživatel neexistuje' });
+    if (method === 'GET' && p === '/api/userdb/me') {
+      if (!acct.userdb_uid) return send(res, 200, { linked: false, user: { id: acct.id, name: acct.name } });
+      const w = await userdb.whoIs({ uid: acct.userdb_uid });
+      if (!w) return send(res, 200, { linked: false, user: { id: acct.id, name: acct.name }, error: `uid ${acct.userdb_uid} už v userdb není správcem žádné oblasti` });
+      const mine = db.listDevices(acct.id);
+      const areas = [];
+      for (const a of w.areas) {
+        const aps = [];
+        for (const ap of a.aps) {
+          const list = await userdb.devicesForAp(ap.id).catch(() => []);
+          const inDb = mine.filter(d => d.userdb_ap_id === ap.id).length;
+          aps.push({ id: ap.id, name: ap.name, active: ap.active, address: ap.address, total: list.length, members: list.filter(d => d.member).length, imported: inDb });
+        }
+        areas.push({ id: a.id, name: a.name, role: a.role, aps });
+      }
+      return send(res, 200, { linked: true, user: { id: acct.id, name: acct.name }, admin: { id: w.id, nick: w.nick, email: w.email }, areas, lastImport: userdbImports.get(acct.id) || null });
+    }
+    if (method === 'POST' && p === '/api/userdb/import') {
+      if (!acct.userdb_uid) throw new Error('účet není navázaný na správce v userdb');
+      const b = await readBody(req).catch(() => ({}));
+      const onlyAps = Array.isArray(b.aps) && b.aps.length ? new Set(b.aps.map(Number)) : null;
+      const r = await userdb.devicesFor({ uid: acct.userdb_uid }, { apIds: onlyAps ? [...onlyAps] : null });
+      if (!r.admin) throw new Error('správce v userdb nenalezen');
+      const sum = { at: Date.now(), by: req.user.name, aps: 0, total: 0, updated: 0, foreign: [], missingLogin: r.missing.filter(d => !onlyAps || onlyAps.has(d.apId)).map(d => `${d.ip} (${d.name || d.ap})`), entries: 0 };
+      const entries = [];
+      for (const d of r.devices) {
+        if (onlyAps && !onlyAps.has(d.apId)) continue;
+        sum.total++;
+        const extra = { userdb_ap_id: d.apId, userdb_ap: d.ap, userdb_member: d.member ? d.userId : 0 };
+        const ex = db.findDeviceByHost(d.ip, 22);
+        if (ex) {
+          if (ex.owner_id && ex.owner_id !== acct.id) { const o = db.getUser(ex.owner_id); sum.foreign.push(`${d.ip} (${d.name || d.ap}) má u sebe ${o ? o.name : 'jiný uživatel'}`); continue; }
+          const f = { ...extra };
+          if (!ex.owner_id) f.owner_id = acct.id;
+          if (ex.username !== d.login || decrypt(ex.password_enc || '') !== d.password) { f.username = d.login; f.password_enc = encrypt(d.password); }
+          if (!ex.group_name) f.group_name = d.ap;
+          if (!ex.name && (d.name || d.note)) f.name = d.name || d.note;
+          db.updateDevice(ex.id, f); sum.updated++;
+          continue;
+        }
+        entries.push({ host: d.ip, port: 0, username: d.login, password: d.password, name: d.name || d.note || '', group_name: d.ap, extra });
+      }
+      sum.aps = onlyAps ? onlyAps.size : r.admin.apCount; sum.entries = entries.length;
+      userdbImports.set(acct.id, sum);
+      audit(req, 'import z userdb', `${r.admin.nick}: ${sum.total} zařízení z userdb, ${entries.length} nových ke skenu, ${sum.updated} aktualizováno, ${sum.foreign.length} u jiného uživatele`);
+      if (entries.length) {
+        const o = { entries, creds: [], port: 22, track: 'v7-stable', parallel: 24, ownerId: acct.id };
+        discovery.prepare(o);
+        discovery.run(o).catch(e => bus.emit('event', { type: 'discovery-error', error: e.message }));
+        await new Promise(res2 => setTimeout(res2, 50));
+      } else bus.emit('event', { type: 'devices-changed' });
+      return send(res, 200, { summary: sum, discovery: discovery.status() });
+    }
+    return send(res, 404, { error: 'neznámá akce' });
+  }
   if (method === 'POST' && p === '/api/discover') {
     const b = await readBody(req);
     const ranges = String(b.ranges || '').split(/[\s,;]+/).filter(Boolean);
@@ -464,7 +547,8 @@ const server = http.createServer(async (req, res) => {
         let u = db.getUserAuth(su.email);
         if (!u) { const id = db.insertUser({ name: su.email, pass_hash: '', role: cfg.sso.adminEmails.includes(su.email.toLowerCase()) ? 'admin' : 'user' }); u = db.getUserAuth(su.email); db.audit(su.email, 'uživatel založen (SSO)', ''); void id; }
         if (u.disabled) return send(res, 403, 'účet je vypnutý');
-        db.updateUser(u.id, { last_login_at: Date.now() });
+        db.updateUser(u.id, { last_login_at: Date.now(), email: su.email });
+        await linkUserdb(u.id, { email: su.email }).catch(e => console.warn(`userdb: vazbu účtu ${u.name} se nepodařilo zjistit: ${e.message}`));
         const tok = makeSession(u);
         console.log(`SSO přihlášení: ${u.name} z ${clientIp(req)}`);
         db.audit(u.name, 'přihlášení SSO', clientIp(req));
@@ -511,7 +595,7 @@ const server = http.createServer(async (req, res) => {
     req.user = dbUser && !dbUser.disabled ? { id: dbUser.id, name: dbUser.name, role: dbUser.role } : null;
     const authed = !!req.user;
     if (method === 'POST' && p === '/api/logout') return send(res, 200, { ok: true }, { 'Set-Cookie': `mtu_session=; Path=${cfg.basePath || '/'}; HttpOnly; Max-Age=0` });
-    if (p === '/api/whoami') return send(res, 200, { authed, user: req.user, admin: authed && isAdmin(req), sso: sso.enabled(), passwordLogin: cfg.passwordLogin, registration: !!db.getSettings().allow_registration, netHint: cfg.netHint });
+    if (p === '/api/whoami') return send(res, 200, { authed, user: req.user, admin: authed && isAdmin(req), userdb: userdbFor(req), sso: sso.enabled(), passwordLogin: cfg.passwordLogin, registration: !!db.getSettings().allow_registration, netHint: cfg.netHint });
 
     if (p.startsWith('/api/')) {
       if (!authed) return send(res, 401, { error: 'nepřihlášen' });

@@ -172,6 +172,7 @@ function renderDevices(m) {
     <div class="legend">${segs.filter(([k]) => cnt[k]).map(([k, l, c]) => `<span><i class="sw" style="background:${c}"></i>${l} <b>${cnt[k]}</b></span>`).join('')}</div></div>
   <div class="panel"><div class="toolbar">
     <button id="discover">+ Přidat zařízení (sken)</button>
+    ${state.auth.userdb && state.auth.userdb.enabled && state.auth.userdb.uid ? `<button id="userdbimp" title="načte zařízení tvých APček a členů pod nimi z evidence userdb včetně loginů">⇩ Načíst z userdb (${esc(state.auth.userdb.nick)})</button>` : ''}
     <button id="scanall">⟳ Zkontrolovat stav</button>
     ${adv ? `<button id="scansel" ${state.selected.size ? '' : 'disabled'}>⟳ Zkontrolovat vybrané (${state.selected.size})</button>
     <button id="acceptparents" title="u zařízení bez nadřazeného prvku nastaví toho, koho vidí jako souseda na uplinku">⇡ Přebrat detekované rodiče</button>` : ''}
@@ -187,7 +188,7 @@ function renderDevices(m) {
   ${list.map(d => { const ps = plainStatus(d); const sc = STATUS_LABEL[d.scan_status] || ['b-muted', d.scan_status]; const scanning = state.scanning.includes(d.id); const busy = (state.runner.busy || []).includes(d.id);
     return `<tr class="${state.selected.has(d.id) ? 'selected' : ''} ${d.enabled ? '' : 'muted'} ${state.sort === 'tree' && d._depth === 0 && d._kids ? 'root-row' : ''}" data-id="${d.id}">
     <td><input type="checkbox" class="sel" data-id="${d.id}" ${state.selected.has(d.id) ? 'checked' : ''}></td>
-    <td class="clickable detail name" data-id="${d.id}">${d._depth > 0 ? `<span class="tree mono">${esc(d._prefix)}${d._last ? '└─' : '├─'}</span>` : ''}${d._depth === 0 && d._kids ? '<span class="rootmark" title="hlavní prvek — napájí/připojuje podřízené">▣</span>' : ''}<b>${esc(d.name || d.identity || d.host)}</b>${d._kids ? ` <span class="muted" title="počet přímo podřízených">(${d._kids})</span>` : ''}${busy ? ' <span class="badge b-info">právě se upgraduje</span>' : ''}${d.enabled ? '' : ' <span class="badge b-muted">vypnuto</span>'}${d.track === 'v6-long-term' ? ' <span class="chip" title="zůstává na v6, na sedmičku se neupgraduje">zůstává na v6</span>' : d.track === 'hold' ? ' <span class="chip" title="nikdy neupgradovat">hold</span>' : ''}<span class="sub"><span class="mono">${esc(d.host)}${d.port !== 22 ? ':' + d.port : ''}</span>${d.group_name ? ` · ${esc(d.group_name)}` : ''}${d.name && d.identity && d.name !== d.identity ? ` · ${esc(d.identity)}` : ''}</span></td>
+    <td class="clickable detail name" data-id="${d.id}">${d._depth > 0 ? `<span class="tree mono">${esc(d._prefix)}${d._last ? '└─' : '├─'}</span>` : ''}${d._depth === 0 && d._kids ? '<span class="rootmark" title="hlavní prvek — napájí/připojuje podřízené">▣</span>' : ''}<b>${esc(d.name || d.identity || d.host)}</b>${d._kids ? ` <span class="muted" title="počet přímo podřízených">(${d._kids})</span>` : ''}${busy ? ' <span class="badge b-info">právě se upgraduje</span>' : ''}${d.enabled ? '' : ' <span class="badge b-muted">vypnuto</span>'}${d.track === 'v6-long-term' ? ' <span class="chip" title="zůstává na v6, na sedmičku se neupgraduje">zůstává na v6</span>' : d.track === 'hold' ? ' <span class="chip" title="nikdy neupgradovat">hold</span>' : ''}${d.userdb_member ? ` <span class="chip" title="anténa člena (userdb uživatel ${d.userdb_member}) pod APčkem ${esc(d.userdb_ap)}">člen</span>` : ''}<span class="sub"><span class="mono">${esc(d.host)}${d.port !== 22 ? ':' + d.port : ''}</span>${d.group_name ? ` · ${esc(d.group_name)}` : ''}${d.name && d.identity && d.name !== d.identity ? ` · ${esc(d.identity)}` : ''}</span></td>
     <td>${esc(d.board_name || d.model)}${adv && d.arch ? `<span class="sub">${esc(d.arch)}</span>` : ''}</td>
     <td class="mono"><b>${esc(d.version || '—')}</b>${adv && d.channel ? ` <span class="muted">${esc(d.channel)}</span>` : ''}${adv && d.uptime_sec ? `<span class="sub" title="uptime">${upt(d.uptime_sec)}</span>` : ''}</td>
     <td>${scanning ? '<span class="badge b-info">kontroluji…</span>' : `<span class="badge ${ps.cls}" title="${esc(d.scan_error || '')}">${esc(ps.txt)}</span>`}</td>
@@ -201,6 +202,7 @@ function renderDevices(m) {
   </tbody></table></div></div>`;
   const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
   on('#discover', () => openModal({ type: 'discover' }));
+  on('#userdbimp', () => openModal({ type: 'userdb' }));
   on('#scanall', async () => { await api('/scan', { method: 'POST', body: {} }); toast('kontrola všech zařízení spuštěna'); });
   on('#scansel', async () => { await api('/scan', { method: 'POST', body: { ids: [...state.selected] } }); toast('kontrola spuštěna'); });
   on('#jobsel', () => openModal({ type: 'newjob', ids: [...state.selected] }));
@@ -372,6 +374,7 @@ function renderHelp(m) {
   <details><summary>Co dělá „Rozdělit flash na 2 oddíly“ v detailu zařízení</summary><p>U větších zařízení (128 MB flash a víc) vytvoří záložní oddíl. Pokud pak nová verze nenabootuje, router sám naběhne ze záložního oddílu se starou verzí. Jednorázová akce s restartem, dělej ji mimo špičku. Jen správce.</p></details>
   <details><summary>Co se při upgradu nastaví na routeru navíc</summary><p>Pokud to správce zapnul v Nastavení: služby v /ip service (nepotřebné se vypnou, ostatní dostanou povolené adresy; ssh se nikdy nevypne a adresy jen když obsahují IP tohoto serveru) a vzdálené logování na syslog server. Mění se jen to, co neodpovídá, vše je v logu jobu.</p></details>
   <details><summary>Kde jsou zálohy</summary><p>V detailu zařízení (klik na název) v části Zálohy: textový export konfigurace (.rsc) a binární záloha (.backup) z doby těsně před upgradem. Jdou stáhnout. Export jde nahrát i na jinou verzi, binární záloha jen na stejnou verzi a stejný kus.</p></details>
+  <details><summary>Načíst zařízení z userdb (evidence hkfree)</summary><p>Když je účet navázaný na správce oblasti v userdb (přes SSO se to udělá samo podle e-mailu, jinak vazbu nastaví správce v Nastavení → Uživatelé), objeví se nahoře tlačítko <b>⇩ Načíst z userdb</b>. Ukáže tvoje oblasti a APčka a naimportuje zařízení APček i antény členů pod nimi, včetně loginů z userdb. Typy zařízení v userdb nejsou spolehlivé, tak se bere všechno a co není RouterOS, sken sám vyřadí. Zařízení, která už v upgraderu jsou, se jen doplní (login, APčko); zařízení, které má u sebe jiný uživatel, se nepřebírá a vypíše se. APčko z userdb je zároveň skupina v seznamu, antény členů mají štítek „člen“.</p></details>
   <details><summary>Může nás tu pracovat víc naráz?</summary><p>Ano. Každý má vlastní účet a vidí jen zařízení, která sám přidal (správce vidí vše a může zařízení přidělit někomu jinému). Jobů může běžet víc naráz, i od jednoho uživatele; každý job zpracovává svá zařízení po jednom. Jedno zařízení nemůže být ve dvou běžících jobech a před restartem se čeká, když jiný job právě upgraduje zařízení fyzicky nad nebo pod ním. V logu upgradu je, kdo ho spustil, pozastavil nebo zrušil. Hesla routerů jsou uložená šifrovaně a zobrazit je smí jen správce.</p></details>
   <details><summary>Můžu zavřít prohlížeč?</summary><p>Ano. Upgrade běží na serveru. Po návratu otevři Upgrady a klikni na běžící job.</p></details>
   </div>
@@ -454,12 +457,14 @@ function renderSettings(m) {
     const renderUsers = async () => {
       try { state.users = await api('/users'); } catch (e) { ul.textContent = e.message; return; }
       const me = state.auth.user;
-      ul.innerHTML = `<table><thead><tr><th>jméno</th><th>role</th><th>naposledy přihlášen</th><th>stav</th><th></th></tr></thead><tbody>${state.users.map(u => `<tr class="${u.disabled ? 'muted' : ''}"><td>${esc(u.name)}${me && u.id === me.id ? ' <span class="muted">(ty)</span>' : ''}</td><td>${u.role === 'admin' ? 'správce' : 'uživatel'}</td><td class="muted">${u.last_login_at ? fmtTs(Math.floor(u.last_login_at / 1000)) : '—'}</td><td>${u.disabled ? '<span class="badge b-err">vypnutý</span>' : '<span class="badge b-ok">aktivní</span>'}</td><td class="acts">
+      ul.innerHTML = `<table><thead><tr><th>jméno</th><th>role</th>${state.auth.userdb && state.auth.userdb.enabled ? '<th>userdb</th>' : ''}<th>naposledy přihlášen</th><th>stav</th><th></th></tr></thead><tbody>${state.users.map(u => `<tr class="${u.disabled ? 'muted' : ''}"><td>${esc(u.name)}${me && u.id === me.id ? ' <span class="muted">(ty)</span>' : ''}</td><td>${u.role === 'admin' ? 'správce' : 'uživatel'}</td>${state.auth.userdb && state.auth.userdb.enabled ? `<td>${u.userdb_uid ? `${esc(u.userdb_nick)} <span class="muted">(${u.userdb_uid})</span> <button class="small" data-act="udbimp" data-id="${u.id}" title="načíst jeho zařízení z userdb">⇩ import</button>` : '<span class="muted">—</span>'} <button class="small" data-act="udb" data-id="${u.id}">vazba</button></td>` : ''}<td class="muted">${u.last_login_at ? fmtTs(Math.floor(u.last_login_at / 1000)) : '—'}</td><td>${u.disabled ? '<span class="badge b-err">vypnutý</span>' : '<span class="badge b-ok">aktivní</span>'}</td><td class="acts">
         <button class="small" data-act="pw" data-id="${u.id}">nové heslo</button> <button class="small" data-act="role" data-id="${u.id}">${u.role === 'admin' ? 'odebrat správce' : 'udělat správcem'}</button> <button class="small" data-act="dis" data-id="${u.id}">${u.disabled ? 'zapnout' : 'vypnout'}</button> <button class="small danger" data-act="del" data-id="${u.id}">smazat</button></td></tr>`).join('')}</tbody></table>`;
       ul.querySelectorAll('button[data-act]').forEach(b => b.onclick = async () => {
         const id = +b.dataset.id, u = state.users.find(x => x.id === id);
         try {
           if (b.dataset.act === 'pw') { const pw = prompt(`Nové heslo pro ${u.name} (aspoň 8 znaků):`); if (!pw) return; await api(`/users/${id}`, { method: 'PUT', body: { password: pw } }); toast('heslo nastaveno'); }
+          else if (b.dataset.act === 'udb') { const q = prompt(`Správce v userdb pro účet ${u.name} — uid, e-mail nebo přezdívka (prázdné = zrušit vazbu):`, u.userdb_nick || u.email || ''); if (q === null) return; await api(`/users/${id}`, { method: 'PUT', body: { userdb: q } }); toast(q ? 'účet navázán na userdb' : 'vazba zrušena'); }
+          else if (b.dataset.act === 'udbimp') { openModal({ type: 'userdb', user: id }); return; }
           else if (b.dataset.act === 'role') { await api(`/users/${id}`, { method: 'PUT', body: { role: u.role === 'admin' ? 'user' : 'admin' } }); toast('role změněna'); }
           else if (b.dataset.act === 'dis') { await api(`/users/${id}`, { method: 'PUT', body: { disabled: !u.disabled } }); toast(u.disabled ? 'účet zapnut' : 'účet vypnut'); }
           else if (b.dataset.act === 'del') {
@@ -516,6 +521,28 @@ function renderModal() {
       <div class="panel" style="margin-top:10px"><h2>Výsledek</h2><div id="discres">${discoveryHtml(state.discovery)}</div></div>
       <div class="row"><button id="mclose">Zavřít</button></div></div>`;
     $('#discf').onsubmit = async (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); try { state.discovery = await api('/discover', { method: 'POST', body: b }); renderModal(); } catch (e2) { toast(e2.message, true); } };
+  } else if (md.type === 'userdb') {
+    const forUser = md.user ? `?user=${md.user}` : '';
+    bg.innerHTML = `<div class="modal"><h2>Načíst zařízení z userdb</h2><div id="udb">načítám oblasti a APčka…</div>
+      <div class="panel" style="margin-top:10px"><h2>Výsledek skenu</h2><div id="discres">${discoveryHtml(state.discovery)}</div></div>
+      <div class="row"><button id="mclose">Zavřít</button></div></div>`;
+    const box = $('#udb');
+    const sumHtml = (x) => x ? `<div class="hint" style="margin:8px 0">Poslední import ${fmtTs(Math.floor(x.at / 1000))} (${esc(x.by)}): ${x.total} zařízení z userdb, ${x.entries} nových posláno do skenu, ${x.updated} už tu bylo (aktualizován login/APčko)${x.foreign.length ? `, <b>${x.foreign.length} má u sebe jiný uživatel</b>: ${esc(x.foreign.join('; '))}` : ''}${x.missingLogin.length ? `, ${x.missingLogin.length} bez loginu v userdb: <span class="mono">${esc(x.missingLogin.slice(0, 12).join(', '))}${x.missingLogin.length > 12 ? '…' : ''}</span>` : ''}</div>` : '';
+    (async () => {
+      let r; try { r = await api('/userdb/me' + forUser); } catch (e) { box.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+      if (!r.linked) { box.innerHTML = `<p>Účet <b>${esc(r.user.name)}</b> není navázaný na správce v userdb${r.error ? ` (${esc(r.error)})` : ''}. Přes SSO se vazba udělá sama podle e-mailu; jinak ji nastaví správce v Nastavení → Uživatelé.</p>`; return; }
+      box.innerHTML = `<p>Správce <b>${esc(r.admin.nick)}</b> (uid ${r.admin.id}). Z userdb se vezmou zařízení vybraných APček i antény členů pod nimi, včetně loginů. Co není RouterOS, sken sám vyřadí; zařízení, která už tu jsou, se jen doplní (login, APčko).</p>
+        <div class="tablewrap"><table><thead><tr><th></th><th>oblast</th><th>APčko</th><th>zařízení AP</th><th>členů</th><th>už v upgraderu</th></tr></thead><tbody>${r.areas.map(a => a.aps.map(ap => `<tr><td><input type="checkbox" class="apsel" value="${ap.id}" ${ap.active ? 'checked' : ''}></td><td>${esc(a.name)} <span class="muted">(${a.role === 'SO' ? 'správce' : 'zástupce'})</span></td><td>${esc(ap.name)}${ap.active ? '' : ' <span class="badge b-muted">neaktivní</span>'}</td><td>${ap.total - ap.members}</td><td>${ap.members}</td><td>${ap.imported}</td></tr>`).join('')).join('')}</tbody></table></div>
+        ${sumHtml(r.lastImport)}
+        <div class="row" style="margin-top:8px"><button class="primary" id="udbgo" ${state.discovery && !state.discovery.finishedAt ? 'disabled' : ''}>⇩ Importovat vybraná APčka</button> <span class="hint">sken loginů běží na serveru, u větších oblastí to trvá pár minut</span></div>`;
+      $('#udbgo').onclick = async () => {
+        const aps = [...box.querySelectorAll('.apsel:checked')].map(c => +c.value);
+        if (!aps.length) return toast('vyber aspoň jedno APčko', true);
+        $('#udbgo').disabled = true;
+        try { const x = await api('/userdb/import' + forUser, { method: 'POST', body: { aps } }); state.discovery = x.discovery; toast(`import: ${x.summary.entries} nových do skenu, ${x.summary.updated} aktualizováno`); const r2 = $('#discres'); if (r2) r2.innerHTML = discoveryHtml(state.discovery); box.insertAdjacentHTML('beforeend', sumHtml(x.summary)); }
+        catch (e) { toast(e.message, true); $('#udbgo').disabled = false; }
+      };
+    })();
   } else if (md.type === 'edit') {
     const d = state.devices.find(x => x.id === md.id); if (!d) return closeModal();
     const adv = state.advanced;
@@ -671,7 +698,7 @@ function connectSSE() {
   es.onerror = () => { setTimeout(() => { if (state.authed) connectSSE(); }, 5000); };
 }
 (async () => {
-  try { const w = await api('/whoami'); state.authed = w.authed; state.netHint = w.netHint || '192.0.2'; state.auth = { sso: w.sso, passwordLogin: w.passwordLogin, registration: w.registration, user: w.user }; } catch { state.authed = false; }
+  try { const w = await api('/whoami'); state.authed = w.authed; state.netHint = w.netHint || '192.0.2'; state.auth = { sso: w.sso, passwordLogin: w.passwordLogin, registration: w.registration, user: w.user, userdb: w.userdb || { enabled: false } }; } catch { state.authed = false; }
   if (state.authed) { await loadState(); connectSSE(); }
   render();
   setInterval(() => { if (state.authed && state.view === 'devices' && !state.modal) render(); }, 60000);
