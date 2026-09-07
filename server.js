@@ -119,6 +119,7 @@ function eventFor(req, ev) {
     case 'job': return ev.job && ev.job.owner_id === uid ? ev : null;
     case 'item': { const j = ev.item && db.getJob(ev.item.job_id); return j && j.owner_id === uid ? ev : null; }
     case 'log': { const j = ev.log && db.getJob(ev.log.job_id); return j && j.owner_id === uid ? ev : null; }
+    case 'progress': { const j = db.getJob(ev.job_id); return j && j.owner_id === uid ? ev : null; }
     case 'runner': return ev.status && ev.status.ownerId === uid ? ev : null;
     case 'discovery': case 'discovery-done': return ev.state && ev.state.ownerId === uid ? ev : null;
     case 'discovery-error': case 'devices-changed': case 'latest': case 'scan-done': return ev;
