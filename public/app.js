@@ -95,6 +95,7 @@ function render() {
   const cp = $('#chpw'); if (cp) cp.onclick = (e) => { e.preventDefault(); openModal({ type: 'password' }); };
   $('#advtoggle').onchange = (e) => { state.advanced = e.target.checked; try { localStorage.setItem('mtu_adv', state.advanced ? '1' : '0'); } catch {} render(); };
   const m = $('#main');
+  m.insertAdjacentHTML('beforebegin', statsStrip());
   if (state.view === 'devices') renderDevices(m);
   else if (state.view === 'jobs') renderJobs(m);
   else if (state.view === 'help') renderHelp(m);
@@ -148,6 +149,11 @@ function filteredDevices() {
     return a.priority - b.priority || (a.group_name || '').localeCompare(b.group_name || '') || a.host.localeCompare(b.host, undefined, { numeric: true });
   });
   return list;
+}
+function statsStrip() {
+  const s = state.stats; if (!s) return '';
+  const tile = (n, label, cls = '') => `<div class="stat ${cls}"><b>${n}</b><span>${label}</span></div>`;
+  return `<div class="stats" title="celá síť, všichni uživatelé">${tile(s.total, 'zařízení celkem')}${tile(s.upToDate, 'aktuální', 'ok')}${tile(s.needs, 'čeká na upgrade', s.needs ? 'warn' : '')}${tile(s.stayV6, 'zůstává na v6')}${tile(s.upgrading, 'právě se upgraduje', s.upgrading ? 'info' : '')}${tile(`${s.upgradedToday} / ${s.upgradedTotal}`, 'upgradováno dnes / celkem', 'ok')}${tile(s.unreachable, 'nedostupné', s.unreachable ? 'warn' : '')}${tile(s.dead, 'umřelo po upgradu', s.dead ? 'err' : '')}${tile(`${s.failedToday} / ${s.failedTotal}`, 'chyb dnes / celkem', s.failedToday ? 'err' : '')}${tile(s.jobsRunning, 'běžících jobů')}${tile(s.users, 'uživatelů')}</div>`;
 }
 function renderDevices(m) {
   const devs = state.devices;
@@ -610,6 +616,7 @@ async function loadState() {
   const s = await api('/state');
   Object.assign(state, { devices: s.devices, jobs: s.jobs, latest: s.latest, settings: s.settings, runner: s.runner, tracks: s.tracks, scanning: s.scanning, discovery: s.discovery, admin: s.admin, auth: { ...state.auth, user: s.user } });
   if (s.admin) { try { state.users = await api('/users'); } catch { state.users = null; } }
+  try { state.stats = await api('/stats'); } catch { state.stats = null; }
 }
 let es;
 function connectSSE() {
@@ -636,4 +643,5 @@ function connectSSE() {
   if (state.authed) { await loadState(); connectSSE(); }
   render();
   setInterval(() => { if (state.authed && state.view === 'devices' && !state.modal) render(); }, 60000);
+  setInterval(async () => { if (!state.authed) return; try { state.stats = await api('/stats'); const el = document.querySelector('.stats'); if (el) el.outerHTML = statsStrip(); } catch {} }, 30000);
 })();

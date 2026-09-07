@@ -28,6 +28,34 @@ function withSuggestions(devs) {
   return devs.map(d => { const rules = NO_V7.filter(r => { try { return r.test(d); } catch { return false; } }); return { ...d, suggested_parent: suggestParent(d, devs), no_v7: rules.map(r => r.why), no_v7_hard: rules.some(r => r.hard) }; });
 }
 
+const { targetFor } = require('./lib/planner');
+function networkStats() {
+  const latest = V.getLatest();
+  const devs = db.listDevices().filter(d => d.managed);
+  const busy = new Set(runner.running().map(x => x.deviceId).filter(Boolean));
+  const st = { total: devs.length, upToDate: 0, needs: 0, stayV6: 0, unreachable: 0, upgrading: busy.size, hold: 0, never: 0, dead: 0 };
+  for (const d of devs) {
+    if (d.track === 'hold') st.hold++;
+    if (d.track === 'v6-long-term') st.stayV6++;
+    if (!d.enabled) continue;
+    if (d.scan_status === 'never' || !d.version) { st.never++; continue; }
+    if (d.scan_status !== 'ok') { st.unreachable++; if (d.last_upgrade_at && (!d.last_seen_at || d.last_seen_at <= d.last_upgrade_at + 60)) st.dead++; continue; }
+    const t = targetFor(d.track, latest);
+    if (!t) continue;
+    const c = V.cmpVersion(d.version, t);
+    if (Number.isFinite(c) && c < 0) st.needs++; else st.upToDate++;
+  }
+  const day0 = Math.floor(new Date(new Date().setHours(0, 0, 0, 0)).getTime() / 1000);
+  const q = (sql, ...a) => db.db.prepare(sql).get(...a).n;
+  st.upgradedToday = q("SELECT COUNT(DISTINCT device_id) n FROM version_history WHERE source='upgrade' AND seen_at>=?", day0);
+  st.upgradedTotal = q("SELECT COUNT(DISTINCT device_id) n FROM version_history WHERE source='upgrade'");
+  st.failedTotal = q("SELECT COUNT(*) n FROM job_items ji JOIN jobs j ON j.id=ji.job_id WHERE ji.status='failed' AND j.options NOT LIKE '%\"dry_run\":true%'");
+  st.failedToday = q("SELECT COUNT(*) n FROM job_items ji JOIN jobs j ON j.id=ji.job_id WHERE ji.status='failed' AND ji.finished_at>=? AND j.options NOT LIKE '%\"dry_run\":true%'", day0);
+  st.jobsRunning = runner.running().length;
+  st.users = db.listUsers().filter(u => !u.disabled).length;
+  return st;
+}
+
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json' };
 const TRACKS = ['v7-stable', 'v7-long-term', 'v6-long-term', 'hold'];
 
@@ -114,6 +142,8 @@ async function api(req, res, method, p, url) {
   }
   if (method === 'POST' && p === '/api/versions/refresh') { const l = await V.refreshLatest(true); bus.emit('event', { type: 'latest', latest: l }); return send(res, 200, l); }
   if (method === 'GET' && seg[0] === 'changelog' && seg[1]) return send(res, 200, await V.getChangelog(seg[1]));
+  // statistika celé sítě (jen počty, bez cizích detailů) — proužek nahoře pro všechny
+  if (method === 'GET' && p === '/api/stats') return send(res, 200, networkStats());
   // seznamy z plánovače pro nápovědu (vždy odpovídají kódu)
   if (method === 'GET' && p === '/api/rules') return send(res, 200, { noV7: NO_V7.map(r => ({ hw: r.hw, why: r.why, src: r.src, hard: !!r.hard })), knownBad: KNOWN_BAD.map(r => ({ hw: r.hw, versions: r.versions, why: r.why || r.warn || r.firmwareWarn })), globalBad: Object.entries(GLOBAL_BAD).map(([v, why]) => ({ version: v, why })) });
 
