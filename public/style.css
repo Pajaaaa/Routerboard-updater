@@ -95,7 +95,7 @@ td.name{white-space:normal;min-width:150px}
 td.parent{white-space:normal;max-width:170px;font-size:12px}
 .legend .sw{border:1px solid #0000000f}
 
-.log{background:#f7f9fb;border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;height:420px;overflow:auto;font-family:var(--mono);font-size:12px;line-height:1.55;white-space:pre-wrap}
+.log{background:#f7f9fb;border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;min-height:80px;overflow-x:auto;font-family:var(--mono);font-size:12px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
 .log .warn{color:var(--warn)}.log .error{color:var(--err)}.log .info{color:var(--ink2)}
 .log .t{color:var(--muted);margin-right:6px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}.grid2>*{min-width:0}

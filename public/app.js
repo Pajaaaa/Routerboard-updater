@@ -268,10 +268,10 @@ function renderJobDetail() {
   const o = job.options || {};
   const adv = state.advanced;
   const isCur = state.runner.jobId === job.id;
-  const atBottom = (() => { const l = $('#joblog'); return !l || l.scrollTop + l.clientHeight >= l.scrollHeight - 30; })();
+  const atBottom = (() => { const l = $('#joblog'); return !l || window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 200; })(); // log roste se stránkou → sledovat konec stránky
   const prevLog = document.querySelector('details.logbox');
   if (prevLog) state.logOpen = prevLog.open; // pamatovat rozbalení logu přes překreslení
-  const logOpen = state.logOpen === undefined ? adv : state.logOpen;
+  const logOpen = state.logOpen === undefined ? true : state.logOpen; // podrobný log vždy otevřený, roste s obsahem
   const bn = jobBanner(job, items);
   const doneN = items.filter(i => !['pending'].includes(i.status) && !ACTIVE.has(i.status)).length;
   el.innerHTML = `<div class="panel"><h2>${esc(job.name)} ${badge(JOB_LABEL, job.status)}</h2>
@@ -291,7 +291,7 @@ function renderJobDetail() {
     </tbody></table></div>
     <details class="logbox" ${logOpen ? 'open' : ''}><summary>Podrobný log</summary><div class="log" id="joblog">${state.jobLog.map(logLine).join('')}</div></details></div>`;
   document.querySelector('details.logbox').ontoggle = (e) => { state.logOpen = e.target.open; };
-  const l = $('#joblog'); if (atBottom) l.scrollTop = l.scrollHeight;
+  if (atBottom && state.jobLog.length) window.scrollTo(0, document.documentElement.scrollHeight);
   const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
   on('#jb-start', () => jobAction(job.id, 'start')); on('#jb-cont', () => jobAction(job.id, 'continue'));
   on('#jb-pause', () => jobAction(job.id, 'pause')); on('#jb-skip', () => jobAction(job.id, 'skip-current'));
@@ -630,7 +630,7 @@ function connectSSE() {
     else if (ev.type === 'device-deleted') { state.devices = state.devices.filter(d => d.id !== ev.id); state.selected.delete(ev.id); if (!state.modal) render(); }
     else if (ev.type === 'job' && ev.job) { const i = state.jobs.findIndex(j => j.id === ev.job.id); if (i >= 0) state.jobs[i] = ev.job; else state.jobs.unshift(ev.job); if (state.job && state.job.job.id === ev.job.id) { state.job.job = { ...state.job.job, ...ev.job }; } if (state.view === 'jobs') render(); }
     else if (ev.type === 'item' && state.job && ev.item.job_id === state.job.job.id) { const i = state.job.items.findIndex(x => x.id === ev.item.id); if (i >= 0) state.job.items[i] = { ...state.job.items[i], ...ev.item }; if (state.view === 'jobs') renderJobDetail(); }
-    else if (ev.type === 'log' && state.job && ev.log.job_id === state.job.job.id) { state.jobLog.push(ev.log); const l = $('#joblog'); if (l) { const atBottom = l.scrollTop + l.clientHeight >= l.scrollHeight - 30; l.insertAdjacentHTML('beforeend', logLine(ev.log)); if (atBottom) l.scrollTop = l.scrollHeight; } }
+    else if (ev.type === 'log' && state.job && ev.log.job_id === state.job.job.id) { state.jobLog.push(ev.log); const l = $('#joblog'); if (l) { const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 200; l.insertAdjacentHTML('beforeend', logLine(ev.log)); if (atBottom) window.scrollTo(0, document.documentElement.scrollHeight); } }
     else if (ev.type === 'runner') { if (state.auth.user && ev.status.ownerId === state.auth.user.id) { state.runner = { ...ev.status, others: state.runner.others }; render(); } else if (state.admin) loadState().then(render); }
     else if (ev.type === 'discovery' || ev.type === 'discovery-done') { state.discovery = ev.state; const r = $('#discres'); if (r) r.innerHTML = discoveryHtml(ev.state); if (ev.type === 'discovery-done') { toast(`sken rozsahu hotov: ${ev.state.added} nových zařízení`); loadState().then(() => { if (state.modal && state.modal.type === 'discover') renderModal(); else render(); }); } }
     else if (ev.type === 'discovery-error') toast('sken rozsahu: ' + ev.error, true);
