@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 'use strict';
-// Ověření, které oblasti a APčka patří správci: node tools/userdb-who.js <uid | e-mail | nick> [--ip 10.107.x.y]
+// Ověření, které oblasti a APčka patří správci: node tools/userdb-who.js <uid | e-mail | nick> [--devices] [--ip 10.107.x.y]
+// --devices vypíše i zařízení (RouterBoardy) všech jeho APček včetně loginu (heslo maskované)
 // Potřebuje MTU_USERDB_USER a MTU_USERDB_PASS v prostředí (nebo v .env vedle).
 const path = require('path');
 try { require('fs').readFileSync(path.join(__dirname, '..', '.env'), 'utf8').split('\n').forEach(l => { const m = l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/); if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, ''); }); } catch {}
@@ -17,4 +18,11 @@ const udb = require('../lib/userdb');
   if (!w) { console.log(`správce „${q}“ v userdb není (nebo nemá žádnou oblast)`); process.exit(1); }
   console.log(`${w.nick} (uid ${w.id}, ${w.email}) — ${w.areas.length} oblastí, ${w.apCount} APček`);
   for (const a of w.areas) console.log(`  ${a.role === 'SO' ? 'správce ' : 'zástupce'} ${a.name} (oblast ${a.id}): ${a.aps.map(p => `${p.name} [${p.id}${p.active ? '' : ', neaktivní'}]`).join(', ')}`);
+  if (args.includes('--devices')) {
+    const r = await udb.devicesFor(w);
+    console.log(`zařízení: ${r.devices.length} s loginem, ${r.missing.length} bez loginu v userdb`);
+    let last = '';
+    for (const d of r.devices) { const g = `${d.area} / ${d.ap}`; if (g !== last) { console.log(`  [${g}]`); last = g; } console.log(`    ${d.ip.padEnd(15)} ${(d.name || d.note || '').slice(0, 40).padEnd(40)} ${d.login} / ${'*'.repeat(Math.min(d.password.length, 12))}`); }
+    for (const d of r.missing) console.log(`    ${d.ip.padEnd(15)} (${d.area} / ${d.ap}) — bez loginu`);
+  }
 })().catch(e => { console.error(e.message); process.exit(1); });
