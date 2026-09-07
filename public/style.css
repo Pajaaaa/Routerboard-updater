@@ -55,7 +55,7 @@ main{padding:20px 24px 40px;max-width:1700px;min-width:0}
 main h1{font-size:20px;font-weight:600;letter-spacing:-.01em;margin:0 0 14px}
 /* ---- proužek statistiky celé sítě ---- */
 .stats{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
-.stats .stat{flex:1 1 118px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px;display:flex;flex-direction:column;line-height:1.2}
+.stats .stat{flex:1 1 118px;max-width:220px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px;display:flex;flex-direction:column;line-height:1.2}
 .stats .stat b{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
 .stats .stat span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 .stats .stat.ok b{color:var(--ok)}.stats .stat.warn b{color:var(--warn)}.stats .stat.err b{color:var(--err)}.stats .stat.info b{color:var(--info)}
