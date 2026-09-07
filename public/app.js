@@ -95,11 +95,11 @@ function render() {
   const cp = $('#chpw'); if (cp) cp.onclick = (e) => { e.preventDefault(); openModal({ type: 'password' }); };
   $('#advtoggle').onchange = (e) => { state.advanced = e.target.checked; try { localStorage.setItem('mtu_adv', state.advanced ? '1' : '0'); } catch {} render(); };
   const m = $('#main');
-  m.insertAdjacentHTML('beforebegin', statsStrip());
   if (state.view === 'devices') renderDevices(m);
   else if (state.view === 'jobs') renderJobs(m);
   else if (state.view === 'help') renderHelp(m);
   else renderSettings(m);
+  m.insertAdjacentHTML('afterbegin', statsStrip());
   renderModal();
 }
 function latestBar() {
