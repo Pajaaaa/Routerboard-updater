@@ -229,12 +229,20 @@ function renderDevices(m) {
 }
 
 const JOB_PLAIN = { queued: 'připraven ke spuštění', running: 'probíhá', paused: 'zastaven', waiting: 'čeká na potvrzení', scheduled: 'naplánován', 'waiting-window': 'čeká na servisní okno', done: 'hotovo', cancelled: 'zrušen' };
+/** štítek jobu: „hotovo" jen když všechno prošlo; jinak s chybou / s výhradami / nic neprovedeno */
+function jobBadge(j) {
+  const c = j.counts || {};
+  if (j.status !== 'done') return badge(JOB_LABEL, j.status);
+  if (c.failed || c.unknown) return '<span class="badge b-err">skončilo s chybou</span>';
+  if ((c.blocked || 0) + (c.skipped || 0) > 0) return c.done ? '<span class="badge b-warn">hotovo s výhradami</span>' : '<span class="badge b-err">nic neprovedeno</span>';
+  return badge(JOB_LABEL, 'done');
+}
 function renderJobs(m) {
   const cur = state.job;
   const adv = state.advanced;
   m.innerHTML = `<h1>Upgrady</h1><div class="stack"><div class="panel"><h2>Přehled</h2><div class="tablewrap"><table><thead><tr>${adv ? '<th>#</th>' : ''}<th>Název</th><th>Stav</th><th>Průběh</th><th>Vytvořen</th><th></th></tr></thead><tbody>
     ${state.jobs.map(j => { const c = j.counts || {}; const done = (c.done || 0) + (c.failed || 0) + (c.blocked || 0) + (c.skipped || 0) + (c.unknown || 0);
-      return `<tr class="clickable ${cur && cur.job.id === j.id ? 'selected' : ''}" data-id="${j.id}">${adv ? `<td>${j.id}</td>` : ''}<td>${esc(j.name)}${state.admin && j.owner_name ? ` <span class="chip" title="vlastník">${esc(j.owner_name)}</span>` : ''}${j.options.dry_run ? ' <span class="badge b-info">jen kontrola</span>' : ''}${j.options.op ? ' <span class="badge b-muted">operace</span>' : ''}</td><td>${badge(JOB_LABEL, j.status)}${adv ? `<div class="muted" style="font-size:11px;white-space:normal">${esc(j.status_note)}</div>` : ''}</td>
+      return `<tr class="clickable ${cur && cur.job.id === j.id ? 'selected' : ''}" data-id="${j.id}">${adv ? `<td>${j.id}</td>` : ''}<td>${esc(j.name)}${state.admin && j.owner_name ? ` <span class="chip" title="vlastník">${esc(j.owner_name)}</span>` : ''}${j.options.dry_run ? ' <span class="badge b-info">jen kontrola</span>' : ''}${j.options.op ? ' <span class="badge b-muted">operace</span>' : ''}</td><td>${jobBadge(j)}${adv ? `<div class="muted" style="font-size:11px;white-space:normal">${esc(j.status_note)}</div>` : ''}</td>
       <td>${done}/${j.total} <span class="muted">(${c.done || 0} ok${c.failed ? `, <span style="color:var(--err)">${c.failed} chyb</span>` : ''}${c.blocked ? `, ${c.blocked} přeskočeno` : ''})</span><div class="progress"><div style="width:${j.total ? done / j.total * 100 : 0}%"></div></div></td><td>${fmtTs(j.created_at)}</td>
       <td>${['queued', 'paused'].includes(j.status) && !state.runner.running ? `<button class="small ok jstart" data-id="${j.id}">▶ Spustit</button>` : ''} ${j.status === 'waiting' && !state.runner.running ? `<button class="small ok jcont" data-id="${j.id}">Pokračovat</button>` : ''} ${!['running'].includes(j.status) ? `<button class="small danger jdel" data-id="${j.id}" title="smazat">✕</button>` : ''}</td></tr>`; }).join('')}
     ${state.jobs.length ? '' : '<tr><td colspan="6" class="empty">Zatím žádný upgrade. V seznamu zařízení klikni na „Upgradovat vše potřebné" nebo na „Upgradovat" u zařízení.</td></tr>'}</tbody></table></div></div>
@@ -258,7 +266,12 @@ function jobBanner(job, items) {
   if (job.status === 'scheduled') return { cls: 'info', html: `<b>Naplánováno na ${o.start_at ? new Date(o.start_at * 1000).toLocaleString('cs-CZ') : '?'}.</b> Spustí se samo; když bude v tu chvíli běžet tvůj jiný upgrade, počká, až skončí. Zrušit jde tlačítkem Zrušit.` };
   if (job.status === 'waiting-window') return { cls: 'info', html: `<b>Čeká na servisní okno</b> ${esc(o.window)}. Spustí se samo.` };
   if (job.status === 'paused') return { cls: 'err', html: `<b>Zastaveno.</b> ${esc(job.status_note)}<br><span class="hint">Podívej se na řádek s chybou níže. Když je zařízení v pořádku, klikni <b>Pokračovat</b> (chybná položka se přeskočí), nebo ji dej <b>znovu</b>.</span>` };
-  if (job.status === 'done') return { cls: c.failed || c.unknown ? 'warn' : 'ok', html: `<b>Hotovo.</b> ${sum}.${o.dry_run ? ' Byla to jen kontrola, nic se nezměnilo. Pokud je vše zelené, spusť to samé ostře.' : ''}` };
+  if (job.status === 'done') {
+    const bad = (c.failed || 0) + (c.unknown || 0), skipped = (c.blocked || 0) + (c.skipped || 0);
+    const cls = bad ? 'err' : skipped ? (c.done ? 'warn' : 'err') : 'ok';
+    const head = bad ? 'Skončilo s chybou.' : skipped ? (c.done ? 'Hotovo s výhradami.' : 'Nic se neprovedlo.') : 'Hotovo.';
+    return { cls, html: `<b>${head}</b> ${sum}.${skipped && !bad ? ' Přeskočená zařízení mají důvod u řádku; po nápravě dej u položky <b>znovu</b>.' : ''}${o.dry_run ? ' Byla to jen kontrola, nic se nezměnilo. Pokud je vše zelené, spusť to samé ostře.' : ''}` };
+  }
   if (job.status === 'cancelled') return { cls: 'muted', html: `<b>Zrušeno.</b> ${sum}.` };
   return { cls: 'muted', html: `<b>Připraveno.</b> ${items.length} zařízení, klikni <b>Spustit</b>.` };
 }
@@ -274,7 +287,7 @@ function renderJobDetail() {
   const logOpen = state.logOpen === undefined ? true : state.logOpen; // podrobný log vždy otevřený, roste s obsahem
   const bn = jobBanner(job, items);
   const doneN = items.filter(i => !['pending'].includes(i.status) && !ACTIVE.has(i.status)).length;
-  el.innerHTML = `<div class="panel"><h2>${esc(job.name)} ${badge(JOB_LABEL, job.status)}</h2>
+  el.innerHTML = `<div class="panel"><h2>${esc(job.name)} ${jobBadge({ ...job, counts: Object.fromEntries(['done', 'failed', 'unknown', 'blocked', 'skipped'].map(k => [k, items.filter(i => i.status === k).length])) })}</h2>
     <div class="banner ${bn.cls}">${bn.html}</div>
     <div class="progress big"><div style="width:${items.length ? doneN / items.length * 100 : 0}%"></div></div>
     ${adv ? `<div class="row" style="margin:8px 0"><span class="badge ${o.dry_run ? 'b-info' : 'b-warn'}">${o.dry_run ? 'JEN KONTROLA' : 'OSTRÝ BĚH'}</span> <span class="badge b-muted">režim ${esc(o.mode || 'upload')}</span> ${o.firmware ? '<span class="badge b-muted">+ firmware</span>' : ''} ${o.canary ? '<span class="badge b-muted">kanárci</span>' : ''} ${o.device_mode ? '<span class="badge b-muted">device-mode</span>' : ''} ${o.window ? `<span class="badge b-muted">okno ${esc(o.window)}</span>` : ''} ${o.stop_on_failure ? '<span class="badge b-muted">stop při chybě</span>' : '<span class="badge b-warn">NEzastavit při chybě</span>'}</div>` : ''}
