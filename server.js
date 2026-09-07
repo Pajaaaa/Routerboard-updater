@@ -9,7 +9,7 @@ const { encrypt, decrypt, makeSession, checkSession, hashPassword, verifyPasswor
 const V = require('./lib/versions');
 const { RunnerPool } = require('./lib/runner');
 const { Scanner } = require('./lib/scanner');
-const { plan } = require('./lib/planner');
+const { plan, NO_V7, KNOWN_BAD, GLOBAL_BAD } = require('./lib/planner');
 const sso = require('./lib/sso');
 const { Discovery } = require('./lib/discovery');
 
@@ -113,6 +113,8 @@ async function api(req, res, method, p, url) {
   }
   if (method === 'POST' && p === '/api/versions/refresh') { const l = await V.refreshLatest(true); bus.emit('event', { type: 'latest', latest: l }); return send(res, 200, l); }
   if (method === 'GET' && seg[0] === 'changelog' && seg[1]) return send(res, 200, await V.getChangelog(seg[1]));
+  // seznamy z plánovače pro nápovědu (vždy odpovídají kódu)
+  if (method === 'GET' && p === '/api/rules') return send(res, 200, { noV7: NO_V7.map(r => ({ hw: r.hw, why: r.why, src: r.src, hard: !!r.hard })), knownBad: KNOWN_BAD.map(r => ({ hw: r.hw, versions: r.versions, why: r.why || r.warn || r.firmwareWarn })), globalBad: Object.entries(GLOBAL_BAD).map(([v, why]) => ({ version: v, why })) });
 
   // nastavení
   if (method === 'GET' && p === '/api/settings') return send(res, 200, db.getSettings());
