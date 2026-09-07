@@ -330,7 +330,7 @@ function renderHelp(m) {
   <div class="panel help"><h2>Účet a přihlášení</h2>
   <ul class="plain">
     <li><b>Registrace:</b> na přihlašovací stránce „Nemáš účet? Zaregistruj se“, jméno a heslo (aspoň 8 znaků). Nový účet je běžný uživatel. Správce může registraci vypnout v Nastavení.</li>
-    <li><b>Co vidíš:</b> jen zařízení, která sis sám přidal, a jen svoje upgrady, zálohy a logy. Správce vidí všechno, může zařízení předat jinému uživateli (tužka ✎ → vlastník, nebo ⇄ Přesunout vybrané) a spravuje účty a nastavení.</li>
+    <li><b>Co vidíš:</b> jen zařízení, která sis sám přidal, a jen svoje upgrady, zálohy a logy. Každé zařízení má jen jednoho vlastníka: adresu, kterou už někdo má u sebe, sken znovu nepřidá a řekne ti, kdo ji má; o předání požádej jeho nebo správce. Správce vidí všechno, může zařízení předat jinému uživateli (tužka ✎ → vlastník, nebo ⇄ Přesunout vybrané) a spravuje účty a nastavení.</li>
     <li><b>Heslo</b> si změníš odkazem „heslo“ vlevo dole. Přihlášení vydrží 30 dní. Vypnutý účet přestane fungovat okamžitě.</li>
   </ul></div>
 
@@ -617,11 +617,12 @@ function parentOptions(sel, selfId = 0) {
 }
 function discoveryHtml(st) {
   if (!st || st.total === undefined) return '<span class="muted">Zatím žádný sken. Zadej adresy nebo rozsah a aspoň jeden login.</span>';
-  st = { found: [], authFailed: [], errors: [], ...st };
+  st = { found: [], authFailed: [], errors: [], foreign: [], ...st };
   const running = !st.finishedAt;
-  return `<div>${running ? '⏳ běží' : '✔ hotovo'}: ${st.done}/${st.total} adres, ${st.open} s otevřeným SSH, <b>${st.added} nových založeno</b>, ${st.existing} už v seznamu, ${st.authFailed.length} bez platného loginu, ${st.errors.length} chyb</div>
+  return `<div>${running ? '⏳ běží' : '✔ hotovo'}: ${st.done}/${st.total} adres, ${st.open} s otevřeným SSH, <b>${st.added} nových založeno</b>, ${st.existing} už v seznamu, ${st.foreign.length ? `<b style="color:var(--err)">${st.foreign.length} u jiného uživatele</b>, ` : ''}${st.authFailed.length} bez platného loginu, ${st.errors.length} chyb</div>
     <div class="progress" style="margin:6px 0"><div style="width:${st.total ? st.done / st.total * 100 : 0}%"></div></div>
     ${st.found.length ? `<details open><summary>nalezené (${st.found.length})</summary><div class="mono" style="max-height:200px;overflow:auto">${st.found.map(f => `<div>${esc(f.host)} ${esc(f.identity || '')} ${esc(f.board || '')} ${esc(f.version || '')}${f.existing ? ' <span class="muted">(už v seznamu)</span>' : ''}</div>`).join('')}</div></details>` : ''}
+    ${st.foreign.length ? `<details open><summary>už má u sebe jiný uživatel (${st.foreign.length})</summary><div class="mono" style="max-height:150px;overflow:auto">${st.foreign.map(esc).join('<br>')}</div></details>` : ''}
     ${st.authFailed.length ? `<details><summary>SSH otevřené, login neprošel (${st.authFailed.length})</summary><div class="mono" style="max-height:150px;overflow:auto">${st.authFailed.map(esc).join('<br>')}</div></details>` : ''}
     ${st.errors.length ? `<details><summary>chyby (${st.errors.length})</summary><div class="mono" style="max-height:150px;overflow:auto">${st.errors.map(esc).join('<br>')}</div></details>` : ''}`;
 }
