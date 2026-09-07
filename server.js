@@ -39,7 +39,13 @@ function networkStats() {
     if (d.track === 'v6-long-term') st.stayV6++;
     if (!d.enabled) continue;
     if (d.scan_status === 'never' || !d.version) { st.never++; continue; }
-    if (d.scan_status !== 'ok') { st.unreachable++; if (d.last_upgrade_at && (!d.last_seen_at || d.last_seen_at <= d.last_upgrade_at + 60)) st.dead++; continue; }
+    if (d.scan_status !== 'ok') {
+      st.unreachable++;
+      // umřelo po upgradu: nedostupné od svého upgradu, nebo poslední položka jobu skončila „nevrátil se"
+      const lastItem = db.db.prepare('SELECT status, error FROM job_items WHERE device_id=? ORDER BY id DESC LIMIT 1').get(d.id);
+      if ((d.last_upgrade_at && (!d.last_seen_at || d.last_seen_at <= d.last_upgrade_at + 60)) || (lastItem && lastItem.status === 'failed' && /nevrátil/.test(lastItem.error || ''))) st.dead++;
+      continue;
+    }
     const t = targetFor(d.track, latest);
     if (!t) continue;
     const c = V.cmpVersion(d.version, t);
