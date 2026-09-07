@@ -259,7 +259,7 @@ async function api(req, res, method, p, url) {
     if (method === 'PUT' && !seg[2]) {
       const b = await readBody(req);
       const f = {};
-      for (const k of ['host', 'port', 'username', 'name', 'group_name', 'priority', 'enabled', 'track', 'notes', 'parent_id', 'managed']) if (k in b) f[k] = b[k];
+      for (const k of ['host', 'port', 'username', 'name', 'group_name', 'priority', 'enabled', 'track', 'notes', 'parent_id', 'managed', 'allow_v7']) if (k in b) f[k] = b[k];
       if ('owner_id' in b && isAdmin(req)) { f.owner_id = +b.owner_id || 0; if (f.owner_id && !db.getUser(f.owner_id)) throw new Error('vlastník neexistuje'); }
       if ('parent_id' in f) { f.parent_id = +f.parent_id || 0; if (f.parent_id === id || db.descendantIds(id).includes(f.parent_id)) throw new Error('nadřazený prvek nemůže být zařízení samo ani jeho potomek'); if (f.parent_id && !canSee(req, db.getDevice(f.parent_id))) throw new Error('nadřazený prvek neexistuje'); }
       if (f.host || f.port) { validateDevice({ ...dev, ...f }); const ex = db.findDeviceByHost(f.host || dev.host, f.port || dev.port); if (ex && ex.id !== id) throw new Error('jiné zařízení se stejným host:port už existuje'); }
@@ -276,7 +276,7 @@ async function api(req, res, method, p, url) {
     if (method === 'POST' && seg[2] === 'reset-hostkey') { db.updateDevice(id, { host_key: '', scan_status: 'never', scan_error: '' }); scanner.scanOne(id).catch(() => {}); return send(res, 200, { ok: true }); }
     if (method === 'GET' && seg[2] === 'plan') {
       await V.refreshLatest().catch(() => {});
-      const opts = { mode: q.get('mode') || 'upload', allow_routing_migration: q.get('allow_routing') === '1', allow_small_flash: q.get('allow_small_flash') === '1' };
+      const opts = { mode: q.get('mode') || 'upload', allow_routing_migration: q.get('allow_routing') === '1', allow_small_flash: q.get('allow_small_flash') === '1', allow_v7: !!dev.allow_v7 };
       const pl = await plan(dev, { track: q.get('track') || dev.track, settings: db.getSettings(), latest: V.getLatest(), options: opts });
       return send(res, 200, pl);
     }

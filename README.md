@@ -32,6 +32,8 @@ je postupně, **jedno po druhém**, upgraduje na nejnovější verzi podle track
   a obecných (7.17, 7.19, 7.20, 7.23.4, 7.24…). Vadné bloky flash > 5 % blokují, „kernel failure" v logu varuje, otisk zneužití SSH
   zranitelnosti (9/2026) a device-mode „flagged" se hlásí. Podrobná rešerše: `docs/reserse-bezpecny-upgrade.md`.
 - **Stop při chybě** (výchozí), **dry run** (jen plán), **kanárci** (první kus od každého modelu, pak čekání na potvrzení), **naplánovaný start** („spustit v“), pauza mezi zařízeními.
+- **Hardware bez v7:** pevný seznam (MIPS-LE, < 64 MB RAM, smips, staré RB4xx, 32 MB kusy RB711/RB750/RB751/RB951-2n/SXT G/OmniTIK 5/Groove) cílí na poslední v6 long-term; v7 jde povolit u zařízení (`allow_v7`) nebo globálně, u MIPS-LE nikdy.
+- **Málo volné RAM:** zařízení se nejdřív restartuje a kontrola se opakuje; blokuje se až když to nepomůže.
 - **Preventivní restart:** zařízení s uptime nad limit (výchozí 180 dní) se před upgradem restartuje a ověří (fórum: po měsících provozu častěji nenabootuje po upgradu).
 - **Fronty po uživatelích:** každý uživatel má vlastní runner, naráz běží nejvýš jeden jeho job; na ostatní se nečeká.
 - Restart serveru uprostřed jobu → job se pozastaví, rozpracovaná položka dostane stav „neznámý" (nutný sken).
