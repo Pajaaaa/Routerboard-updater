@@ -70,7 +70,13 @@ const visDevices = (req) => isAdmin(req) ? db.listDevices() : db.listDevices(req
 const visJobs = (req, n) => isAdmin(req) ? db.listJobs(n) : db.listJobs(n, req.user.id);
 const runnerStatusFor = (req) => {
   const st = runner.status(req.user.id);
-  if (isAdmin(req)) st.others = runner.running().filter(x => x.ownerId !== req.user.id).map(x => { const j = db.getJob(x.jobId); const u = db.getUser(x.ownerId); return { jobId: x.jobId, name: j ? j.name : '', user: u ? u.name : '?' }; });
+  // cizí běžící joby jen informačně: kdo, kolik zařízení, kolik hotovo (správce vidí; ostatní jen počet)
+  const others = runner.running().filter(x => x.ownerId !== req.user.id).map(x => {
+    const u = db.getUser(x.ownerId); const items = db.getJobItems(x.jobId);
+    const done = items.filter(i => !['pending', 'checking', 'backup', 'upload', 'reboot', 'verify', 'firmware', 'running'].includes(i.status)).length;
+    return { user: u ? u.name : '?', total: items.length, done, jobId: isAdmin(req) ? x.jobId : 0 };
+  });
+  st.others = isAdmin(req) ? others : others.map(o => ({ user: '', total: o.total, done: o.done, jobId: 0 }));
   return st;
 };
 const discoveryFor = (req) => { const st = discovery.status(); return st && (isAdmin(req) || st.ownerId === req.user.id) ? st : null; };
