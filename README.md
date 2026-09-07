@@ -38,7 +38,7 @@ je postupně, **jedno po druhém**, upgraduje na nejnovější verzi podle track
 - **Zámek napříč uživateli:** před restartem se čeká, když jiný uživatel právě upgraduje zařízení fyzicky nad/pod tímto (rodič/potomek, soused, PoE dítě, rádiový protějšek).
 - **Vlastní restartovací skripty** (scheduler/netwatch s /system reboot) se na dobu položky vypnou; **práva uživatele** (write, reboot, ftp, policy, test) se kontrolují předem; **po restartu** ping na bránu z routeru, počet sousedů a počty položek konfigurace proti stavu před upgradem; **trend vadných bloků** mezi skeny.
 - **Preventivní restart:** zařízení s uptime nad limit (výchozí 180 dní) se před upgradem restartuje a ověří (fórum: po měsících provozu častěji nenabootuje po upgradu).
-- **Fronty po uživatelích:** každý uživatel má vlastní runner, naráz běží nejvýš jeden jeho job; na ostatní se nečeká.
+- **Souběh jobů:** runner na job, jobů může běžet libovolně mnoho (i jednoho uživatele), každý po jednom zařízení; zařízení nesmí být ve dvou jobech, před restartem se čeká na cizí job na sousedícím zařízení.
 - Restart serveru uprostřed jobu → job se pozastaví, rozpracovaná položka dostane stav „neznámý" (nutný sken).
 
 ## Topologie a pořadí

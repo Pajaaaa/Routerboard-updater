@@ -75,15 +75,14 @@ function render() {
     const rf = $('#regf'); if (rf) rf.onsubmit = async (e) => { e.preventDefault(); if ($('#rpw').value !== $('#rpw2').value) return toast('hesla se neshodují', true); try { await api('/register', { method: 'POST', body: { username: $('#run').value, password: $('#rpw').value } }); state.authed = true; await loadState(); connectSSE(); render(); toast('účet založen'); } catch (e2) { toast(e2.message, true); } };
     return; }
   const running = state.runner.running;
-  const rj = running ? state.jobs.find(j => j.id === state.runner.jobId) : null;
-  const rd = running && state.runner.deviceId ? state.devices.find(d => d.id === state.runner.deviceId) : null;
+  const ownRuns = (state.runner.jobs || []).map(r => ({ r, job: state.jobs.find(j => j.id === r.jobId), dev: r.deviceId ? state.devices.find(d => d.id === r.deviceId) : null }));
   const navBtn = (v, ico, label) => `<button class="${state.view === v ? 'active' : ''}" data-view="${v}"><span class="ico">${ico}</span>${label}</button>`;
   app.innerHTML = `<div class="shell"><aside class="side">
     <div class="brand"><div class="mark">ROS</div><div><b>MikroTik upgrader</b><small>správa RouterOS</small></div></div>
     <nav>${navBtn('devices', '▤', 'Zařízení')}${navBtn('jobs', '▶', 'Upgrady')}${navBtn('help', '?', 'Nápověda')}${navBtn('settings', '⚙', 'Nastavení')}</nav>
     <div class="versions">${latestBar()}</div>
     <div class="spacer"></div>
-    <div class="runner-pill ${running ? 'live' : ''}" id="runnerpill">${running ? `<span class="pulse"></span><b>běží job #${state.runner.jobId}</b>${rj ? ` ${esc(rj.name)}` : ''}${rd ? `<br>${esc(devName(rd))}` : ''}` : 'žádný tvůj job neběží'}${(state.runner.others || []).length ? `<div class="hint" style="margin-top:6px;line-height:1.4">${state.runner.others.map(o => o.user ? `${esc(o.user)}: běží upgrade ${o.total} zařízení${o.done ? `, hotovo ${o.done}` : ''}` : `jiný uživatel: upgrade ${o.total} zařízení`).join('<br>')}</div>` : ''}</div>
+    <div class="runner-pill ${running ? 'live' : ''}" id="runnerpill">${running ? ownRuns.map(({ r, job, dev }) => `<div class="clickable" data-job="${r.jobId}"><span class="pulse"></span><b>job #${r.jobId}</b>${job ? ` ${esc(job.name).slice(0, 40)}` : ''}${dev ? `<br><span class="hint">${esc(devName(dev))}</span>` : ''}</div>`).join('') : 'žádný tvůj job neběží'}${(state.runner.others || []).length ? `<div class="hint" style="margin-top:6px;line-height:1.4">${state.runner.others.map(o => o.user ? `${esc(o.user)}: ${o.jobs > 1 ? `${o.jobs} joby, ` : ''}upgrade ${o.total} zařízení${o.done ? `, hotovo ${o.done}` : ''}` : `jiný uživatel: upgrade ${o.total} zařízení`).join('<br>')}</div>` : ''}</div>
     <label class="check advtoggle"><input type="checkbox" id="advtoggle" ${state.advanced ? 'checked' : ''}> Pokročilé zobrazení</label>
     ${state.auth.user ? `<div class="hint" style="padding:0 10px 4px">👤 ${esc(state.auth.user.name)}${state.admin ? ' <span class="chip">správce</span>' : ''} · <a href="#" id="chpw">heslo</a></div>` : ''}
     <div class="foot"><button class="small" id="refreshver" title="obnovit verze z upgrade.mikrotik.com">↻ verze</button><button class="small" id="logout">Odhlásit</button></div>
@@ -91,7 +90,7 @@ function render() {
   app.querySelectorAll('nav button').forEach(b => b.onclick = () => { state.view = b.dataset.view; render(); });
   $('#logout').onclick = async () => { await api('/logout', { method: 'POST' }); state.authed = false; render(); };
   $('#refreshver').onclick = async () => { state.latest = await api('/versions/refresh', { method: 'POST' }); toast('verze obnoveny'); render(); };
-  $('#runnerpill').onclick = () => { if (running && state.runner.jobId) openJob(state.runner.jobId); };
+  document.querySelectorAll('#runnerpill [data-job]').forEach(el => el.onclick = () => openJob(+el.dataset.job));
   const cp = $('#chpw'); if (cp) cp.onclick = (e) => { e.preventDefault(); openModal({ type: 'password' }); };
   $('#advtoggle').onchange = (e) => { state.advanced = e.target.checked; try { localStorage.setItem('mtu_adv', state.advanced ? '1' : '0'); } catch {} render(); };
   const m = $('#main');
@@ -168,7 +167,7 @@ function renderDevices(m) {
   const total = devs.length || 1;
   const running = state.runner.running;
   m.innerHTML = `<h1>Zařízení</h1><div class="fleet"><div class="head"><div class="count">${devs.length}<small>zařízení ve správě</small></div>
-      <div class="row">${toUpgrade.length ? `<button class="primary" id="upall" ${running ? 'disabled title="právě běží job"' : ''}>▶ Upgradovat vše potřebné (${toUpgrade.length})</button>` : `<span class="hint">${devs.length ? 'Všechna dostupná zařízení jsou aktuální.' : 'Začni přidáním zařízení.'}</span>`}</div></div>
+      <div class="row">${toUpgrade.length ? `<button class="primary" id="upall">▶ Upgradovat vše potřebné (${toUpgrade.length})</button>` : `<span class="hint">${devs.length ? 'Všechna dostupná zařízení jsou aktuální.' : 'Začni přidáním zařízení.'}</span>`}</div></div>
     <div class="bar">${segs.map(([k, , c]) => `<span style="width:${cnt[k] / total * 100}%;background:${c}" title="${cnt[k]}"></span>`).join('')}</div>
     <div class="legend">${segs.filter(([k]) => cnt[k]).map(([k, l, c]) => `<span><i class="sw" style="background:${c}"></i>${l} <b>${cnt[k]}</b></span>`).join('')}</div></div>
   <div class="panel"><div class="toolbar">
@@ -185,7 +184,7 @@ function renderDevices(m) {
     <select id="sort"><option value="tree" ${state.sort === 'tree' ? 'selected' : ''}>řadit: strom (topologie)</option><option value="priority" ${state.sort === 'priority' ? 'selected' : ''}>priorita</option><option value="name" ${state.sort === 'name' ? 'selected' : ''}>název</option><option value="version" ${state.sort === 'version' ? 'selected' : ''}>verze</option><option value="model" ${state.sort === 'model' ? 'selected' : ''}>model</option><option value="seen" ${state.sort === 'seen' ? 'selected' : ''}>naposledy viděno</option></select>
     <input id="filter" placeholder="hledat…" value="${esc(state.filter)}" style="width:170px"></div>
   <div class="tablewrap"><table><thead><tr><th><input type="checkbox" id="selall" ${allSel ? 'checked' : ''}></th><th>Zařízení</th><th>Model</th><th>RouterOS</th><th>Stav</th>${adv ? '<th>Firmware</th><th>Flash · RAM volné</th><th>Nadřazený</th><th>Track</th><th>Sken</th>' + (state.admin && state.users ? '<th>Vlastník</th>' : '') : ''}<th></th></tr></thead><tbody>
-  ${list.map(d => { const ps = plainStatus(d); const sc = STATUS_LABEL[d.scan_status] || ['b-muted', d.scan_status]; const scanning = state.scanning.includes(d.id); const busy = state.runner.deviceId === d.id;
+  ${list.map(d => { const ps = plainStatus(d); const sc = STATUS_LABEL[d.scan_status] || ['b-muted', d.scan_status]; const scanning = state.scanning.includes(d.id); const busy = (state.runner.busy || []).includes(d.id);
     return `<tr class="${state.selected.has(d.id) ? 'selected' : ''} ${d.enabled ? '' : 'muted'} ${state.sort === 'tree' && d._depth === 0 && d._kids ? 'root-row' : ''}" data-id="${d.id}">
     <td><input type="checkbox" class="sel" data-id="${d.id}" ${state.selected.has(d.id) ? 'checked' : ''}></td>
     <td class="clickable detail name" data-id="${d.id}">${d._depth > 0 ? `<span class="tree mono">${esc(d._prefix)}${d._last ? '└─' : '├─'}</span>` : ''}${d._depth === 0 && d._kids ? '<span class="rootmark" title="hlavní prvek — napájí/připojuje podřízené">▣</span>' : ''}<b>${esc(d.name || d.identity || d.host)}</b>${d._kids ? ` <span class="muted" title="počet přímo podřízených">(${d._kids})</span>` : ''}${busy ? ' <span class="badge b-info">právě se upgraduje</span>' : ''}${d.enabled ? '' : ' <span class="badge b-muted">vypnuto</span>'}${d.track === 'v6-long-term' ? ' <span class="chip" title="zůstává na v6, na sedmičku se neupgraduje">zůstává na v6</span>' : d.track === 'hold' ? ' <span class="chip" title="nikdy neupgradovat">hold</span>' : ''}<span class="sub"><span class="mono">${esc(d.host)}${d.port !== 22 ? ':' + d.port : ''}</span>${d.group_name ? ` · ${esc(d.group_name)}` : ''}${d.name && d.identity && d.name !== d.identity ? ` · ${esc(d.identity)}` : ''}</span></td>
@@ -197,7 +196,7 @@ function renderDevices(m) {
     <td class="parent">${parentCell(d)}</td>
     <td>${d.managed ? `<select class="track small" data-id="${d.id}">${state.tracks.map(t => `<option value="${t}" ${t === d.track ? 'selected' : ''}>${t.replace('long-term', 'LT')}</option>`).join('')}</select>` : '<span class="badge b-muted">neřízený</span>'}</td>
     <td>${!d.managed ? '<span class="muted">—</span>' : `<span class="badge ${sc[0]}" title="${esc(d.scan_error)}">${esc(sc[1])}</span> <span class="muted" title="naposledy viděno ${fmtTs(d.last_seen_at)}">${ago(d.last_seen_at)}</span>`}</td>${state.admin && state.users ? `<td class="muted">${esc((state.users.find(u => u.id === d.owner_id) || {}).name || '—')}</td>` : ''}` : ''}
-    <td class="acts">${ps.act === 'upgrade' && !running ? `<button class="small ok up1" data-id="${d.id}">▶ Upgradovat</button>` : ''} ${ps.act === 'scan' ? `<button class="small scan1" data-id="${d.id}">⟳ Zkontrolovat</button>` : adv ? `<button class="small scan1" data-id="${d.id}" title="zkontrolovat">⟳</button>` : ''} <button class="small edit1" data-id="${d.id}" title="upravit">✎</button></td></tr>`; }).join('')}
+    <td class="acts">${ps.act === 'upgrade' && !busy ? `<button class="small ok up1" data-id="${d.id}">▶ Upgradovat</button>` : ''} ${ps.act === 'scan' ? `<button class="small scan1" data-id="${d.id}">⟳ Zkontrolovat</button>` : adv ? `<button class="small scan1" data-id="${d.id}" title="zkontrolovat">⟳</button>` : ''} <button class="small edit1" data-id="${d.id}" title="upravit">✎</button></td></tr>`; }).join('')}
   ${list.length ? '' : `<tr><td colspan="${adv ? 11 : 6}" class="empty">Zatím žádná zařízení. Přidej je skenem: zadáš IP adresy nebo rozsahy a loginy, nalezené routery se založí samy.</td></tr>`}
   </tbody></table></div></div>`;
   const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
@@ -232,7 +231,6 @@ const JOB_PLAIN = { queued: 'připraven ke spuštění', running: 'probíhá', p
 /** štítek jobu: „hotovo" jen když všechno prošlo; jinak s chybou / s výhradami / nic neprovedeno */
 function jobBadge(j) {
   const c = j.counts || {};
-  if (j.status === 'queued' && j.options && j.options.queued_at) return '<span class="badge b-warn">ve frontě</span>';
   if (j.status !== 'done') return badge(JOB_LABEL, j.status);
   if (c.failed || c.unknown) return '<span class="badge b-err">skončilo s chybou</span>';
   if ((c.blocked || 0) + (c.skipped || 0) > 0) return c.done ? '<span class="badge b-warn">hotovo s výhradami</span>' : '<span class="badge b-err">nic neprovedeno</span>';
@@ -246,7 +244,7 @@ function renderJobs(m) {
     ${shown.map(j => { const c = j.counts || {}; const done = (c.done || 0) + (c.failed || 0) + (c.blocked || 0) + (c.skipped || 0) + (c.unknown || 0);
       return `<tr class="clickable ${cur && cur.job.id === j.id ? 'selected' : ''}" data-id="${j.id}">${adv ? `<td>${j.id}</td>` : ''}<td>${esc(j.name)}${state.admin && j.owner_name ? ` <span class="chip" title="vlastník">${esc(j.owner_name)}</span>` : ''}${j.options.dry_run ? ' <span class="badge b-info">jen kontrola</span>' : ''}${j.options.op ? ' <span class="badge b-muted">operace</span>' : ''}</td><td>${jobBadge(j)}${adv ? `<div class="muted" style="font-size:11px;white-space:normal">${esc(j.status_note)}</div>` : ''}</td>
       <td>${done}/${j.total} <span class="muted">(${c.done || 0} ok${c.failed ? `, <span style="color:var(--err)">${c.failed} chyb</span>` : ''}${c.blocked ? `, ${c.blocked} přeskočeno` : ''})</span><div class="progress"><div style="width:${j.total ? done / j.total * 100 : 0}%"></div></div></td><td>${fmtTs(j.created_at)}</td>
-      <td>${['queued', 'paused'].includes(j.status) && !(j.options && j.options.queued_at && j.status === 'queued') ? `<button class="small ok jstart" data-id="${j.id}">${state.runner.running ? '▶ Do fronty' : '▶ Spustit'}</button>` : ''} ${j.status === 'waiting' ? `<button class="small ok jcont" data-id="${j.id}">${state.runner.running ? 'Do fronty' : 'Pokračovat'}</button>` : ''} ${!['running'].includes(j.status) ? `<button class="small danger jdel" data-id="${j.id}" title="smazat">✕</button>` : ''}</td></tr>`; }).join('')}
+      <td>${['queued', 'paused'].includes(j.status) ? `<button class="small ok jstart" data-id="${j.id}">▶ Spustit</button>` : ''} ${j.status === 'waiting' ? `<button class="small ok jcont" data-id="${j.id}">Pokračovat</button>` : ''} ${!['running'].includes(j.status) ? `<button class="small danger jdel" data-id="${j.id}" title="smazat">✕</button>` : ''}</td></tr>`; }).join('')}
     ${state.jobs.length ? '' : '<tr><td colspan="6" class="empty">Zatím žádný upgrade. V seznamu zařízení klikni na „Upgradovat vše potřebné" nebo na „Upgradovat" u zařízení.</td></tr>'}</tbody></table></div></div>
   <div id="jobdetail">${cur ? '' : '<div class="panel empty">Klikni na upgrade v přehledu, zobrazí se průběh.</div>'}</div></div>`;
   m.querySelectorAll('tr[data-id]').forEach(r => r.onclick = (e) => { if (e.target.tagName === 'BUTTON') return; openJob(+r.dataset.id); });
@@ -259,14 +257,14 @@ function renderJobs(m) {
 async function jobAction(id, a) { try { const r = await api(`/jobs/${id}/${a}`, { method: 'POST' }); if (r && r.queued) toast(`zařazeno do fronty, spustí se po dokončení jobu #${r.behind}`); await loadState(); render(); } catch (e) { toast(e.message, true); } }
 function jobBanner(job, items) {
   const o = job.options || {};
-  const cur = items.find(i => i.id === state.runner.itemId);
+  const rs = (state.runner.jobs || []).find(r => r.jobId === job.id) || null;
+  const cur = rs ? items.find(i => i.id === rs.itemId) : null;
   const c = { done: 0, failed: 0, blocked: 0, skipped: 0, unknown: 0, pending: 0 };
   for (const i of items) c[i.status] = (c[i.status] || 0) + 1;
   const sum = `${c.done} v pořádku${c.blocked ? `, ${c.blocked} přeskočeno (nesplněná podmínka)` : ''}${c.skipped ? `, ${c.skipped} vynecháno` : ''}${c.failed || c.unknown ? `, <b style="color:var(--err)">${(c.failed || 0) + (c.unknown || 0)} s chybou</b>` : ''}`;
   if (job.status === 'running') return { cls: 'info', html: `<b>Probíhá${o.dry_run || /kontrola/.test(job.status_note || '') ? ' kontrola' : ' upgrade'}.</b> ${cur ? `Teď: <b>${esc(cur.dev_name || cur.identity || cur.host)}</b> — ${esc(cur.step || 'připojení')}.` : ''} Zbývá ${c.pending || 0}. Stránku můžeš zavřít, běží to na serveru.` };
   if (job.status === 'waiting' && /^kontrola hotová/.test(job.status_note || '')) return { cls: 'warn', html: `<b>Kontrola hotová, upgrade ještě nezačal.</b> ${esc(job.status_note.replace(/^kontrola hotová: /, '').replace(/ — .*$/, ''))}. Projdi řádky s „přeskočí se" a upozorněními níže. Klikni <b>Pokračovat</b>, upgrade pojede jen na připravených zařízeních. Každé trvá obvykle 3–10 minut.` };
   if (job.status === 'waiting') return { cls: 'warn', html: `<b>Čeká na tebe.</b> První kus od každého modelu je hotový. Ověř, že fungují, a klikni <b>Pokračovat</b>.` };
-  if (job.status === 'queued' && o.queued_at) return { cls: 'info', html: `<b>Ve frontě.</b> ${esc(job.status_note)}. Spustí se sám, nemusíš nic dělat; zrušit jde tlačítkem Zrušit.` };
   if (job.status === 'scheduled') return { cls: 'info', html: `<b>Naplánováno na ${o.start_at ? new Date(o.start_at * 1000).toLocaleString('cs-CZ') : '?'}.</b> Spustí se samo; když bude v tu chvíli běžet tvůj jiný upgrade, počká, až skončí. Zrušit jde tlačítkem Zrušit.` };
   if (job.status === 'waiting-window') return { cls: 'info', html: `<b>Čeká na servisní okno</b> ${esc(o.window)}. Spustí se samo.` };
   if (job.status === 'paused') return { cls: 'err', html: `<b>Zastaveno.</b> ${esc(job.status_note)}<br><span class="hint">Podívej se na řádek s chybou níže. Když je zařízení v pořádku, klikni <b>Pokračovat</b> (chybná položka se přeskočí), nebo ji dej <b>znovu</b>.</span>` };
@@ -284,7 +282,8 @@ function renderJobDetail() {
   const { job, items } = state.job;
   const o = job.options || {};
   const adv = state.advanced;
-  const isCur = state.runner.jobId === job.id;
+  const rs = (state.runner.jobs || []).find(r => r.jobId === job.id) || null;
+  const isCur = !!rs;
   const atBottom = (() => { const l = $('#joblog'); return !l || window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 200; })(); // log roste se stránkou → sledovat konec stránky
   const prevLog = document.querySelector('details.logbox');
   if (prevLog) state.logOpen = prevLog.open; // pamatovat rozbalení logu přes překreslení
@@ -296,15 +295,15 @@ function renderJobDetail() {
     <div class="progress big"><div style="width:${items.length ? doneN / items.length * 100 : 0}%"></div></div>
     ${adv ? `<div class="row" style="margin:8px 0"><span class="badge ${o.dry_run ? 'b-info' : 'b-warn'}">${o.dry_run ? 'JEN KONTROLA' : 'OSTRÝ BĚH'}</span> <span class="badge b-muted">režim ${esc(o.mode || 'upload')}</span> ${o.firmware ? '<span class="badge b-muted">+ firmware</span>' : ''} ${o.canary ? '<span class="badge b-muted">kanárci</span>' : ''} ${o.device_mode ? '<span class="badge b-muted">device-mode</span>' : ''} ${o.window ? `<span class="badge b-muted">okno ${esc(o.window)}</span>` : ''} ${o.stop_on_failure ? '<span class="badge b-muted">stop při chybě</span>' : '<span class="badge b-warn">NEzastavit při chybě</span>'}</div>` : ''}
     <div class="row" style="margin:10px 0">
-      ${['queued', 'paused'].includes(job.status) && !state.runner.running ? `<button class="ok" id="jb-start">▶ ${job.status === 'paused' ? 'Pokračovat' : 'Spustit'}</button>` : ''}
-      ${job.status === 'waiting' && !state.runner.running ? `<button class="ok" id="jb-cont">▶ Pokračovat</button>` : ''}
-      ${isCur ? `<button id="jb-pause" ${state.runner.pauseRequested ? 'disabled' : ''}>⏸ Zastavit po aktuálním zařízení</button><button id="jb-skip">⏭ Přeskočit aktuální</button><button class="danger" id="jb-cancel">■ Zrušit</button>` : ''}
+      ${['queued', 'paused'].includes(job.status) && !isCur ? `<button class="ok" id="jb-start">▶ ${job.status === 'paused' ? 'Pokračovat' : 'Spustit'}</button>` : ''}
+      ${job.status === 'waiting' && !isCur ? `<button class="ok" id="jb-cont">▶ Pokračovat</button>` : ''}
+      ${isCur ? `<button id="jb-pause" ${rs.pauseRequested ? 'disabled' : ''}>⏸ Zastavit po aktuálním zařízení</button><button id="jb-skip">⏭ Přeskočit aktuální</button><button class="danger" id="jb-cancel">■ Zrušit</button>` : ''}
       ${!['done', 'cancelled'].includes(job.status) && !isCur ? `<button class="danger" id="jb-cancel2">■ Zrušit</button>` : ''}</div>
     <div class="tablewrap"><table><thead><tr><th>#</th><th>Zařízení</th><th>Stav</th>${adv ? '<th>Krok</th>' : ''}<th>Verze</th>${adv ? '<th>Firmware</th>' : ''}<th>Poznámka</th><th></th></tr></thead><tbody>
     ${items.map((it, i) => `<tr><td>${i + 1}${it.plan && it.plan.canary ? ' 🐤' : ''}</td><td class="clickable detail" data-id="${it.device_id}"><b>${esc(it.dev_name || it.identity || it.host)}</b><div class="muted mono" style="font-size:11px">${esc(it.host)} · ${esc(it.board_name)}</div></td><td>${badge(ITEM_LABEL, it.status)}${!adv && (ACTIVE.has(it.status) || it.status === 'pending') && it.step ? `<div class="${/^přeskočí/.test(it.step) ? 'b-warn' : 'muted'}" style="font-size:11px;white-space:normal;max-width:260px">${esc(it.step)}</div>` : ''}</td>${adv ? `<td style="white-space:normal">${esc(it.step)}</td>` : ''}
       <td class="mono">${esc(it.from_version || it.dev_version || '')}${it.to_version && it.to_version !== it.from_version ? ` → <b>${esc(it.to_version)}</b>` : ''}</td>${adv ? `<td class="mono">${esc(it.from_fw || '')}${it.to_fw && it.to_fw !== it.from_fw ? ` → ${esc(it.to_fw)}` : ''}</td>` : ''}
       <td style="white-space:normal;max-width:${adv ? 420 : 520}px">${it.error ? `<span style="color:var(--err)" title="${esc(it.error)}">${esc(adv ? it.error : shortReason(it.error))}</span>` : ''}${(it.warnings || []).length ? (adv ? it.warnings.map(w => `<div style="color:var(--warn);font-size:12px">⚠ ${esc(w)}</div>`).join('') : `<details class="warns"><summary>⚠ ${it.warnings.length} upozornění</summary>${it.warnings.map(w => `<div style="color:var(--warn);font-size:12px">${esc(w)}</div>`).join('')}</details>`) : ''}</td>
-      <td>${['pending'].includes(it.status) && state.runner.itemId !== it.id ? `<button class="small iskip" data-id="${it.id}">přeskočit</button>` : ''} ${['failed', 'blocked', 'skipped', 'unknown', 'done'].includes(it.status) && !isCur ? `<button class="small iretry" data-id="${it.id}">znovu</button>` : ''}</td></tr>`).join('')}
+      <td>${['pending'].includes(it.status) && !(rs && rs.itemId === it.id) ? `<button class="small iskip" data-id="${it.id}">přeskočit</button>` : ''} ${['failed', 'blocked', 'skipped', 'unknown', 'done'].includes(it.status) && !isCur ? `<button class="small iretry" data-id="${it.id}">znovu</button>` : ''}</td></tr>`).join('')}
     </tbody></table></div>
     <details class="logbox" ${logOpen ? 'open' : ''}><summary>Podrobný log</summary><div class="log" id="joblog">${state.jobLog.map(logLine).join('')}</div></details></div>`;
   document.querySelector('details.logbox').ontoggle = (e) => { state.logOpen = e.target.open; };
@@ -372,7 +371,7 @@ function renderHelp(m) {
   <details><summary>Co dělá „Rozdělit flash na 2 oddíly“ v detailu zařízení</summary><p>U větších zařízení (128 MB flash a víc) vytvoří záložní oddíl. Pokud pak nová verze nenabootuje, router sám naběhne ze záložního oddílu se starou verzí. Jednorázová akce s restartem, dělej ji mimo špičku. Jen správce.</p></details>
   <details><summary>Co se při upgradu nastaví na routeru navíc</summary><p>Pokud to správce zapnul v Nastavení: služby v /ip service (nepotřebné se vypnou, ostatní dostanou povolené adresy; ssh se nikdy nevypne a adresy jen když obsahují IP tohoto serveru) a vzdálené logování na syslog server. Mění se jen to, co neodpovídá, vše je v logu jobu.</p></details>
   <details><summary>Kde jsou zálohy</summary><p>V detailu zařízení (klik na název) v části Zálohy: textový export konfigurace (.rsc) a binární záloha (.backup) z doby těsně před upgradem. Jdou stáhnout. Export jde nahrát i na jinou verzi, binární záloha jen na stejnou verzi a stejný kus.</p></details>
-  <details><summary>Může nás tu pracovat víc naráz?</summary><p>Ano. Každý má vlastní frontu: naráz běží nejvýš jeden jeho upgrade, na ostatní uživatele se nečeká. V logu upgradu je, kdo ho spustil, pozastavil nebo zrušil; správce má v Nastavení audit akcí i s IP adresou. Hesla routerů jsou uložená šifrovaně a zobrazit je smí jen správce.</p></details>
+  <details><summary>Může nás tu pracovat víc naráz?</summary><p>Ano. Každý má vlastní účet a vidí jen zařízení, která sám přidal (správce vidí vše a může zařízení přidělit někomu jinému). Jobů může běžet víc naráz, i od jednoho uživatele; každý job zpracovává svá zařízení po jednom. Jedno zařízení nemůže být ve dvou běžících jobech a před restartem se čeká, když jiný job právě upgraduje zařízení fyzicky nad nebo pod ním. V logu upgradu je, kdo ho spustil, pozastavil nebo zrušil. Hesla routerů jsou uložená šifrovaně a zobrazit je smí jen správce.</p></details>
   <details><summary>Můžu zavřít prohlížeč?</summary><p>Ano. Upgrade běží na serveru. Po návratu otevři Upgrady a klikni na běžící job.</p></details>
   </div>
   <div class="panel help"><h2>Když zařízení po upgradu neožije: Netinstall a obnova ze zálohy</h2>
@@ -433,7 +432,7 @@ function renderSettings(m) {
   <div class="panel"><details id="auditbox"><summary><b>Kdo co dělal</b> (audit posledních akcí)</summary><div id="auditlist" class="hint">načítám…</div></details></div>` : ''}
   <div class="panel"><details ${state.advanced ? 'open' : ''}><summary><b>Jak to funguje</b> (podrobně)</summary><ul class="plain">
     <li><b>Sken</b> jen čte: verze, model, architektura, firmware, místo, RAM, balíčky, rizikové příznaky. Nikdy nic nemění.</li>
-    <li><b>Job</b> zpracovává zařízení <b>sériově</b>, jedno po druhém (každý uživatel má svou frontu, naráz běží nejvýš jeden job na uživatele; „spustit v“ naplánuje start na zadaný čas). Před každým krokem znovu zjistí živý stav a přepočítá plán.</li>
+    <li><b>Job</b> zpracovává zařízení <b>sériově</b>, jedno po druhém (jobů může běžet víc naráz, každý po jednom zařízení; „spustit v“ naplánuje start na zadaný čas). Před každým krokem znovu zjistí živý stav a přepočítá plán.</li>
     <li>Pořadí hopů: v6.x → nejnovější v6 long-term → v7 (cíl podle tracku). Nikdy se nedowngraduje.</li>
     <li>Před hopem: export konfigurace (.rsc, vždy) + binární .backup (přes SFTP) se stáhnou sem na server.</li>
     <li>Balíčky (.npk) stahuje server z download.mikrotik.com, ověří velikost, nahraje přes SFTP a znovu ověří na routeru (název + velikost, žádný cizí .npk). Až potom restart.</li>
@@ -661,7 +660,7 @@ function connectSSE() {
     else if (ev.type === 'item' && state.job && ev.item.job_id === state.job.job.id) { const i = state.job.items.findIndex(x => x.id === ev.item.id); if (i >= 0) state.job.items[i] = { ...state.job.items[i], ...ev.item }; if (state.view === 'jobs') renderJobDetail(); }
     else if (ev.type === 'log' && state.job && ev.log.job_id === state.job.job.id) { state.jobLog.push(ev.log); const l = $('#joblog'); if (l) { const p = $('#joblogprog'); if (p) p.remove(); const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 200; l.insertAdjacentHTML('beforeend', logLine(ev.log)); if (atBottom) window.scrollTo(0, document.documentElement.scrollHeight); } }
     else if (ev.type === 'progress' && state.job && ev.job_id === state.job.job.id) { const l = $('#joblog'); if (l) { let p = $('#joblogprog'); if (!p) { p = document.createElement('div'); p.id = 'joblogprog'; p.className = 'info'; l.appendChild(p); } p.textContent = `${new Date().toLocaleTimeString('cs-CZ')} ${ev.text}`; const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 200; if (atBottom) window.scrollTo(0, document.documentElement.scrollHeight); } }
-    else if (ev.type === 'runner') { if (state.auth.user && ev.status.ownerId === state.auth.user.id) { state.runner = { ...ev.status, others: state.runner.others }; render(); } else if (state.admin) loadState().then(render); }
+    else if (ev.type === 'runner') { loadState().then(render); }
     else if (ev.type === 'discovery' || ev.type === 'discovery-done') { state.discovery = ev.state; const r = $('#discres'); if (r) r.innerHTML = discoveryHtml(ev.state); if (ev.type === 'discovery-done') { toast(`sken rozsahu hotov: ${ev.state.added} nových zařízení`); loadState().then(() => { if (state.modal && state.modal.type === 'discover') renderModal(); else render(); }); } }
     else if (ev.type === 'discovery-error') toast('sken rozsahu: ' + ev.error, true);
     else if (ev.type === 'devices-changed') loadState().then(render);
