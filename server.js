@@ -370,9 +370,10 @@ async function api(req, res, method, p, url) {
     if (options.canary) for (const it of db.getJobItems(jobId)) if (canaryIds.has(it.device_id)) db.updateJobItem(it.id, { plan: { canary: true } });
     db.addLog(jobId, 0, 0, 'info', `Job vytvořen (${options.by}): ${devs.length} zařízení, ${JSON.stringify(options)}`);
     if (b.start && options.start_at) { db.updateJob(jobId, { status: 'scheduled', status_note: `spustí se ${new Date(options.start_at * 1000).toLocaleString('cs-CZ')}` }); db.addLog(jobId, 0, 0, 'info', `Naplánováno na ${new Date(options.start_at * 1000).toLocaleString('cs-CZ')} (${who(req)}).`); }
-    else if (b.start) runner.start(jobId);
+    let queued = null;
+    if (b.start && !options.start_at) queued = runner.startOrQueue(jobId);
     bus.emit('event', { type: 'job', job: db.listJobs(200).find(j => j.id === jobId) });
-    return send(res, 200, { id: jobId });
+    return send(res, 200, { id: jobId, queued: !!(queued && queued.queued), behind: queued && queued.behind });
   }
   if (seg[0] === 'jobs' && seg[1]) {
     const id = parseInt(seg[1], 10);
@@ -381,7 +382,7 @@ async function api(req, res, method, p, url) {
     if (method === 'GET' && !seg[2]) return send(res, 200, { job, items: db.getJobItems(id), log: db.getLog(id, parseInt(q.get('after') || '0', 10)) });
     if (method === 'GET' && seg[2] === 'log') return send(res, 200, db.getLog(id, parseInt(q.get('after') || '0', 10)));
     const rj = runner.runnerOfJob(id); // runner, ve kterém job právě běží (null = neběží)
-    if (method === 'POST' && seg[2] === 'start') { db.addLog(id, 0, 0, 'info', `Spuštění: ${who(req)}`); audit(req, 'job spuštěn', `#${id} ${job.name}`); runner.start(id); return send(res, 200, runnerStatusFor(req)); }
+    if (method === 'POST' && seg[2] === 'start') { db.addLog(id, 0, 0, 'info', `Spuštění: ${who(req)}`); audit(req, 'job spuštěn', `#${id} ${job.name}`); const q = runner.startOrQueue(id); return send(res, 200, { ...runnerStatusFor(req), queued: q.queued, behind: q.behind }); }
     if (method === 'POST' && seg[2] === 'pause') { if (!rj) throw new Error('tento job neběží'); db.addLog(id, 0, 0, 'info', `Pozastavení: ${who(req)}`); audit(req, 'job pozastaven', `#${id}`); rj.pause(); return send(res, 200, runnerStatusFor(req)); }
     if (method === 'POST' && seg[2] === 'cancel') {
       db.addLog(id, 0, 0, 'warn', `Zrušení: ${who(req)}`); audit(req, 'job zrušen', `#${id}`);
@@ -393,8 +394,8 @@ async function api(req, res, method, p, url) {
     if (method === 'POST' && seg[2] === 'continue') {
       db.addLog(id, 0, 0, 'info', `Pokračování: ${who(req)}`); audit(req, 'job pokračuje', `#${id}`);
       if (job.options.canary && job.status === 'waiting' && !/^kontrola hotová/.test(job.status_note || '')) db.updateJob(id, { options: { ...job.options, canaryDone: true } });
-      runner.start(id);
-      return send(res, 200, runnerStatusFor(req));
+      const q = runner.startOrQueue(id);
+      return send(res, 200, { ...runnerStatusFor(req), queued: q.queued, behind: q.behind });
     }
     if (method === 'POST' && seg[2] === 'skip-current') { if (!rj) throw new Error('tento job neběží'); db.addLog(id, 0, 0, 'warn', `Přeskočení aktuálního: ${who(req)}`); audit(req, 'job přeskočení', `#${id}`); rj.skipCurrent(); return send(res, 200, { ok: true }); }
     if (method === 'DELETE' && !seg[2]) { if (rj) throw new Error('job právě běží'); audit(req, 'job smazán', `#${id} ${job.name}`); db.deleteJob(id); bus.emit('event', { type: 'job-deleted', id }); return send(res, 200, { ok: true }); }

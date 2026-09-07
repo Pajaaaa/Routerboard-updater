@@ -232,6 +232,7 @@ const JOB_PLAIN = { queued: 'připraven ke spuštění', running: 'probíhá', p
 /** štítek jobu: „hotovo" jen když všechno prošlo; jinak s chybou / s výhradami / nic neprovedeno */
 function jobBadge(j) {
   const c = j.counts || {};
+  if (j.status === 'queued' && j.options && j.options.queued_at) return '<span class="badge b-warn">ve frontě</span>';
   if (j.status !== 'done') return badge(JOB_LABEL, j.status);
   if (c.failed || c.unknown) return '<span class="badge b-err">skončilo s chybou</span>';
   if ((c.blocked || 0) + (c.skipped || 0) > 0) return c.done ? '<span class="badge b-warn">hotovo s výhradami</span>' : '<span class="badge b-err">nic neprovedeno</span>';
@@ -245,7 +246,7 @@ function renderJobs(m) {
     ${shown.map(j => { const c = j.counts || {}; const done = (c.done || 0) + (c.failed || 0) + (c.blocked || 0) + (c.skipped || 0) + (c.unknown || 0);
       return `<tr class="clickable ${cur && cur.job.id === j.id ? 'selected' : ''}" data-id="${j.id}">${adv ? `<td>${j.id}</td>` : ''}<td>${esc(j.name)}${state.admin && j.owner_name ? ` <span class="chip" title="vlastník">${esc(j.owner_name)}</span>` : ''}${j.options.dry_run ? ' <span class="badge b-info">jen kontrola</span>' : ''}${j.options.op ? ' <span class="badge b-muted">operace</span>' : ''}</td><td>${jobBadge(j)}${adv ? `<div class="muted" style="font-size:11px;white-space:normal">${esc(j.status_note)}</div>` : ''}</td>
       <td>${done}/${j.total} <span class="muted">(${c.done || 0} ok${c.failed ? `, <span style="color:var(--err)">${c.failed} chyb</span>` : ''}${c.blocked ? `, ${c.blocked} přeskočeno` : ''})</span><div class="progress"><div style="width:${j.total ? done / j.total * 100 : 0}%"></div></div></td><td>${fmtTs(j.created_at)}</td>
-      <td>${['queued', 'paused'].includes(j.status) && !state.runner.running ? `<button class="small ok jstart" data-id="${j.id}">▶ Spustit</button>` : ''} ${j.status === 'waiting' && !state.runner.running ? `<button class="small ok jcont" data-id="${j.id}">Pokračovat</button>` : ''} ${!['running'].includes(j.status) ? `<button class="small danger jdel" data-id="${j.id}" title="smazat">✕</button>` : ''}</td></tr>`; }).join('')}
+      <td>${['queued', 'paused'].includes(j.status) && !(j.options && j.options.queued_at && j.status === 'queued') ? `<button class="small ok jstart" data-id="${j.id}">${state.runner.running ? '▶ Do fronty' : '▶ Spustit'}</button>` : ''} ${j.status === 'waiting' ? `<button class="small ok jcont" data-id="${j.id}">${state.runner.running ? 'Do fronty' : 'Pokračovat'}</button>` : ''} ${!['running'].includes(j.status) ? `<button class="small danger jdel" data-id="${j.id}" title="smazat">✕</button>` : ''}</td></tr>`; }).join('')}
     ${state.jobs.length ? '' : '<tr><td colspan="6" class="empty">Zatím žádný upgrade. V seznamu zařízení klikni na „Upgradovat vše potřebné" nebo na „Upgradovat" u zařízení.</td></tr>'}</tbody></table></div></div>
   <div id="jobdetail">${cur ? '' : '<div class="panel empty">Klikni na upgrade v přehledu, zobrazí se průběh.</div>'}</div></div>`;
   m.querySelectorAll('tr[data-id]').forEach(r => r.onclick = (e) => { if (e.target.tagName === 'BUTTON') return; openJob(+r.dataset.id); });
@@ -255,7 +256,7 @@ function renderJobs(m) {
   m.querySelectorAll('.jdel').forEach(b => b.onclick = async () => { if (!confirm(`Smazat záznam „${(state.jobs.find(j => j.id === +b.dataset.id) || {}).name}" včetně logu?`)) return; try { await api(`/jobs/${b.dataset.id}`, { method: 'DELETE' }); if (cur && cur.job.id === +b.dataset.id) state.job = null; await loadState(); render(); } catch (e) { toast(e.message, true); } });
   if (cur) renderJobDetail();
 }
-async function jobAction(id, a) { try { await api(`/jobs/${id}/${a}`, { method: 'POST' }); await loadState(); render(); } catch (e) { toast(e.message, true); } }
+async function jobAction(id, a) { try { const r = await api(`/jobs/${id}/${a}`, { method: 'POST' }); if (r && r.queued) toast(`zařazeno do fronty, spustí se po dokončení jobu #${r.behind}`); await loadState(); render(); } catch (e) { toast(e.message, true); } }
 function jobBanner(job, items) {
   const o = job.options || {};
   const cur = items.find(i => i.id === state.runner.itemId);
@@ -265,6 +266,7 @@ function jobBanner(job, items) {
   if (job.status === 'running') return { cls: 'info', html: `<b>Probíhá${o.dry_run || /kontrola/.test(job.status_note || '') ? ' kontrola' : ' upgrade'}.</b> ${cur ? `Teď: <b>${esc(cur.dev_name || cur.identity || cur.host)}</b> — ${esc(cur.step || 'připojení')}.` : ''} Zbývá ${c.pending || 0}. Stránku můžeš zavřít, běží to na serveru.` };
   if (job.status === 'waiting' && /^kontrola hotová/.test(job.status_note || '')) return { cls: 'warn', html: `<b>Kontrola hotová, upgrade ještě nezačal.</b> ${esc(job.status_note.replace(/^kontrola hotová: /, '').replace(/ — .*$/, ''))}. Projdi řádky s „přeskočí se" a upozorněními níže. Klikni <b>Pokračovat</b>, upgrade pojede jen na připravených zařízeních. Každé trvá obvykle 3–10 minut.` };
   if (job.status === 'waiting') return { cls: 'warn', html: `<b>Čeká na tebe.</b> První kus od každého modelu je hotový. Ověř, že fungují, a klikni <b>Pokračovat</b>.` };
+  if (job.status === 'queued' && o.queued_at) return { cls: 'info', html: `<b>Ve frontě.</b> ${esc(job.status_note)}. Spustí se sám, nemusíš nic dělat; zrušit jde tlačítkem Zrušit.` };
   if (job.status === 'scheduled') return { cls: 'info', html: `<b>Naplánováno na ${o.start_at ? new Date(o.start_at * 1000).toLocaleString('cs-CZ') : '?'}.</b> Spustí se samo; když bude v tu chvíli běžet tvůj jiný upgrade, počká, až skončí. Zrušit jde tlačítkem Zrušit.` };
   if (job.status === 'waiting-window') return { cls: 'info', html: `<b>Čeká na servisní okno</b> ${esc(o.window)}. Spustí se samo.` };
   if (job.status === 'paused') return { cls: 'err', html: `<b>Zastaveno.</b> ${esc(job.status_note)}<br><span class="hint">Podívej se na řádek s chybou níže. Když je zařízení v pořádku, klikni <b>Pokračovat</b> (chybná položka se přeskočí), nebo ji dej <b>znovu</b>.</span>` };
@@ -594,7 +596,7 @@ function renderModal() {
       if (o.start_at && new Date(o.start_at).getTime() < Date.now() - 60000) return toast(`čas spuštění ${new Date(o.start_at).toLocaleString('cs-CZ')} je v minulosti — pro dnešní noc vyber zítřejší datum`, true);
       const start = go === 'start' || go === 'check';
       if (go === 'start' && !confirm(o.start_at ? `Naplánovat upgrade ${devs.length} zařízení na ${new Date(o.start_at).toLocaleString('cs-CZ')}?` : `Spustit upgrade ${devs.length} zařízení hned?\n\nNejdřív proběhne kontrola. Pak se každé zařízení zálohuje, nahraje, ověří a restartuje (chvíli bude nedostupné).`)) return;
-      try { const r = await api('/jobs', { method: 'POST', body: { name: fd.get('name'), deviceIds: devs.map(d => d.id), options: o, start } }); closeModal(); state.selected.clear(); await loadState(); await openJob(r.id); } catch (e2) { toast(e2.message, true); } };
+      try { const r = await api('/jobs', { method: 'POST', body: { name: fd.get('name'), deviceIds: devs.map(d => d.id), options: o, start } }); if (r.queued) toast(`zařazeno do fronty, spustí se po dokončení jobu #${r.behind}`); closeModal(); state.selected.clear(); await loadState(); await openJob(r.id); } catch (e2) { toast(e2.message, true); } };
   }
   const c = $('#mclose'); if (c) c.onclick = closeModal;
 }
