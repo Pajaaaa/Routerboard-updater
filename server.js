@@ -24,7 +24,8 @@ bus.on('event', (ev) => { if (ev.type === 'discovery-done' && ev.state) { const 
 
 const { suggestParent } = require('./lib/topology');
 function withSuggestions(devs) {
-  return devs.map(d => ({ ...d, suggested_parent: suggestParent(d, devs) }));
+  // no_v7: pravidla ze seznamu HW bez v7, která na zařízení sedí (UI podle toho ukáže „povolit v7“ jen tam, kde má smysl)
+  return devs.map(d => { const rules = NO_V7.filter(r => { try { return r.test(d); } catch { return false; } }); return { ...d, suggested_parent: suggestParent(d, devs), no_v7: rules.map(r => r.why), no_v7_hard: rules.some(r => r.hard) }; });
 }
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json' };
