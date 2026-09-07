@@ -31,6 +31,7 @@ je postupně, **jedno po druhém**, upgraduje na nejnovější verzi podle track
 - **Známé vadné verze:** x.y.0 až po 14 dnech, seznam regresí per HW (60 GHz 7.19.4/7.5/6.47.x, RB2011, RB3011, IPQ-40xx, CRS3xx, PPC, CHR)
   a obecných (7.17, 7.19, 7.20, 7.23.4, 7.24…). Vadné bloky flash > 5 % blokují, „kernel failure" v logu varuje, otisk zneužití SSH
   zranitelnosti (9/2026) a device-mode „flagged" se hlásí. Podrobná rešerše: `docs/reserse-bezpecny-upgrade.md`.
+- **Obnova mrtvého zařízení:** postup v nápovědě (záložní bootloader → Netinstall se stejnou verzí jako záloha → `/system backup load` z binární zálohy, nebo `.rsc` přes `run-after-reset` na jiné verzi; od 7.24 Netinstall z rodiče).
 - **Stop při chybě** (výchozí), **dry run** (jen plán), **kanárci** (první kus od každého modelu, pak čekání na potvrzení), **naplánovaný start** („spustit v“), pauza mezi zařízeními.
 - **Hardware bez v7:** pevný seznam (MIPS-LE, < 64 MB RAM, smips, staré RB4xx, 32 MB kusy RB711/RB750/RB751/RB951-2n/SXT G/OmniTIK 5/Groove) cílí na poslední v6 long-term; v7 jde povolit u zařízení (`allow_v7`) nebo globálně, u MIPS-LE nikdy.
 - **Málo volné RAM:** zařízení se nejdřív restartuje a kontrola se opakuje; blokuje se až když to nepomůže.
