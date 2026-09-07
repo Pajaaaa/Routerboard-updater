@@ -34,6 +34,8 @@ je postupně, **jedno po druhém**, upgraduje na nejnovější verzi podle track
 - **Stop při chybě** (výchozí), **dry run** (jen plán), **kanárci** (první kus od každého modelu, pak čekání na potvrzení), **naplánovaný start** („spustit v“), pauza mezi zařízeními.
 - **Hardware bez v7:** pevný seznam (MIPS-LE, < 64 MB RAM, smips, staré RB4xx, 32 MB kusy RB711/RB750/RB751/RB951-2n/SXT G/OmniTIK 5/Groove) cílí na poslední v6 long-term; v7 jde povolit u zařízení (`allow_v7`) nebo globálně, u MIPS-LE nikdy.
 - **Málo volné RAM:** zařízení se nejdřív restartuje a kontrola se opakuje; blokuje se až když to nepomůže.
+- **Zámek napříč uživateli:** před restartem se čeká, když jiný uživatel právě upgraduje zařízení fyzicky nad/pod tímto (rodič/potomek, soused, PoE dítě, rádiový protějšek).
+- **Vlastní restartovací skripty** (scheduler/netwatch s /system reboot) se na dobu položky vypnou; **práva uživatele** (write, reboot, ftp, policy, test) se kontrolují předem; **po restartu** ping na bránu z routeru, počet sousedů a počty položek konfigurace proti stavu před upgradem; **trend vadných bloků** mezi skeny.
 - **Preventivní restart:** zařízení s uptime nad limit (výchozí 180 dní) se před upgradem restartuje a ověří (fórum: po měsících provozu častěji nenabootuje po upgradu).
 - **Fronty po uživatelích:** každý uživatel má vlastní runner, naráz běží nejvýš jeden jeho job; na ostatní se nečeká.
 - Restart serveru uprostřed jobu → job se pozastaví, rozpracovaná položka dostane stav „neznámý" (nutný sken).
