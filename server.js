@@ -674,7 +674,15 @@ const server = http.createServer(async (req, res) => {
     const authed = !!req.user;
     if (method === 'POST' && p === '/api/logout') return send(res, 200, { ok: true }, { 'Set-Cookie': `mtu_session=; Path=${cfg.basePath || '/'}; HttpOnly; Max-Age=0` });
     // pro deploy: co právě běží (bez přihlášení, jen počty) — restart služby by to přerušil
-    if (p === '/api/busy') return send(res, 200, { jobs: runner.running().length, discovery: discovery.busy, scanning: scanner.inProgress.size });
+    if (p === '/api/busy') return send(res, 200, { jobs: runner.running().length, discovery: discovery.busy, scanning: scanner.inProgress.size, draining: runner.draining });
+    // pro deploy (jen přímo z localhostu): drain = běžící joby dokončí aktuální zařízení a pozastaví se, nové se jen zařadí; po restartu pokračují
+    if (p === '/api/drain') {
+      const sock = req.socket && req.socket.remoteAddress;
+      if (req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(sock)) return send(res, 403, { error: 'jen z localhostu' });
+      const on = url.searchParams.get('on');
+      if (on != null) { runner.setDraining(on === '1'); console.log(`drain ${on === '1' ? 'zapnut' : 'vypnut'} (deploy)`); }
+      return send(res, 200, { draining: runner.draining, jobs: runner.running().length });
+    }
     if (p === '/api/whoami') return send(res, 200, { authed, user: req.user, admin: authed && isAdmin(req), userdb: userdbFor(req), sso: sso.enabled(), passwordLogin: pwLoginAllowed(req), registration: !!db.getSettings().allow_registration, netHint: cfg.netHint });
 
     if (p.startsWith('/api/')) {
