@@ -160,7 +160,7 @@ async function runUserdbImport({ acct, allMode, onlyAps, key, prog, byName, isAd
     const extra = { userdb_ap_id: d.apId, userdb_ap: d.ap, userdb_member: d.member ? d.userId : 0 };
     const ex = db.findDeviceByHost(d.ip, 22);
     if (ex) {
-      if (ex.owner_id && ex.owner_id !== ownerId) { const o = db.getUser(ex.owner_id); sum.foreign.push(`${d.ip} (${d.name || d.ap}) má u sebe ${o ? o.name : 'jiný uživatel'}`); continue; }
+      if (ex.owner_id && ex.owner_id !== ownerId) { const o = db.getUser(ex.owner_id); sum.foreign.push(`${d.ip} (${d.name || d.ap}) má u sebe ${o ? (o.userdb_nick || o.name) : 'jiný uživatel'}`); continue; }
       const f = { ...extra };
       if (!ex.owner_id) f.owner_id = ownerId;
       if (ex.username !== d.login || decrypt(ex.password_enc || '') !== d.password) { f.username = d.login; f.password_enc = encrypt(d.password); }
