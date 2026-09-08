@@ -339,7 +339,7 @@ async function api(req, res, method, p, url) {
       const target = parseInt(b.transfer_to || 0, 10);
       const owned = db.listDevices(uid).length;
       if (owned && !target) throw new Error(`uživatel vlastní ${owned} zařízení — zadej, komu je předat (transfer_to)`);
-      if (target) { if (!db.getUser(target)) throw new Error('cílový uživatel neexistuje'); db.db.prepare('UPDATE devices SET owner_id=? WHERE owner_id=?').run(target, uid); db.db.prepare('UPDATE jobs SET owner_id=? WHERE owner_id=?').run(target, uid); }
+      if (target) { if (!db.getUser(target)) throw new Error('cílový uživatel neexistuje'); db.bumpDevices(); db.db.prepare('UPDATE devices SET owner_id=? WHERE owner_id=?').run(target, uid); db.db.prepare('UPDATE jobs SET owner_id=? WHERE owner_id=?').run(target, uid); }
       db.deleteUser(uid);
       audit(req, 'uživatel smazán', `${u.name}${target ? ` (zařízení předána #${target})` : ''}`);
       return send(res, 200, { ok: true });
