@@ -79,7 +79,7 @@ function render() {
   const navBtn = (v, ico, label) => `<button class="${state.view === v ? 'active' : ''}" data-view="${v}"><span class="ico">${ico}</span>${label}</button>`;
   app.innerHTML = `<div class="shell"><aside class="side">
     <div class="brand"><div class="mark">ROS</div><div><b>MikroTik upgrader</b><small>správa RouterOS</small></div></div>
-    <nav>${navBtn('devices', '▤', 'Zařízení')}${navBtn('jobs', '▶', 'Upgrady')}${navBtn('help', '?', 'Nápověda')}${navBtn('settings', '⚙', 'Nastavení')}</nav>
+    <nav>${navBtn('devices', '▤', 'Zařízení')}${navBtn('jobs', '▶', 'Upgrady')}${navBtn('help', '?', 'Nápověda')}${navBtn('settings', '⚙', 'Nastavení')}${state.admin ? navBtn('admin', '🛠', 'Správa') : ''}</nav>
     <div class="versions">${latestBar()}</div>
     <div class="spacer"></div>
     <div class="runner-pill ${running ? 'live' : ''}" id="runnerpill">${running ? ownRuns.map(({ r, job, dev }) => `<div class="clickable" data-job="${r.jobId}"><span class="pulse"></span><b>job #${r.jobId}</b>${job ? ` ${esc(job.name).slice(0, 40)}` : ''}${dev ? `<br><span class="hint">${esc(devName(dev))}</span>` : ''}</div>`).join('') : 'žádný tvůj job neběží'}${(state.runner.others || []).length ? `<div class="hint" style="margin-top:6px;line-height:1.4">${state.runner.others.map(o => `${o.uid ? `<b>${o.uid}</b> ` : ''}${esc(o.user || 'jiný uživatel')}: ${o.jobs > 1 ? `${o.jobs} joby, ` : ''}upgrade ${o.total} zařízení${o.done ? `, hotovo ${o.done}` : ''}`).join('<br>')}</div>` : ''}</div>
@@ -97,6 +97,7 @@ function render() {
   if (state.view === 'devices') renderDevices(m);
   else if (state.view === 'jobs') renderJobs(m);
   else if (state.view === 'help') renderHelp(m);
+  else if (state.view === 'admin' && state.admin) renderSettings(m, true);
   else renderSettings(m);
   m.insertAdjacentHTML('afterbegin', statsStrip());
   renderModal();
@@ -366,7 +367,7 @@ function renderHelp(m) {
     <li><b>Přihlášení</b> je přes hkfree SSO, stejným účtem jako do userdb. Účet v upgraderu vznikne sám při prvním přihlášení a podle e-mailu se naváže na tvoje oblasti v userdb. Odhlásit se dá tlačítkem vlevo dole. Přihlášení vydrží 30 dní.</li>
     <li><b>Co vidíš:</b> jen svoje zařízení, upgrady, zálohy a logy. Každé zařízení má jednoho vlastníka; adresu, kterou už má někdo jiný, ti sken nepřidá a napíše, kdo ji má. Předat zařízení může jen správce (tužka ✎ → vlastník, nebo ⇄ Přesunout vybrané).</li>
     <li><b>Nastavení:</b> každý má „Moje nastavení“ (kanál RouterOS pro nová zařízení: v7 stable nebo long-term, limity kontrol, čekání po restartu, prahy rádia, hardening služeb, syslog…), které platí pro jeho upgrady, kontroly a plány. Předvyplněné jsou společné hodnoty; po uložení se používají vlastní, „Vrátit na společné“ je zahodí.</li>
-    <li><b>Správce</b> vidí všechno. Seznam má nahoře výběr vlastníka, výchozí je jeho vlastní pohled. V Nastavení spravuje účty (vazba na userdb, role, vypnutí, smazání) a společné nastavení, které je výchozí pro všechny.</li>
+    <li><b>Správce</b> vidí všechno. Seznam má nahoře výběr vlastníka, výchozí je jeho vlastní pohled. V záložce Správa spravuje účty (vazba na userdb, role, vypnutí, smazání), společné nastavení výchozí pro všechny a vidí audit „kdo co dělal“.</li>
   </ul></div>
 
   <div class="panel help"><h2>Postup krok za krokem</h2>
@@ -459,18 +460,22 @@ function settingsFields(s) {
     <label>témata (čárkou)<input name="remote_log_topics" type="text" value="${esc(s.remote_log_topics)}" placeholder="critical,error,info,warning"></label>
     `;
 }
-function renderSettings(m) {
-  const s = state.settings;
-  const ownKeys = Object.keys(state.settingsOwn || {});
-  m.innerHTML = `<h1>Nastavení</h1>
-  <div class="panel"><h2>Moje nastavení</h2><div class="hint" style="margin-bottom:8px">Platí pro tvoje upgrady, kontroly a plány. Předvyplněné jsou společné hodnoty od správce; po uložení se u tebe používají tyhle (společné změny se pak u tebe neprojeví, dokud nedáš „Vrátit na společné“).${ownKeys.length ? ` <b>Máš vlastní hodnoty.</b>` : ' Zatím používáš společné.'}</div>
-    <form id="setf-mine" class="form">${settingsFields(s)}<div class="wide row"><button class="primary">Uložit moje nastavení</button>${ownKeys.length ? '<button type="button" id="setreset">Vrátit na společné</button>' : ''}</div></form></div>
-  ${state.admin ? `<div class="panel"><details id="setglobal"><summary><b>Společné nastavení</b> (výchozí pro všechny, jen správce)</summary><form id="setf" class="form" style="margin-top:8px">${settingsFields(state.settingsGlobal || s)}<div class="wide"><button class="primary">Uložit společné</button></div></form></details></div>` : ''}
-  ${state.admin ? `<div class="panel"><h2>Uživatelé</h2><div class="hint" style="margin-bottom:8px">Každý vidí a upgraduje jen zařízení, která sám přidal (nebo mu je správce přidělil v editaci zařízení). Správce vidí vše a spravuje účty i nastavení.</div>
+function adminPanelsHtml(s) {
+  return `<h1>Správa</h1>
+  <div class="panel"><h2>Společné nastavení</h2><div class="hint" style="margin-bottom:8px">Výchozí hodnoty pro všechny; kdo si uložil „Moje nastavení“, používá svoje.</div><form id="setf" class="form">${settingsFields(state.settingsGlobal || s)}<div class="wide"><button class="primary">Uložit společné</button></div></form></div>
+  <div class="panel"><h2>Uživatelé</h2><div class="hint" style="margin-bottom:8px">Každý vidí a upgraduje jen zařízení, která sám přidal (nebo mu je správce přidělil v editaci zařízení). Správce vidí vše a spravuje účty i nastavení.</div>
     ${state.auth.passwordLogin ? `<label class="check" style="margin-bottom:8px"><input type="checkbox" id="regtoggle" ${s.allow_registration ? 'checked' : ''}> povolit samoregistraci na přihlašovací stránce (nový účet = role uživatel)</label>
     <div id="userlist">načítám…</div>
     <form id="useradd" class="form" style="margin-top:12px"><h2>Nový účet</h2><label>jméno<input name="name" required autocomplete="off"></label><label>heslo (aspoň 8 znaků)<input name="password" type="password" required minlength="8" autocomplete="new-password"></label><label>role<select name="role"><option value="user">uživatel</option><option value="admin">správce</option></select></label><label>&nbsp;<button class="primary">Založit</button></label></form>` : '<div class="hint" style="margin-bottom:8px">Účty vznikají samy při prvním přihlášení přes SSO (podle e-mailu) a navážou se na správce v userdb.</div>'}</div>
-  <div class="panel"><details id="auditbox"><summary><b>Kdo co dělal</b> (audit posledních akcí)</summary><div id="auditlist" class="hint">načítám…</div></details></div>` : ''}
+  <div class="panel"><details id="auditbox"><summary><b>Kdo co dělal</b> (audit posledních akcí)</summary><div id="auditlist" class="hint">načítám…</div></details></div>
+`;
+}
+function renderSettings(m, adminMode = false) {
+  const s = state.settings;
+  const ownKeys = Object.keys(state.settingsOwn || {});
+  m.innerHTML = adminMode ? adminPanelsHtml(s) : `<h1>Nastavení</h1>
+  <div class="panel"><h2>Moje nastavení</h2><div class="hint" style="margin-bottom:8px">Platí pro tvoje upgrady, kontroly a plány. Předvyplněné jsou společné hodnoty od správce; po uložení se u tebe používají tyhle (společné změny se pak u tebe neprojeví, dokud nedáš „Vrátit na společné“).${ownKeys.length ? ` <b>Máš vlastní hodnoty.</b>` : ' Zatím používáš společné.'}</div>
+    <form id="setf-mine" class="form">${settingsFields(s)}<div class="wide row"><button class="primary">Uložit moje nastavení</button>${ownKeys.length ? '<button type="button" id="setreset">Vrátit na společné</button>' : ''}</div></form></div>
   <div class="panel"><details ${state.advanced ? 'open' : ''}><summary><b>Jak to funguje</b> (podrobně)</summary><ul class="plain">
     <li><b>Sken</b> jen čte: verze, model, architektura, firmware, místo, RAM, balíčky, rizikové příznaky. Nikdy nic nemění.</li>
     <li><b>Job</b> zpracovává zařízení <b>sériově</b>, jedno po druhém (jobů může běžet víc naráz, každý po jednom zařízení; „spustit v“ naplánuje start na zadaný čas). Před každým krokem znovu zjistí živý stav a přepočítá plán.</li>
