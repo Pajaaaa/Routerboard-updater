@@ -156,3 +156,11 @@ tr.root-row td{border-top:2px solid var(--line2)}
 /* modální okna rostou s obsahem, roluje se celá stránka (ne vnitřek okna) */
 .modal-bg{align-items:flex-start;overflow:auto;padding:24px 12px}
 .modal{max-height:none;overflow:visible}
+
+/* tabulky v modálu s mřížkou (např. APčka z userdb): zarovnané hlavičky a buňky, čísla vpravo */
+.modal .tablewrap{margin:0;padding:0}
+.modal table.grid{width:100%}
+.modal table.grid th,.modal table.grid td{padding:6px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+.modal table.grid th{background:var(--panel-2,#f3f6f9);color:var(--muted);font-weight:600}
+.modal table.grid th.num,.modal table.grid td.num{text-align:right;width:1%;white-space:nowrap}
+.modal table.grid td:first-child,.modal table.grid th:first-child{width:1%;text-align:center}
