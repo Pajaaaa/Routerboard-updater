@@ -7,6 +7,8 @@ cd "$(dirname "$0")"
 [ -f deploy.env ] && . ./deploy.env
 : "${DEPLOY_HOST:?nastav DEPLOY_HOST v deploy.env}" "${DEPLOY_DIR:?nastav DEPLOY_DIR v deploy.env}"
 DEPLOY_USER=${DEPLOY_USER:-$USER}; DEPLOY_SERVICE=${DEPLOY_SERVICE:-mikrotik-upgrader}
+# před každým nasazením kontrola: syntaxe, start serveru nanečisto + API, vykreslení všech pohledů UI — při chybě se nic nenasadí
+bash tools/preflight.sh || { echo "PREFLIGHT SELHAL — nenasazuji"; exit 1; }
 SRC=$(basename "$PWD")
 # režim static: jen webové soubory (public/), bez restartu služby — server je čte z disku, uživatelům stačí obnovit stránku.
 # Použij jen pro změny UI, které nepotřebují nové API na serveru.

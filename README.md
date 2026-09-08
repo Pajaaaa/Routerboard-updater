@@ -75,7 +75,9 @@ docs/              rešerše rizik upgradu
   hlavička `X-Forwarded-For`.
 - Data (DB, zálohy, cache balíčků) v `data/`, nejsou v gitu. Server musí mít přístup na routery přes SSH,
   na download.mikrotik.com a na userdb.
-- `deploy.sh [drain|quiet]` nasazuje za provozu (`quiet` = nikoho neomezuje, čeká až 4 h na chvíli bez jobů): soubory nahraje do vedlejšího adresáře, v režimu drain zapne *drain* (`/api/drain`, jen z
+- Před každým nasazením běží `tools/preflight.sh`: syntaxe všech souborů, start serveru nanečisto s prázdnou databází a
+  průchod základního API, vykreslení všech pohledů UI bez prohlížeče (`tools/ui-smoke.js`). Při chybě se nic nenasadí.
+- `deploy.sh [drain|quiet|static]` nasazuje za provozu (`static` = jen webové soubory bez restartu (`quiet` = nikoho neomezuje, čeká až 4 h na chvíli bez jobů): soubory nahraje do vedlejšího adresáře, v režimu drain zapne *drain* (`/api/drain`, jen z
   localhostu): běžící joby dokončí aktuální zařízení a pozastaví se, nové se jen zařadí. Až neběží žádný job, sken ani
   import (`/api/busy`, dvě klidové kontroly po sobě), vymění soubory a restartuje službu; pozastavené joby po startu
   samy pokračují. Když se služba do hodiny neuvolní, restart se neprovede a drain se vypne. Tvrdý restart uprostřed jobu
