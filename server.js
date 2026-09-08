@@ -238,7 +238,7 @@ async function api(req, res, method, p, url) {
   if (method === 'GET' && p === '/api/state') {
     const latest = V.getLatest();
     if (!latest.fetchedAt) await V.refreshLatest().catch(() => {});
-    return send(res, 200, { latest: V.getLatest(), settings: db.getSettings(), devices: withSuggestions(visDevices(req)), jobs: visJobs(req, 30), runner: runnerStatusFor(req), tracks: TRACKS, scanning: [...scanner.inProgress], discovery: discoveryFor(req), admin: isAdmin(req), user: req.user });
+    return send(res, 200, { latest: V.getLatest(), settings: db.getSettings(req.user.id), settingsOwn: db.getUserSettings(req.user.id), settingsGlobal: isAdmin(req) ? db.getSettings() : undefined, devices: withSuggestions(visDevices(req)), jobs: visJobs(req, 30), runner: runnerStatusFor(req), tracks: TRACKS, scanning: [...scanner.inProgress], discovery: discoveryFor(req), admin: isAdmin(req), user: req.user });
   }
   if (method === 'POST' && p === '/api/versions/refresh') { const l = await V.refreshLatest(true); bus.emit('event', { type: 'latest', latest: l }); return send(res, 200, l); }
   if (method === 'GET' && seg[0] === 'changelog' && seg[1]) return send(res, 200, await V.getChangelog(seg[1]));
@@ -248,7 +248,10 @@ async function api(req, res, method, p, url) {
   if (method === 'GET' && p === '/api/rules') return send(res, 200, { noV7: NO_V7.map(r => ({ hw: r.hw, why: r.why, src: r.src, hard: !!r.hard })), knownBad: KNOWN_BAD.map(r => ({ hw: r.hw, versions: r.versions, why: r.why || r.warn || r.firmwareWarn })), globalBad: Object.entries(GLOBAL_BAD).map(([v, why]) => ({ version: v, why })) });
 
   // nastavení
-  if (method === 'GET' && p === '/api/settings') return send(res, 200, db.getSettings());
+  // nastavení: společné (správce) + vlastní přepsání každého uživatele (platí pro jeho joby, skeny a plány)
+  if (method === 'GET' && p === '/api/settings') return send(res, 200, { settings: db.getSettings(req.user.id), own: db.getUserSettings(req.user.id), global: isAdmin(req) ? db.getSettings() : undefined });
+  if (method === 'PUT' && p === '/api/settings/mine') { const b = await readBody(req); const own = db.setUserSettings(req.user.id, b); audit(req, 'vlastní nastavení', JSON.stringify(own)); return send(res, 200, { settings: db.getSettings(req.user.id), own }); }
+  if (method === 'DELETE' && p === '/api/settings/mine') { db.clearUserSettings(req.user.id); audit(req, 'vlastní nastavení zrušeno', ''); return send(res, 200, { settings: db.getSettings(req.user.id), own: {} }); }
   if (method === 'PUT' && p === '/api/settings') { if (!adminOnly(req, res)) return; const b = await readBody(req); db.setSettings(b); audit(req, 'nastavení', JSON.stringify(b)); return send(res, 200, db.getSettings()); }
   if (method === 'GET' && p === '/api/audit') { if (!adminOnly(req, res)) return; return send(res, 200, db.listAudit(300)); }
 
@@ -478,7 +481,7 @@ async function api(req, res, method, p, url) {
     if (method === 'GET' && seg[2] === 'plan') {
       await V.refreshLatest().catch(() => {});
       const opts = { mode: q.get('mode') || 'upload', allow_routing_migration: q.get('allow_routing') === '1', allow_small_flash: q.get('allow_small_flash') === '1', allow_v7: !!dev.allow_v7 };
-      const pl = await plan(dev, { track: q.get('track') || dev.track, settings: db.getSettings(), latest: V.getLatest(), options: opts });
+      const pl = await plan(dev, { track: q.get('track') || dev.track, settings: db.getSettings(dev.owner_id), latest: V.getLatest(), options: opts });
       return send(res, 200, pl);
     }
     if (method === 'GET' && seg[2] === 'password') { if (!adminOnly(req, res)) return; audit(req, 'zobrazení hesla', dev.host); return send(res, 200, { password: decrypt(db.getDeviceRaw(id).password_enc) }); }

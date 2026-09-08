@@ -341,7 +341,8 @@ function renderHelp(m) {
   <ul class="plain">
     <li><b>Přihlášení</b> je přes hkfree SSO, stejným účtem jako do userdb. Účet v upgraderu vznikne sám při prvním přihlášení a podle e-mailu se naváže na tvoje oblasti v userdb. Odhlásit se dá tlačítkem vlevo dole. Přihlášení vydrží 30 dní.</li>
     <li><b>Co vidíš:</b> jen svoje zařízení, upgrady, zálohy a logy. Každé zařízení má jednoho vlastníka; adresu, kterou už má někdo jiný, ti sken nepřidá a napíše, kdo ji má. Předat zařízení může jen správce (tužka ✎ → vlastník, nebo ⇄ Přesunout vybrané).</li>
-    <li><b>Správce</b> vidí všechno. Seznam má nahoře výběr vlastníka, výchozí je jeho vlastní pohled. V Nastavení spravuje účty (vazba na userdb, role, vypnutí, smazání) a společné nastavení upgraderu.</li>
+    <li><b>Nastavení:</b> každý má „Moje nastavení“ (limity kontrol, čekání po restartu, prahy rádia, hardening služeb, syslog…), které platí pro jeho upgrady, kontroly a plány. Předvyplněné jsou společné hodnoty; po uložení se používají vlastní, „Vrátit na společné“ je zahodí.</li>
+    <li><b>Správce</b> vidí všechno. Seznam má nahoře výběr vlastníka, výchozí je jeho vlastní pohled. V Nastavení spravuje účty (vazba na userdb, role, vypnutí, smazání) a společné nastavení, které je výchozí pro všechny.</li>
   </ul></div>
 
   <div class="panel help"><h2>Postup krok za krokem</h2>
@@ -400,12 +401,10 @@ function renderHelp(m) {
     $('#rules-bad').innerHTML = `<div class="tablewrap"><table><thead><tr><th>Hardware</th><th>Verze</th><th>Proč</th></tr></thead><tbody>${r.knownBad.filter(x => x.versions.length).map(x => `<tr><td style="white-space:normal">${esc(x.hw)}</td><td class="mono" style="white-space:normal">${esc(x.versions.join(', '))}</td><td style="white-space:normal">${esc(x.why)}</td></tr>`).join('')}<tr><td>všechna zařízení</td><td class="mono" style="white-space:normal">${esc(r.globalBad.map(g => g.version).join(', '))}</td><td style="white-space:normal">${esc(r.globalBad.map(g => `${g.version}: ${g.why}`).join(' · '))}</td></tr></tbody></table></div>`;
   }).catch(e => { const n = $('#rules-nov7'); if (n) n.textContent = e.message; });
 }
-function renderSettings(m) {
-  const s = state.settings;
+function settingsFields(s) {
   const f = (k, label, type = 'number', step = '1') => `<label>${label}<input name="${k}" type="${type}" step="${step}" value="${esc(s[k])}"></label>`;
   const c = (k, label) => `<label class="check"><input type="checkbox" name="${k}" ${s[k] ? 'checked' : ''}> ${label}</label>`;
-  m.innerHTML = `<h1>Nastavení</h1><div class="hint" style="margin-bottom:10px">Výchozí hodnoty jsou bezpečné, běžně tu není potřeba nic měnit.${state.admin ? '' : ' Měnit je smí jen správce.'}</div><div class="panel"><form id="setf" class="form" ${state.admin ? '' : 'style="pointer-events:none;opacity:.7"'}>
-    <h2>Kontroly před upgradem</h2>
+  return `<h2>Kontroly před upgradem</h2>
     ${f('min_uptime_min', 'min. uptime zařízení (min)')}${f('min_free_mem_mb', 'min. volná RAM (MB)')}${f('space_margin_mb', 'rezerva místa k balíčkům (MB)', 'number', '0.5')}${f('ssh_timeout_sec', 'SSH timeout připojení (s)')}
     <h2>Verze</h2>
     ${f('min_release_age_days', 'min. stáří verze (dní)', 'number', '0.5')}${f('zero_release_min_days', 'min. stáří první verze větve x.y.0 (dní)')}<label class="wide">zakázané verze (čárkou)<input name="bad_versions" type="text" value="${esc(s.bad_versions)}" placeholder="7.19.4, 7.23.4"></label>
@@ -431,7 +430,15 @@ function renderSettings(m) {
     <label>IP syslog serveru<input name="remote_log_host" type="text" value="${esc(s.remote_log_host)}" placeholder="192.0.2.10"></label>
     <label>název logging action<input name="remote_log_name" type="text" value="${esc(s.remote_log_name)}" placeholder="remote"></label>
     <label>témata (čárkou)<input name="remote_log_topics" type="text" value="${esc(s.remote_log_topics)}" placeholder="critical,error,info,warning"></label>
-    <div class="wide"><button class="primary">Uložit</button></div></form></div>
+    `;
+}
+function renderSettings(m) {
+  const s = state.settings;
+  const ownKeys = Object.keys(state.settingsOwn || {});
+  m.innerHTML = `<h1>Nastavení</h1>
+  <div class="panel"><h2>Moje nastavení</h2><div class="hint" style="margin-bottom:8px">Platí pro tvoje upgrady, kontroly a plány. Předvyplněné jsou společné hodnoty od správce; po uložení se u tebe používají tyhle (společné změny se pak u tebe neprojeví, dokud nedáš „Vrátit na společné“).${ownKeys.length ? ` <b>Máš vlastní hodnoty.</b>` : ' Zatím používáš společné.'}</div>
+    <form id="setf-mine" class="form">${settingsFields(s)}<div class="wide row"><button class="primary">Uložit moje nastavení</button>${ownKeys.length ? '<button type="button" id="setreset">Vrátit na společné</button>' : ''}</div></form></div>
+  ${state.admin ? `<div class="panel"><details id="setglobal"><summary><b>Společné nastavení</b> (výchozí pro všechny, jen správce)</summary><form id="setf" class="form" style="margin-top:8px">${settingsFields(state.settingsGlobal || s)}<div class="wide"><button class="primary">Uložit společné</button></div></form></details></div>` : ''}
   ${state.admin ? `<div class="panel"><h2>Uživatelé</h2><div class="hint" style="margin-bottom:8px">Každý vidí a upgraduje jen zařízení, která sám přidal (nebo mu je správce přidělil v editaci zařízení). Správce vidí vše a spravuje účty i nastavení.</div>
     ${state.auth.passwordLogin ? `<label class="check" style="margin-bottom:8px"><input type="checkbox" id="regtoggle" ${s.allow_registration ? 'checked' : ''}> povolit samoregistraci na přihlašovací stránce (nový účet = role uživatel)</label>
     <div id="userlist">načítám…</div>
@@ -486,7 +493,10 @@ function renderSettings(m) {
     if ($('#useradd')) $('#useradd').onsubmit = async (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); try { await api('/users', { method: 'POST', body: b }); toast(`účet ${b.name} založen`); e.target.reset(); await renderUsers(); } catch (e2) { toast(e2.message, true); } };
   }
   const ab = $('#auditbox'); if (ab) ab.ontoggle = async () => { if (!ab.open) return; try { const rows = await api('/audit'); $('#auditlist').innerHTML = rows.length ? `<table>${rows.map(r => `<tr><td class="muted">${fmtTs(Math.floor(r.ts / 1000))}</td><td>${esc(r.user)}</td><td class="mono">${esc(r.ip || '')}</td><td>${esc(r.action)}</td><td class="muted" style="white-space:normal">${esc(r.detail)}</td></tr>`).join('')}</table>` : 'zatím nic'; } catch (e) { $('#auditlist').textContent = e.message; } };
-  $('#setf').onsubmit = async (e) => { e.preventDefault(); const fd = new FormData(e.target); const body = {}; for (const k of Object.keys(s)) { const el = e.target.elements[k]; if (!el) continue; body[k] = el.type === 'checkbox' ? el.checked : el.type === 'text' ? el.value : parseFloat(el.value); } try { state.settings = await api('/settings', { method: 'PUT', body }); toast('uloženo'); render(); } catch (e2) { toast(e2.message, true); } };
+  const formBody = (form) => { const body = {}; for (const k of Object.keys(s)) { const el = form.elements[k]; if (!el) continue; body[k] = el.type === 'checkbox' ? el.checked : el.type === 'text' ? el.value : parseFloat(el.value); } return body; };
+  $('#setf-mine').onsubmit = async (e) => { e.preventDefault(); try { const r = await api('/settings/mine', { method: 'PUT', body: formBody(e.target) }); state.settings = r.settings; state.settingsOwn = r.own; toast('moje nastavení uloženo'); render(); } catch (e2) { toast(e2.message, true); } };
+  on('#setreset', async () => { if (!confirm('Zahodit vlastní hodnoty a používat společné nastavení?')) return; try { const r = await api('/settings/mine', { method: 'DELETE' }); state.settings = r.settings; state.settingsOwn = r.own; toast('používáš společné nastavení'); render(); } catch (e2) { toast(e2.message, true); } });
+  const sg = $('#setf'); if (sg) sg.onsubmit = async (e) => { e.preventDefault(); try { state.settingsGlobal = await api('/settings', { method: 'PUT', body: formBody(e.target) }); await loadState(); toast('společné nastavení uloženo'); render(); const d = $('#setglobal'); if (d) d.open = true; } catch (e2) { toast(e2.message, true); } };
 }
 
 // ---------- modaly ----------
@@ -711,7 +721,7 @@ async function loadPlan(id, mode) {
 // ---------- data / SSE ----------
 async function loadState() {
   const s = await api('/state');
-  Object.assign(state, { devices: s.devices, jobs: s.jobs, latest: s.latest, settings: s.settings, runner: s.runner, tracks: s.tracks, scanning: s.scanning, discovery: s.discovery, admin: s.admin, auth: { ...state.auth, user: s.user } });
+  Object.assign(state, { devices: s.devices, jobs: s.jobs, latest: s.latest, settings: s.settings, settingsOwn: s.settingsOwn || {}, settingsGlobal: s.settingsGlobal, runner: s.runner, tracks: s.tracks, scanning: s.scanning, discovery: s.discovery, admin: s.admin, auth: { ...state.auth, user: s.user } });
   if (s.admin) { try { state.users = await api('/users'); } catch { state.users = null; } }
   // správce: výchozí pohled = vlastní zařízení; ruční přepnutí na jiného vlastníka si pamatuje prohlížeč
   if (s.admin && s.user && state.ownerInit !== s.user.id) { state.ownerInit = s.user.id; let saved = null; try { saved = localStorage.getItem('mtu_owner'); } catch {} state.owner = saved !== null && saved !== '' ? +saved : s.user.id; }

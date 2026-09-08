@@ -30,6 +30,7 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
   ping-watchdog, CAPsMAN policy, SFP/PoE změny chování mezi verzemi, otisky zneužití SSH zranitelností.
 - **Po restartu:** verze, balíčky, log, rozhraní a IP, spoje (stanice na stejném AP, ≥ 80 % klientů sektoru zpět,
   60 GHz MCS ≥ 1, CAP registrován), ping na bránu z routeru, sousedé, počty položek konfigurace proti stavu před upgradem.
+- **Nastavení per uživatel:** společné hodnoty nastavuje správce, každý si je může přepsat pro své joby, kontroly a plány.
 - **Volitelná hardening:** `/ip service` (vypnutí nepotřebných služeb, povolené adresy; ssh se nikdy nevypne a adresy
   se použijí jen když obsahují IP serveru) a vzdálené logování na syslog. Mění se jen odchylky.
 - **Účty:** přihlášení přes OpenID Connect (SSO). Každý vidí jen svá zařízení, správce vše. Účet se při prvním
