@@ -229,8 +229,32 @@ function renderDevices(m) {
 
 const JOB_PLAIN = { queued: 'připraven ke spuštění', running: 'probíhá', paused: 'zastaven', waiting: 'čeká na potvrzení', scheduled: 'naplánován', 'waiting-window': 'čeká na servisní okno', done: 'hotovo', cancelled: 'zrušen' };
 /** štítek jobu: „hotovo" jen když všechno prošlo; jinak s chybou / s výhradami / nic neprovedeno */
+/** skutečný stav běžícího/pozastaveného jobu podle rozpracované položky a poznámky (pro přehled) */
+function jobLiveState(j) {
+  const cur = j.current, step = (cur && cur.step) || '', note = j.status_note || '';
+  if (j.status === 'running') {
+    if (/předběžná kontrola/.test(note) && !cur) return ['b-info', 'kontrola zařízení'];
+    if (!cur) return ['b-info', /pauza/i.test(note) ? 'pauza mezi zařízeními' : 'probíhá'];
+    if (/čekám na cizí/i.test(step)) return ['b-warn', 'čeká na cizí upgrade (zámek)'];
+    if (/čekám na potomky|potomk/i.test(step)) return ['b-warn', 'čeká na potomky'];
+    if (/čekám na uptime/i.test(step)) return ['b-warn', 'čeká na uptime'];
+    if (/čekám na návrat/i.test(step)) return ['b-info', 'restart, čeká na návrat'];
+    if (/čekám na spoje|spoj/i.test(step) && cur.status === 'verify') return ['b-info', 'čeká na obnovení spojů'];
+    return ['b-info', { checking: 'kontrola', backup: 'záloha', upload: 'nahrává balíčky', reboot: 'restart', verify: 'ověřuje po restartu', firmware: 'firmware RouterBOOT', running: 'probíhá' }[cur.status] || 'probíhá'];
+  }
+  if (j.status === 'paused') {
+    if (/aktualizace serveru/.test(note)) return ['b-warn', 'pozastaven: aktualizace serveru'];
+    if (/uživatelem/.test(note)) return ['b-muted', 'zastaven uživatelem'];
+    if (/restartován/.test(note)) return ['b-err', 'přerušen restartem serveru'];
+    if (/interní chyba/.test(note)) return ['b-err', 'interní chyba'];
+    return ['b-err', 'zastaven po chybě'];
+  }
+  if (j.status === 'queued') return ['b-muted', /restart/.test(note) ? 'čeká na restart serveru' : /aktualizaci/.test(note) ? 'pokračuje po aktualizaci' : 'čeká na spuštění'];
+  return null;
+}
 function jobBadge(j) {
   const c = j.counts || {};
+  const live = jobLiveState(j); if (live) return `<span class="badge ${live[0]}" title="${esc(j.status_note || '')}">${live[1]}</span>`;
   if (j.status === 'scheduled') { const ep = j.options && j.options.early_precheck; if (ep && ep.blocked) return `<span class="badge b-err" title="předběžná kontrola: ${ep.blocked} zařízení se přeskočí">naplánován, ${ep.blocked} k opravě</span>`; if (ep && ep.warned) return '<span class="badge b-warn">naplánován, upozornění</span>'; if (ep) return '<span class="badge b-ok">naplánován, zkontrolováno</span>'; }
   if (j.status !== 'done') return badge(JOB_LABEL, j.status);
   if (c.failed || c.unknown) return '<span class="badge b-err">skončilo s chybou</span>';
@@ -243,7 +267,7 @@ function renderJobs(m) {
   const shown = state.jobsAll ? state.jobs : state.jobs.slice(0, 10);
   m.innerHTML = `<h1>Upgrady</h1><div class="stack"><div class="panel"><h2>Přehled <span class="muted" style="font-weight:400;font-size:12px">${state.jobsAll ? `všech ${state.jobs.length}` : `posledních ${shown.length}`}</span>${state.jobs.length > 10 || state.jobsAll ? ` <button class="small" id="jobsall" style="margin-left:8px">${state.jobsAll ? 'jen posledních 10' : `zobrazit všechny (${state.jobs.length}${state.jobs.length >= 30 ? '+' : ''})`}</button>` : ''}</h2><div class="tablewrap"><table><thead><tr>${adv ? '<th>#</th>' : ''}<th>Název</th><th>Stav</th><th>Průběh</th><th>Vytvořen</th><th></th></tr></thead><tbody>
     ${shown.map(j => { const c = j.counts || {}; const done = (c.done || 0) + (c.failed || 0) + (c.blocked || 0) + (c.skipped || 0) + (c.unknown || 0);
-      return `<tr class="clickable ${cur && cur.job.id === j.id ? 'selected' : ''}" data-id="${j.id}">${adv ? `<td>${j.id}</td>` : ''}<td>${esc(j.name)}${state.admin && j.owner_name ? ` <span class="chip" title="vlastník">${esc(j.owner_name)}</span>` : ''}${j.options.dry_run ? ' <span class="badge b-info">jen kontrola</span>' : ''}${j.options.op ? ' <span class="badge b-muted">operace</span>' : ''}</td><td>${jobBadge(j)}${adv ? `<div class="muted" style="font-size:11px;white-space:normal">${esc(j.status_note)}</div>` : ''}</td>
+      return `<tr class="clickable ${cur && cur.job.id === j.id ? 'selected' : ''}" data-id="${j.id}">${adv ? `<td>${j.id}</td>` : ''}<td>${esc(j.name)}${state.admin && j.owner_name ? ` <span class="chip" title="vlastník">${esc(j.owner_name)}</span>` : ''}${j.options.dry_run ? ' <span class="badge b-info">jen kontrola</span>' : ''}${j.options.op ? ' <span class="badge b-muted">operace</span>' : ''}</td><td>${jobBadge(j)}${j.current ? `<div class="muted" style="font-size:11px;white-space:normal">${esc(j.current.dev)}${j.current.step ? ` — ${esc(j.current.step)}` : ''}</div>` : ''}${(c.blocked || 0) && j.status !== 'done' ? `<div class="muted" style="font-size:11px">${c.blocked} přeskočeno (blokováno)</div>` : ''}${adv && j.status_note && !j.current ? `<div class="muted" style="font-size:11px;white-space:normal">${esc(j.status_note)}</div>` : ''}</td>
       <td>${done}/${j.total} <span class="muted">(${c.done || 0} ok${c.failed ? `, <span style="color:var(--err)">${c.failed} chyb</span>` : ''}${c.blocked ? `, ${c.blocked} přeskočeno` : ''})</span><div class="progress"><div style="width:${j.total ? done / j.total * 100 : 0}%"></div></div></td><td>${fmtTs(j.created_at)}</td>
       <td>${['queued', 'paused'].includes(j.status) ? `<button class="small ok jstart" data-id="${j.id}">▶ Spustit</button>` : ''} ${j.status === 'waiting' ? `<button class="small ok jcont" data-id="${j.id}">Pokračovat</button>` : ''} ${!['running'].includes(j.status) ? `<button class="small danger jdel" data-id="${j.id}" title="smazat">✕</button>` : ''}</td></tr>`; }).join('')}
     ${state.jobs.length ? '' : '<tr><td colspan="6" class="empty">Zatím žádný upgrade. V seznamu zařízení klikni na „Upgradovat vše potřebné" nebo na „Upgradovat" u zařízení.</td></tr>'}</tbody></table></div></div>
