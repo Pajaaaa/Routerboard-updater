@@ -99,6 +99,7 @@ td.parent{white-space:normal;max-width:170px;font-size:12px}
 .log .warn{color:var(--warn)}.log .error{color:var(--err)}.log .info{color:var(--ink2)}
 .log .t{color:var(--muted);margin-right:6px}
 .log .dev{color:var(--info);margin-right:6px;display:inline-block;width:22ch;max-width:40vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+.log .dev .ipf{display:none}.log.full .dev{width:auto;max-width:none;overflow:visible}.log.full .dev .ips{display:none}.log.full .dev .ipf{display:inline}.log.noip .dev .ip{display:none}
 .log.imp .lo{display:none}.log .od{display:none}
 .logtools{margin:6px 0 8px;gap:14px;align-items:center;flex-wrap:wrap}.logtools select{max-width:100%}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}.grid2>*{min-width:0}
