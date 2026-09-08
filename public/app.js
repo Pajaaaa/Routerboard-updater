@@ -747,6 +747,11 @@ async function loadPlan(id, mode) {
 }
 
 // ---------- data / SSE ----------
+// SSE událostí chodí hodně (každý krok každého jobu) → celý stav se stahuje nejvýš jednou za 2,5 s
+let reloadT = null, renderT = null;
+/** překreslení seznamu nejvýš jednou za sekundu (při hromadné kontrole chodí událost za každé zařízení) */
+function renderSoon() { if (renderT) return; renderT = setTimeout(() => { renderT = null; if (!state.modal) render(); }, 1000); }
+function scheduleReload() { if (reloadT) return; reloadT = setTimeout(async () => { reloadT = null; try { await loadState(); } catch {} render(); }, 2500); }
 async function loadState() {
   const s = await api('/state');
   Object.assign(state, { devices: s.devices, jobs: s.jobs, latest: s.latest, settings: s.settings, settingsOwn: s.settingsOwn || {}, settingsGlobal: s.settingsGlobal, runner: s.runner, tracks: s.tracks, scanning: s.scanning, discovery: s.discovery, admin: s.admin, auth: { ...state.auth, user: s.user } });
@@ -761,20 +766,20 @@ function connectSSE() {
   es = new EventSource(BASE + '/api/events');
   es.onmessage = (e) => {
     const ev = JSON.parse(e.data);
-    if (ev.type === 'device') { const i = state.devices.findIndex(d => d.id === ev.device.id); if (i >= 0) state.devices[i] = { ...ev.device, suggested_parent: state.devices[i].suggested_parent }; else state.devices.push(ev.device); state.scanning = state.scanning.filter(x => x !== ev.device.id); if (state.view === 'devices' && !state.modal) render(); }
+    if (ev.type === 'device') { const i = state.devices.findIndex(d => d.id === ev.device.id); if (i >= 0) state.devices[i] = { ...ev.device, suggested_parent: state.devices[i].suggested_parent }; else state.devices.push(ev.device); state.scanning = state.scanning.filter(x => x !== ev.device.id); if (state.view === 'devices') renderSoon(); }
     else if (ev.type === 'device-deleted') { state.devices = state.devices.filter(d => d.id !== ev.id); state.selected.delete(ev.id); if (!state.modal) render(); }
     else if (ev.type === 'job' && ev.job) { const i = state.jobs.findIndex(j => j.id === ev.job.id); if (i >= 0) state.jobs[i] = ev.job; else state.jobs.unshift(ev.job); if (state.job && state.job.job.id === ev.job.id) { state.job.job = { ...state.job.job, ...ev.job }; } if (state.view === 'jobs') render(); }
     else if (ev.type === 'item' && state.job && ev.item.job_id === state.job.job.id) { const i = state.job.items.findIndex(x => x.id === ev.item.id); if (i >= 0) state.job.items[i] = { ...state.job.items[i], ...ev.item }; if (state.view === 'jobs') renderJobDetail(); }
     else if (ev.type === 'log' && state.job && ev.log.job_id === state.job.job.id) { state.jobLog.push(ev.log); const l = $('#joblog'); if (l) { const p = $('#joblogprog'); if (p) p.remove(); const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 200; l.insertAdjacentHTML('beforeend', logLine(ev.log)); if (atBottom) window.scrollTo(0, document.documentElement.scrollHeight); } }
     else if (ev.type === 'progress' && state.job && ev.job_id === state.job.job.id) { const l = $('#joblog'); if (l) { let p = $('#joblogprog'); if (!p) { p = document.createElement('div'); p.id = 'joblogprog'; p.className = 'info'; l.appendChild(p); } p.textContent = `${new Date().toLocaleTimeString('cs-CZ')} ${ev.text}`; const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 200; if (atBottom) window.scrollTo(0, document.documentElement.scrollHeight); } }
-    else if (ev.type === 'runner') { loadState().then(render); }
+    else if (ev.type === 'runner') { scheduleReload(); }
     else if (ev.type === 'discovery' || ev.type === 'discovery-done') { state.discovery = ev.state; const r = $('#discres'); if (r) r.innerHTML = discoveryHtml(ev.state); if (ev.type === 'discovery-done') { toast(`sken rozsahu hotov: ${ev.state.added} nových zařízení`); loadState().then(() => { if (state.modal && state.modal.type === 'discover') renderModal(); else render(); }); } }
     else if (ev.type === 'discovery-error') toast('sken rozsahu: ' + ev.error, true);
     else if (ev.type === 'scan-progress' && ev.tag === 'discovery') { state.scanProg = { done: ev.done, total: ev.total, ids: ev.ids }; const r = $('#discres'); if (r && state.discovery) r.innerHTML = discoveryHtml(state.discovery); }
     else if (ev.type === 'scan-done' && ev.tag === 'discovery' && state.scanProg) { state.scanProg = { ...state.scanProg, done: state.scanProg.total, ids: ev.ids || state.scanProg.ids }; loadState().then(() => { render(); const r = $('#discres'); if (r && state.discovery) r.innerHTML = discoveryHtml(state.discovery); }); }
-    else if (ev.type === 'devices-changed') loadState().then(render);
+    else if (ev.type === 'devices-changed') scheduleReload();
     else if (ev.type === 'latest') { state.latest = ev.latest; render(); }
-    else if (ev.type === 'scan-done') { toast(`sken hotov (${ev.count} zařízení)`); loadState().then(render); }
+    else if (ev.type === 'scan-done') { toast(`sken hotov (${ev.count} zařízení)`); scheduleReload(); }
   };
   es.onerror = () => { setTimeout(() => { if (state.authed) connectSSE(); }, 5000); };
 }

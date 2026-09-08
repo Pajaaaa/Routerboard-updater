@@ -24,16 +24,46 @@ bus.on('event', (ev) => { if (ev.type === 'discovery-done' && ev.state) { const 
 
 const { suggestParent } = require('./lib/topology');
 const userdb = require('./lib/userdb');
+/** do seznamu zařízení jdou jen příznaky, které UI používá; velké struktury (sousedé, rádia, balíčky) zůstávají v detailu zařízení */
+const SLIM_FLAG_KEYS = ['bgp', 'caps_client', 'capsman', 'device_mode', 'flash_dir', 'mpls', 'ospf', 'platform', 'poe_ports', 'routing_filter', 'wifi', 'wireless', 'partitions', 'partitions_list', 'routerboard', 'w60g', 'wifiwave2', 'protected_routerboot', 'voltage', 'temperature', 'user_policy_missing', 'log_symptoms'];
+function slimFlags(f) {
+  if (!f || typeof f !== 'object') return f;
+  const o = {};
+  for (const k of SLIM_FLAG_KEYS) if (k in f) o[k] = f[k];
+  if (f.uplink) o.uplink = { gateway: f.uplink.gateway, iface: f.uplink.iface, neighbor: f.uplink.neighbor || null };
+  if (Array.isArray(f.poe_children)) o.poe_children = f.poe_children.map(k => ({ iface: k.iface, address: k.address, identity: k.identity }));
+  return o;
+}
+const slimDevice = (d) => d && d.flags ? { ...d, flags: slimFlags(d.flags), packages: undefined } : d;
 function withSuggestions(devs) {
   // no_v7: pravidla ze seznamu HW bez v7, která na zařízení sedí (UI podle toho ukáže „povolit v7“ jen tam, kde má smysl)
   // parent_foreign: rodič, kterého uživatel nevidí (zařízení jiného vlastníka) — jen název a kdo ho má
+  // suggested_parent jen u zařízení bez rodiče (jinde se nepoužije); vyhledávání přes index, ne O(n²)
   const visible = new Set(devs.map(d => d.id));
-  const foreignParent = (d) => { if (!d.parent_id || visible.has(d.parent_id)) return null; const p = db.getDevice(d.parent_id); if (!p) return null; const u = db.getUser(p.owner_id); return { name: p.name || p.identity || p.host, user: u ? (u.userdb_nick || u.name) : '' }; };
-  return devs.map(d => { const rules = NO_V7.filter(r => { try { return r.test(d); } catch { return false; } }); return { ...d, suggested_parent: suggestParent(d, devs), parent_foreign: foreignParent(d), no_v7: rules.map(r => r.why), no_v7_hard: rules.some(r => r.hard) }; });
+  const byId = new Map(devs.map(d => [d.id, d]));
+  let allMap = null; const userNames = new Map();
+  const foreignParent = (d) => {
+    if (!d.parent_id || visible.has(d.parent_id)) return null;
+    if (!allMap) allMap = new Map(db.listDevices().map(x => [x.id, x]));
+    const p = allMap.get(d.parent_id); if (!p) return null;
+    if (!userNames.has(p.owner_id)) { const u = db.getUser(p.owner_id); userNames.set(p.owner_id, u ? (u.userdb_nick || u.name) : ''); }
+    return { name: p.name || p.identity || p.host, user: userNames.get(p.owner_id) };
+  };
+  void byId;
+  return devs.map(d => { const rules = NO_V7.filter(r => { try { return r.test(d); } catch { return false; } }); return { ...slimDevice(d), suggested_parent: d.parent_id ? null : suggestParent(d, devs), parent_foreign: foreignParent(d), no_v7: rules.map(r => r.why), no_v7_hard: rules.some(r => r.hard) }; });
 }
 
 const { targetFor } = require('./lib/planner');
+let statsCache = { at: 0, value: null };
+/** statistika sítě pro proužek nahoře — počítá se nejvýš jednou za 15 s (prochází všechna zařízení; ptá se každý otevřený prohlížeč)
+ */
 function networkStats() {
+  if (statsCache.value && Date.now() - statsCache.at < 15000) return statsCache.value;
+  const value = networkStatsCompute();
+  statsCache = { at: Date.now(), value };
+  return value;
+}
+function networkStatsCompute() {
   const latest = V.getLatest();
   const devs = db.listDevices().filter(d => d.managed);
   const busy = new Set(runner.running().map(x => x.deviceId).filter(Boolean));
@@ -208,16 +238,19 @@ async function linkUserdb(userId, who) {
 const userdbFor = (req) => { if (!userdb.enabled()) return { enabled: false }; const u = req.user && db.getUser(req.user.id); return { enabled: true, uid: (u && u.userdb_uid) || 0, nick: (u && u.userdb_nick) || '' }; };
 const discoveryFor = (req) => discovery.status(req.user.id);
 /** SSE: událost projde jen tomu, kdo smí vidět dotčené zařízení / job */
+const jobOwnerCache = new Map(); // jobId -> { at, owner } (SSE: každý log řádek × každý klient by jinak dělal dotaz do DB)
+function jobOwner(jobId) { const c = jobOwnerCache.get(jobId); if (c && Date.now() - c.at < 60000) return c.owner; const j = db.getJob(jobId); const owner = j ? j.owner_id : -1; jobOwnerCache.set(jobId, { at: Date.now(), owner }); return owner; }
 function eventFor(req, ev) {
+  if (ev.type === 'device' && ev.device) ev = { ...ev, device: slimDevice(ev.device) }; // do prohlížeče jen štíhlá verze (bez sousedů/rádií)
   if (isAdmin(req)) return ev;
   const uid = req.user.id;
   switch (ev.type) {
     case 'device': return ev.device && ev.device.owner_id === uid ? ev : null;
     case 'device-deleted': return ev.owner_id === uid ? ev : null;
     case 'job': return ev.job && ev.job.owner_id === uid ? ev : null;
-    case 'item': { const j = ev.item && db.getJob(ev.item.job_id); return j && j.owner_id === uid ? ev : null; }
-    case 'log': { const j = ev.log && db.getJob(ev.log.job_id); return j && j.owner_id === uid ? ev : null; }
-    case 'progress': { const j = db.getJob(ev.job_id); return j && j.owner_id === uid ? ev : null; }
+    case 'item': return ev.item && jobOwner(ev.item.job_id) === uid ? ev : null;
+    case 'log': return ev.log && jobOwner(ev.log.job_id) === uid ? ev : null;
+    case 'progress': return jobOwner(ev.job_id) === uid ? ev : null;
     case 'runner': return ev.status && ev.status.ownerId === uid ? ev : null;
     case 'discovery': case 'discovery-done': return ev.state && ev.state.ownerId === uid ? ev : null;
     case 'scan-progress': return ev.ownerId === uid ? ev : null;
