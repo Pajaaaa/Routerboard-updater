@@ -12,9 +12,9 @@ global.location = window.location; global.EventSource = function () { this.close
 global.fetch = async () => ({ ok: true, status: 200, json: async () => [], text: async () => '', headers: { get: () => 'application/json' } });
 global.confirm = () => false; global.prompt = () => null; global.alert = () => {}; global.setInterval = () => 0; global.setTimeout = () => 0; global.requestAnimationFrame = () => 0;
 let m = { exports: {} };
-try { new Function('module', src + '\nmodule.exports = { state, renderDevices, renderSettings, renderJobs, renderHelp };')(m); }
+try { new Function('module', src + '\nmodule.exports = { state, renderDevices, renderSettings, renderJobs, renderHelp, renderJobDetail };')(m); }
 catch (e) { console.error('app.js se nenačetl:', e.message); process.exit(1); }
-const { state: S, renderDevices, renderSettings, renderJobs, renderHelp } = m.exports;
+const { state: S, renderDevices, renderSettings, renderJobs, renderHelp, renderJobDetail } = m.exports;
 const dev = (id, extra) => ({ id, host: `10.0.0.${id}`, port: 22, name: `d${id}`, identity: `d${id}`, version: '7.24.2', board_name: 'RB', arch: 'arm', scan_status: 'ok', enabled: true, managed: true, track: 'v7-stable', owner_id: 1, flags: { uplink: { gateway: '10.0.0.1', iface: 'ether1', neighbor: null }, poe_children: [] }, parent_id: 0, packages: [], priority: 100, fw_current: '7.24.2', fw_upgrade: '7.24.2', total_hdd: 16e6, free_hdd: 2e6, total_mem: 64e6, free_mem: 30e6, last_seen_at: 1, last_scan_at: 1, ...extra });
 const job = (id, extra) => ({ id, name: `job ${id}`, status: 'running', status_note: '', options: {}, counts: {}, total: 1, owner_id: 1, owner_name: 'x', created_at: 1, ...extra });
 Object.assign(S, { authed: true, admin: true, auth: { sso: true, passwordLogin: false, user: { id: 1, name: 'x' }, userdb: { enabled: true, uid: 1, nick: 'n' }, serverStartedAt: Date.now(), sourceIp: '192.0.2.10', draining: false }, users: [{ id: 1, name: 'x', role: 'admin', userdb_uid: 1, userdb_nick: 'n' }], settings: { min_uptime_min: 10, default_track: 'v7-stable', allow_registration: false }, settingsOwn: {}, settingsGlobal: { min_uptime_min: 10, default_track: 'v7-stable' }, tracks: ['v7-stable', 'v7-long-term', 'v6-long-term', 'hold'], stats: { total: 3, upToDate: 1, needs: 1, stayV6: 0, unreachable: 1, upgrading: 0, hold: 0, never: 0, dead: 0, upgradedToday: 0, upgradedTotal: 0, failedTotal: 0, failedToday: 0, jobsRunning: 0, users: 1 }, runner: { running: false, busy: [], jobs: [], others: [{ uid: 5, user: 'u', total: 3, done: 1, jobs: 1 }] }, scanning: [], selected: new Set(), latest: { versions: { 'v7-stable': { version: '7.24.2' }, 'v7-long-term': { version: '7.23.5' }, 'v6-long-term': { version: '6.49.21' } } } });
@@ -32,6 +32,15 @@ for (const adv of [false, true]) {
   run(`správa adv=${adv}`, (el) => renderSettings(el, true));
 }
 run('nápověda', renderHelp);
+// detail jobu s položkami a logem (prefix zařízení, filtr důležitých řádků, filtr podle zařízení)
+{
+  const items = [{ id: 1, job_id: 1, device_id: 1, status: 'done', host: '10.0.0.1', dev_name: 'd1', identity: 'd1', board_name: 'RB', from_version: '7.23.1', to_version: '7.24.2', warnings: ['w'], plan: { canary: true } }, { id: 2, job_id: 1, device_id: 2, status: 'reboot', host: '10.0.0.2', dev_name: '', identity: 'd2', board_name: 'RB', step: 'restart', warnings: [] }];
+  S.job = { job: job(1, { current: { dev: 'd2', step: 'restart', status: 'reboot' } }), items };
+  S.jobLog = [{ id: 1, job_id: 1, item_id: 0, device_id: 0, ts: Date.now(), level: 'info', msg: 'Job "x" spuštěn' }, { id: 2, job_id: 1, item_id: 1, device_id: 1, ts: Date.now(), level: 'info', msg: '=== d1 (10.0.0.1) — začínám ===' }, { id: 3, job_id: 1, item_id: 1, device_id: 1, ts: Date.now(), level: 'info', msg: 'SSH připojeno' }, { id: 4, job_id: 1, item_id: 2, device_id: 2, ts: Date.now(), level: 'warn', msg: 'varování' }, { id: 5, job_id: 1, item_id: 2, device_id: 2, ts: Date.now(), level: 'error', msg: 'CHYBA: x' }];
+  const held = document.querySelector; const det = mk(); document.querySelector = (s) => s === '#jobdetail' ? det : mk();
+  for (const adv of [false, true]) { S.advanced = adv; S.logDev = adv ? 2 : 0; run(`detail jobu adv=${adv}`, (el) => { renderJobDetail(); el.innerHTML = det.innerHTML; if (!det.innerHTML.includes('d1 · 10.0.0.1')) throw new Error('chybí prefix zařízení v logu'); if (!det.innerHTML.includes('class="info lo"')) throw new Error('chybí označení nedůležitého řádku'); }); }
+  document.querySelector = held;
+}
 S.admin = false; S.users = null; S.settingsGlobal = undefined; run('zařízení jako uživatel', renderDevices); run('nastavení jako uživatel', (el) => renderSettings(el)); run('upgrady jako uživatel', renderJobs);
 if (fail) { console.error(`UI smoke: ${fail} chyb`); process.exit(1); }
 console.log('UI smoke OK');

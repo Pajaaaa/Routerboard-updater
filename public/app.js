@@ -349,6 +349,8 @@ function jobBanner(job, items) {
   if (job.status === 'cancelled') return { cls: 'muted', html: `<b>Zrušeno.</b> ${sum}.` };
   return { cls: 'muted', html: `<b>Připraveno.</b> ${items.length} zařízení, klikni <b>Spustit</b>.` };
 }
+/** filtr logu podle zařízení (select nad logem): skryje řádky jiných zařízení, řádky jobu (bez zařízení) zůstávají */
+function applyLogDevFilter() { const l = $('#joblog'); if (!l) return; const d = +l.dataset.dev || 0; l.querySelectorAll('div[data-dev]').forEach(x => { x.classList.toggle('od', !!d && +x.dataset.dev !== 0 && +x.dataset.dev !== d); }); }
 function renderJobDetail() {
   const el = $('#jobdetail'); if (!el || !state.job) return;
   const { job, items } = state.job;
@@ -378,8 +380,14 @@ function renderJobDetail() {
       <td style="white-space:normal;max-width:${adv ? 420 : 520}px">${it.error ? `<span style="color:var(--err)" title="${esc(it.error)}">${esc(adv ? it.error : shortReason(it.error))}</span>` : ''}${(it.warnings || []).length ? (adv ? it.warnings.map(w => `<div style="color:var(--warn);font-size:12px">⚠ ${esc(w)}</div>`).join('') : `<details class="warns"><summary>⚠ ${it.warnings.length} upozornění</summary>${it.warnings.map(w => `<div style="color:var(--warn);font-size:12px">${esc(w)}</div>`).join('')}</details>`) : ''}</td>
       <td>${['pending'].includes(it.status) && !(rs && rs.itemId === it.id) ? `<button class="small iskip" data-id="${it.id}">přeskočit</button>` : ''} ${['failed', 'blocked', 'skipped', 'unknown', 'done'].includes(it.status) && !isCur ? `<button class="small iretry" data-id="${it.id}">znovu</button>` : ''}</td></tr>`).join('')}
     </tbody></table></div>
-    <details class="logbox" ${logOpen ? 'open' : ''}><summary>Podrobný log</summary><div class="log" id="joblog">${state.jobLog.map(logLine).join('')}</div></details></div>`;
+    <details class="logbox" ${logOpen ? 'open' : ''}><summary>Podrobný log</summary>
+      <div class="row logtools"><label class="check"><input type="checkbox" id="logimp" ${LOGIMP ? 'checked' : ''}> jen důležité (varování, chyby, milníky)</label>
+        <select id="logdev" title="jen řádky jednoho zařízení"><option value="0">všechna zařízení</option>${items.map(it => `<option value="${it.device_id}" ${state.logDev === it.device_id ? 'selected' : ''}>${esc(it.dev_name || it.identity || it.host)} · ${esc(it.host)}</option>`).join('')}</select></div>
+      <div class="log ${LOGIMP ? 'imp' : ''}" id="joblog" data-dev="${state.logDev || 0}">${(() => { const nm = logNames(items); return state.jobLog.map(l => logLine(l, nm)).join(''); })()}</div></details></div>`;
   document.querySelector('details.logbox').ontoggle = (e) => { state.logOpen = e.target.open; };
+  applyLogDevFilter();
+  { const li = $('#logimp'); if (li) li.onchange = (e) => { LOGIMP = e.target.checked; try { localStorage.setItem('mtu_logimp', LOGIMP ? '1' : '0'); } catch {} $('#joblog').classList.toggle('imp', LOGIMP); }; }
+  { const ld = $('#logdev'); if (ld) ld.onchange = (e) => { state.logDev = +e.target.value || 0; $('#joblog').dataset.dev = state.logDev; applyLogDevFilter(); }; }
   if (atBottom && state.jobLog.length) window.scrollTo(0, document.documentElement.scrollHeight);
   on('#jb-start', () => jobAction(job.id, 'start')); on('#jb-cont', () => jobAction(job.id, 'continue')); on('#jb-precheck', () => jobAction(job.id, 'precheck'));
   on('#jb-pause', () => jobAction(job.id, 'pause')); on('#jb-skip', () => jobAction(job.id, 'skip-current'));
@@ -391,8 +399,14 @@ function renderJobDetail() {
 }
 const ACTIVE = new Set(['checking', 'backup', 'upload', 'reboot', 'verify', 'firmware']);
 async function itemAction(id, a) { try { await api(`/items/${id}/${a}`, { method: 'POST' }); await openJob(state.job.job.id); } catch (e) { toast(e.message, true); } }
-const logLine = (l) => `<div class="${l.level}"><span class="t">${fmtMs(l.ts)}</span> ${esc(l.msg)}</div>`;
-async function openJob(id) { if (!state.job || state.job.job.id !== id) state.logOpen = undefined; state.job = await api(`/jobs/${id}`); state.jobLog = state.job.log; state.view = 'jobs'; render(); }
+// důležité řádky logu (pro filtr „jen důležité"): varování/chyby + milníky (začátek zařízení, restart, návrat, hotovo, firmware, blokátory, kontrola)
+const LOG_IMPORTANT_RE = /^(===|✔|♥|hotovo|Job |Server |STOP|BLOK|Předběžná|kontrola: |DRY RUN|restart|čekám na návrat|port \d+ znovu|nahráno|nahrávám|upgrade firmware|log potvrdil|updater (stav|už)|Položka|přeskak|záloha|pozastav|zrušen|identita|spojení po čekání)/i;
+const logImportant = (l) => l.level !== 'info' || LOG_IMPORTANT_RE.test(String(l.msg || ''));
+// prefix „zařízení · IP" podle device_id (names: Map device_id → text); v detailu zařízení se nepoužívá
+const logLine = (l, names) => { const n = names && l.device_id ? names.get(l.device_id) : ''; return `<div class="${l.level}${logImportant(l) ? '' : ' lo'}" data-dev="${l.device_id || 0}"><span class="t">${fmtMs(l.ts)}</span>${n ? `<span class="dev">${esc(n)}</span> ` : ' '}${esc(l.msg)}</div>`; };
+const logNames = (items) => new Map((items || []).map(it => [it.device_id, `${it.dev_name || it.identity || it.host}${it.host && (it.dev_name || it.identity) ? ' · ' + it.host : ''}`]));
+let LOGIMP = false; try { LOGIMP = localStorage.getItem('mtu_logimp') === '1'; } catch {}
+async function openJob(id) { if (!state.job || state.job.job.id !== id) { state.logOpen = undefined; state.logDev = 0; } state.job = await api(`/jobs/${id}`); state.jobLog = state.job.log; state.view = 'jobs'; render(); }
 
 function renderHelp(m) {
   m.innerHTML = `<h1>Nápověda</h1>
@@ -813,7 +827,7 @@ function connectSSE() {
     else if (ev.type === 'device-deleted') { state.devices = state.devices.filter(d => d.id !== ev.id); state.selected.delete(ev.id); if (!state.modal) render(); }
     else if (ev.type === 'job' && ev.job) { const i = state.jobs.findIndex(j => j.id === ev.job.id); if (i >= 0) state.jobs[i] = ev.job; else state.jobs.unshift(ev.job); if (state.job && state.job.job.id === ev.job.id) { state.job.job = { ...state.job.job, ...ev.job }; } if (state.view === 'jobs') render(); }
     else if (ev.type === 'item' && state.job && ev.item.job_id === state.job.job.id) { const i = state.job.items.findIndex(x => x.id === ev.item.id); if (i >= 0) state.job.items[i] = { ...state.job.items[i], ...ev.item }; if (state.view === 'jobs') renderJobDetail(); }
-    else if (ev.type === 'log' && state.job && ev.log.job_id === state.job.job.id) { state.jobLog.push(ev.log); const l = $('#joblog'); if (l) { const p = $('#joblogprog'); if (p) p.remove(); const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 200; l.insertAdjacentHTML('beforeend', logLine(ev.log)); if (atBottom) window.scrollTo(0, document.documentElement.scrollHeight); } }
+    else if (ev.type === 'log' && state.job && ev.log.job_id === state.job.job.id) { state.jobLog.push(ev.log); const l = $('#joblog'); if (l) { const p = $('#joblogprog'); if (p) p.remove(); const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 200; l.insertAdjacentHTML('beforeend', logLine(ev.log, logNames(state.job.items))); const d = +l.dataset.dev || 0; if (d && ev.log.device_id && ev.log.device_id !== d) l.lastElementChild.classList.add('od'); if (atBottom) window.scrollTo(0, document.documentElement.scrollHeight); } }
     else if (ev.type === 'progress' && state.job && ev.job_id === state.job.job.id) { const l = $('#joblog'); if (l) { let p = $('#joblogprog'); if (!p) { p = document.createElement('div'); p.id = 'joblogprog'; p.className = 'info'; l.appendChild(p); } p.textContent = `${new Date().toLocaleTimeString('cs-CZ')} ${ev.text}`; const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 200; if (atBottom) window.scrollTo(0, document.documentElement.scrollHeight); } }
     else if (ev.type === 'runner') { scheduleReload(); }
     else if (ev.type === 'discovery' || ev.type === 'discovery-done') { state.discovery = ev.state; const r = $('#discres'); if (r) r.innerHTML = discoveryHtml(ev.state); if (ev.type === 'discovery-done') { toast(`sken rozsahu hotov: ${ev.state.added} nových zařízení`); loadState().then(() => { if (state.modal && state.modal.type === 'discover') renderModal(); else render(); }); } }

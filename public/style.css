@@ -98,6 +98,9 @@ td.parent{white-space:normal;max-width:170px;font-size:12px}
 .log{background:#f7f9fb;border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;min-height:80px;overflow-x:auto;font-family:var(--mono);font-size:12px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
 .log .warn{color:var(--warn)}.log .error{color:var(--err)}.log .info{color:var(--ink2)}
 .log .t{color:var(--muted);margin-right:6px}
+.log .dev{color:var(--info);font-weight:500;margin-right:6px}
+.log.imp .lo{display:none}.log .od{display:none}
+.logtools{margin:6px 0 8px;gap:14px;align-items:center;flex-wrap:wrap}.logtools select{max-width:100%}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}.grid2>*{min-width:0}
 .stack{display:flex;flex-direction:column;gap:0;min-width:0}
 @media(max-width:1100px){.grid2{grid-template-columns:1fr}}
