@@ -179,7 +179,7 @@ function renderDevices(m) {
     ${state.admin && state.users && state.users.length > 1 ? `<button id="movesel" ${state.selected.size ? '' : 'disabled'} title="předat vybraná zařízení jinému uživateli">⇄ Přesunout vybrané (${state.selected.size})</button>` : ''}
     <button class="danger" id="delsel" ${state.selected.size ? '' : 'disabled'} title="smaže vybraná zařízení z evidence včetně historie a záloh (vlastní; správce jakákoli)">✕ Smazat vybrané (${state.selected.size})</button>
     <span class="spacer"></span>
-    ${state.admin && state.users && state.users.length > 1 ? `<select id="ownerf" title="zobrazit zařízení jednoho uživatele"><option value="0">všichni vlastníci</option>${state.users.map(u => `<option value="${u.id}" ${u.id === state.owner ? 'selected' : ''}>${esc(u.name)} (${state.devices.filter(d => d.owner_id === u.id).length})</option>`).join('')}</select>` : ''}
+    ${state.admin && state.users && state.users.length > 1 ? `<select id="ownerf" title="zobrazit zařízení jednoho uživatele"><option value="0" ${!state.owner ? 'selected' : ''}>všichni vlastníci</option>${state.users.map(u => `<option value="${u.id}" ${u.id === state.owner ? 'selected' : ''}>${esc(u.name)} (${state.devices.filter(d => d.owner_id === u.id).length})</option>`).join('')}</select>` : ''}
     ${groups.length ? `<select id="group"><option value="">všechny skupiny</option>${groups.map(g => `<option ${g === state.group ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select>` : ''}
     <select id="sort"><option value="tree" ${state.sort === 'tree' ? 'selected' : ''}>řadit: strom (topologie)</option><option value="priority" ${state.sort === 'priority' ? 'selected' : ''}>priorita</option><option value="name" ${state.sort === 'name' ? 'selected' : ''}>název</option><option value="version" ${state.sort === 'version' ? 'selected' : ''}>verze</option><option value="model" ${state.sort === 'model' ? 'selected' : ''}>model</option><option value="seen" ${state.sort === 'seen' ? 'selected' : ''}>naposledy viděno</option></select>
     <input id="filter" placeholder="hledat…" value="${esc(state.filter)}" style="width:170px"></div>
@@ -214,7 +214,7 @@ function renderDevices(m) {
   });
   m.querySelectorAll('.acceptp').forEach(b => b.onclick = async () => { try { await api(`/devices/${b.dataset.id}`, { method: 'PUT', body: { parent_id: +b.dataset.pid } }); await loadState(); render(); } catch (e) { toast(e.message, true); } });
   const g = $('#group'); if (g) g.onchange = (e) => { state.group = e.target.value; render(); };
-  const of = $('#ownerf'); if (of) of.onchange = (e) => { state.owner = +e.target.value; state.selected.clear(); render(); };
+  const of = $('#ownerf'); if (of) of.onchange = (e) => { state.owner = +e.target.value; try { localStorage.setItem('mtu_owner', String(state.owner)); } catch {} state.selected.clear(); render(); };
   const mv = $('#movesel'); if (mv) mv.onclick = () => openModal({ type: 'move', ids: [...state.selected] });
   $('#sort').onchange = (e) => { state.sort = e.target.value; render(); };
   $('#filter').oninput = (e) => { state.filter = e.target.value; const pos = e.target.selectionStart; render(); const f = $('#filter'); f.focus(); f.setSelectionRange(pos, pos); };
@@ -698,6 +698,8 @@ async function loadState() {
   const s = await api('/state');
   Object.assign(state, { devices: s.devices, jobs: s.jobs, latest: s.latest, settings: s.settings, runner: s.runner, tracks: s.tracks, scanning: s.scanning, discovery: s.discovery, admin: s.admin, auth: { ...state.auth, user: s.user } });
   if (s.admin) { try { state.users = await api('/users'); } catch { state.users = null; } }
+  // správce: výchozí pohled = vlastní zařízení; ruční přepnutí na jiného vlastníka si pamatuje prohlížeč
+  if (s.admin && s.user && state.ownerInit !== s.user.id) { state.ownerInit = s.user.id; let saved = null; try { saved = localStorage.getItem('mtu_owner'); } catch {} state.owner = saved !== null && saved !== '' ? +saved : s.user.id; }
   try { state.stats = await api('/stats'); } catch { state.stats = null; }
 }
 let es;
