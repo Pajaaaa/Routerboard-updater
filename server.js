@@ -183,7 +183,7 @@ async function runUserdbImport({ acct, allMode, onlyAps, key, prog, byName, isAd
     const CH = 2000;
     for (let i = 0; i < entries.length; i += CH) {
       const part = entries.slice(i, i + CH);
-      const o = { entries: part, creds: [], port: 22, track: 'v7-stable', parallel: 24, ownerId: acct.id, label: entries.length > CH ? `část ${i / CH + 1}/${Math.ceil(entries.length / CH)}` : '', foreign: i === 0 ? foreign : [], errors: i === 0 ? errors : [] };
+      const o = { entries: part, creds: [], port: 22, track: db.getSettings(acct.id).default_track || 'v7-stable', parallel: 24, ownerId: acct.id, label: entries.length > CH ? `část ${i / CH + 1}/${Math.ceil(entries.length / CH)}` : '', foreign: i === 0 ? foreign : [], errors: i === 0 ? errors : [] };
       discovery.prepare(o);
       discovery.run(o).catch(e => bus.emit('event', { type: 'discovery-error', error: e.message }));
     }
@@ -432,6 +432,16 @@ async function api(req, res, method, p, url) {
     audit(req, 'zařízení předána', `${n}× → ${tu.name}`);
     bus.emit('event', { type: 'devices-changed' });
     return send(res, 200, { moved: n, owner: tu.name });
+  }
+  // hromadná změna kanálu RouterOS u vlastních zařízení (zařízení držená na v6 nebo hold se nemění)
+  if (method === 'POST' && p === '/api/devices/bulk-track') {
+    const b = await readBody(req);
+    if (!['v7-stable', 'v7-long-term'].includes(b.track)) throw new Error('kanál: v7-stable nebo v7-long-term');
+    let n = 0;
+    for (const d of visDevices(req)) { if (['v6-long-term', 'hold'].includes(d.track) || d.track === b.track) continue; db.updateDevice(d.id, { track: b.track }); n++; }
+    audit(req, 'kanál změněn hromadně', `${n}× → ${b.track}`);
+    bus.emit('event', { type: 'devices-changed' });
+    return send(res, 200, { changed: n });
   }
   // hromadné přebrání detekovaných rodičů (jen kde není nastaven)
   if (method === 'POST' && p === '/api/devices/accept-parents') {
