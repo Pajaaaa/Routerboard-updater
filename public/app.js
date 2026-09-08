@@ -75,9 +75,10 @@ const badge = (map, k) => { const [c, t] = map[k] || ['b-muted', k]; return `<sp
 let pendingRender = false, lastRenderedView = '';
 function userBusy() { try { const el = document.activeElement; if (!el || el === document.body) return false; const t = el.tagName; return (t === 'SELECT' || t === 'INPUT' || t === 'TEXTAREA') && el.type !== 'checkbox' && el.type !== 'radio' && !!el.closest('#app'); } catch { return false; } }
 try { document.addEventListener('focusout', () => { if (pendingRender) setTimeout(() => { if (pendingRender && !userBusy() && !state.modal) { pendingRender = false; render(); } }, 250); }); } catch {}
+/** překreslení z pozadí (živé události, minutový refresh): odloží se, když uživatel právě něco vybírá nebo píše; akce uživatele volají render() přímo */
+function renderLive() { if (state.authed && userBusy()) { pendingRender = true; return; } render(); }
 function render() {
   const app = $('#app');
-  if (state.authed && userBusy()) { pendingRender = true; return; }
   pendingRender = false;
   const sameView = lastRenderedView === state.view; lastRenderedView = state.view;
   const keepY = sameView ? window.scrollY : 0;
@@ -838,8 +839,8 @@ async function loadPlan(id, mode) {
 // SSE událostí chodí hodně (každý krok každého jobu) → celý stav se stahuje nejvýš jednou za 2,5 s
 let reloadT = null, renderT = null;
 /** překreslení seznamu nejvýš jednou za sekundu (při hromadné kontrole chodí událost za každé zařízení) */
-function renderSoon() { if (renderT) return; renderT = setTimeout(() => { renderT = null; if (!state.modal) render(); }, 1000); }
-function scheduleReload() { if (reloadT) return; reloadT = setTimeout(async () => { reloadT = null; try { await loadState(); } catch {} render(); }, 2500); }
+function renderSoon() { if (renderT) return; renderT = setTimeout(() => { renderT = null; if (!state.modal) renderLive(); }, 1000); }
+function scheduleReload() { if (reloadT) return; reloadT = setTimeout(async () => { reloadT = null; try { await loadState(); } catch {} renderLive(); }, 2500); }
 async function loadState() {
   try { const w = await api('/whoami'); if (w && w.serverStartedAt) { state.auth.serverStartedAt = w.serverStartedAt; state.auth.draining = !!w.draining; if (w.sourceIp) state.auth.sourceIp = w.sourceIp; } } catch {}
   const s = await api('/state');
@@ -856,7 +857,7 @@ function connectSSE() {
   es.onmessage = (e) => {
     const ev = JSON.parse(e.data);
     if (ev.type === 'device') { const i = state.devices.findIndex(d => d.id === ev.device.id); if (i >= 0) state.devices[i] = { ...ev.device, suggested_parent: state.devices[i].suggested_parent }; else state.devices.push(ev.device); state.scanning = state.scanning.filter(x => x !== ev.device.id); if (state.view === 'devices') renderSoon(); }
-    else if (ev.type === 'device-deleted') { state.devices = state.devices.filter(d => d.id !== ev.id); state.selected.delete(ev.id); if (!state.modal) render(); }
+    else if (ev.type === 'device-deleted') { state.devices = state.devices.filter(d => d.id !== ev.id); state.selected.delete(ev.id); if (!state.modal) renderLive(); }
     else if (ev.type === 'job' && ev.job) { const i = state.jobs.findIndex(j => j.id === ev.job.id); if (i >= 0) state.jobs[i] = ev.job; else state.jobs.unshift(ev.job); if (state.job && state.job.job.id === ev.job.id) { state.job.job = { ...state.job.job, ...ev.job }; } if (state.view === 'jobs') render(); }
     else if (ev.type === 'item' && state.job && ev.item.job_id === state.job.job.id) { const i = state.job.items.findIndex(x => x.id === ev.item.id); if (i >= 0) state.job.items[i] = { ...state.job.items[i], ...ev.item }; if (state.view === 'jobs') renderJobDetail(); }
     else if (ev.type === 'log' && state.job && ev.log.job_id === state.job.job.id) { state.jobLog.push(ev.log); const l = $('#joblog'); if (l) { const p = $('#joblogprog'); if (p) p.remove(); const atBottom = LOGFOLLOW; l.insertAdjacentHTML('beforeend', logLine(ev.log, logNames(state.job.items))); const d = +l.dataset.dev || 0; if (d && ev.log.device_id && ev.log.device_id !== d) l.lastElementChild.classList.add('od'); if (atBottom) window.scrollTo(0, document.documentElement.scrollHeight); } }
@@ -867,7 +868,7 @@ function connectSSE() {
     else if (ev.type === 'scan-progress' && ev.tag === 'discovery') { state.scanProg = { done: ev.done, total: ev.total, ids: ev.ids }; const r = $('#discres'); if (r && state.discovery) r.innerHTML = discoveryHtml(state.discovery); }
     else if (ev.type === 'scan-done' && ev.tag === 'discovery' && state.scanProg) { state.scanProg = { ...state.scanProg, done: state.scanProg.total, ids: ev.ids || state.scanProg.ids }; loadState().then(() => { render(); const r = $('#discres'); if (r && state.discovery) r.innerHTML = discoveryHtml(state.discovery); }); }
     else if (ev.type === 'devices-changed') scheduleReload();
-    else if (ev.type === 'latest') { state.latest = ev.latest; render(); }
+    else if (ev.type === 'latest') { state.latest = ev.latest; renderLive(); }
     else if (ev.type === 'scan-done') { toast(`sken hotov (${ev.count} zařízení)`); scheduleReload(); }
   };
   es.onerror = () => { setTimeout(() => { if (state.authed) connectSSE(); }, 5000); };
@@ -876,6 +877,6 @@ function connectSSE() {
   try { const w = await api('/whoami'); state.authed = w.authed; state.netHint = w.netHint || '192.0.2'; state.auth = { sso: w.sso, passwordLogin: w.passwordLogin, registration: w.registration, user: w.user, userdb: w.userdb || { enabled: false }, serverStartedAt: w.serverStartedAt || 0, sourceIp: w.sourceIp || (window.MTU_LOCAL || {}).sourceIp || '', draining: !!w.draining }; } catch { state.authed = false; }
   if (state.authed) { await loadState(); connectSSE(); }
   render();
-  setInterval(() => { if (state.authed && state.view === 'devices' && !state.modal) render(); }, 60000);
+  setInterval(() => { if (state.authed && state.view === 'devices' && !state.modal) renderLive(); }, 60000);
   setInterval(async () => { if (!state.authed) return; try { state.stats = await api('/stats'); const el = document.querySelector('.stats'); if (el) el.outerHTML = statsStrip(); } catch {} }, 30000);
 })();
