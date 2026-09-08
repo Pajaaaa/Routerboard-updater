@@ -599,6 +599,8 @@ const server = http.createServer(async (req, res) => {
     req.user = dbUser && !dbUser.disabled ? { id: dbUser.id, name: dbUser.name, role: dbUser.role } : null;
     const authed = !!req.user;
     if (method === 'POST' && p === '/api/logout') return send(res, 200, { ok: true }, { 'Set-Cookie': `mtu_session=; Path=${cfg.basePath || '/'}; HttpOnly; Max-Age=0` });
+    // pro deploy: co právě běží (bez přihlášení, jen počty) — restart služby by to přerušil
+    if (p === '/api/busy') return send(res, 200, { jobs: runner.running().length, discovery: !!(discovery.status() && !discovery.status().finishedAt && discovery.running), scanning: scanner.inProgress.size });
     if (p === '/api/whoami') return send(res, 200, { authed, user: req.user, admin: authed && isAdmin(req), userdb: userdbFor(req), sso: sso.enabled(), passwordLogin: cfg.passwordLogin, registration: !!db.getSettings().allow_registration, netHint: cfg.netHint });
 
     if (p.startsWith('/api/')) {
