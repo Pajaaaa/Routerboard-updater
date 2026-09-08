@@ -26,7 +26,10 @@ const { suggestParent } = require('./lib/topology');
 const userdb = require('./lib/userdb');
 function withSuggestions(devs) {
   // no_v7: pravidla ze seznamu HW bez v7, která na zařízení sedí (UI podle toho ukáže „povolit v7“ jen tam, kde má smysl)
-  return devs.map(d => { const rules = NO_V7.filter(r => { try { return r.test(d); } catch { return false; } }); return { ...d, suggested_parent: suggestParent(d, devs), no_v7: rules.map(r => r.why), no_v7_hard: rules.some(r => r.hard) }; });
+  // parent_foreign: rodič, kterého uživatel nevidí (zařízení jiného vlastníka) — jen název a kdo ho má
+  const visible = new Set(devs.map(d => d.id));
+  const foreignParent = (d) => { if (!d.parent_id || visible.has(d.parent_id)) return null; const p = db.getDevice(d.parent_id); if (!p) return null; const u = db.getUser(p.owner_id); return { name: p.name || p.identity || p.host, user: u ? (u.userdb_nick || u.name) : '' }; };
+  return devs.map(d => { const rules = NO_V7.filter(r => { try { return r.test(d); } catch { return false; } }); return { ...d, suggested_parent: suggestParent(d, devs), parent_foreign: foreignParent(d), no_v7: rules.map(r => r.why), no_v7_hard: rules.some(r => r.hard) }; });
 }
 
 const { targetFor } = require('./lib/planner');
@@ -127,6 +130,67 @@ const runnerStatusFor = (req) => {
   st.others = isAdmin(req) ? others : others.map(o => ({ ...o, jobId: 0 })); // všichni vidí kdo (uid + přezdívka) a kolik; detail jobu jen správce
   return st;
 };
+/** import z userdb na pozadí (viz POST /api/userdb/import): stažení loginů, doplnění existujících, nové do fronty skenu */
+async function runUserdbImport({ acct, allMode, onlyAps, key, prog, byName, isAdm, ip }) {
+  void isAdm; void ip;
+  let r;
+  if (allMode) { if (!onlyAps) throw new Error('vyber APčka'); prog.phase = `stahuji loginy pro ${onlyAps.size} APček`; r = await userdb.devicesForAps([...onlyAps]); r.admin = { nick: `správce ${acct.userdb_nick || acct.name} (celá síť)`, apCount: onlyAps.size }; }
+  else { prog.phase = 'stahuji loginy'; r = await userdb.devicesFor({ uid: acct.userdb_uid }, { apIds: onlyAps ? [...onlyAps] : null }); if (!r.admin) throw new Error('správce v userdb nenalezen'); }
+  prog.phase = 'zakládám';
+  // vlastník: v běžném importu účet uživatele; při importu celé sítě účet správce oblasti (SO, jinak ZSO) podle vazby na userdb —
+  // když účet ještě nemá, založí se dopředu (jméno = e-mail, při SSO přihlášení se napojí); oblast bez správce připadne importujícímu
+  const ownerCache = new Map();
+  const ownerFor = (d) => {
+    if (!allMode) return acct.id;
+    const so = (d.areaAdmins || []).find(x => x.role === 'SO') || (d.areaAdmins || [])[0];
+    if (!so) return acct.id;
+    if (ownerCache.has(so.id)) return ownerCache.get(so.id);
+    let u = db.getUserByUserdbUid(so.id);
+    if (!u && so.email) { const ex = db.getUserAuth(so.email); if (ex && !ex.userdb_uid) { db.updateUser(ex.id, { userdb_uid: so.id, userdb_nick: so.nick }); u = db.getUser(ex.id); } }
+    if (!u && so.email) { const id = db.insertUser({ name: so.email, pass_hash: '', role: 'user' }); db.updateUser(id, { userdb_uid: so.id, userdb_nick: so.nick, email: so.email }); u = db.getUser(id); db.audit(byName, 'účet založen (import celé sítě)', `${so.email} = ${so.nick} (uid ${so.id})`); }
+    ownerCache.set(so.id, u ? u.id : acct.id);
+    return u ? u.id : acct.id;
+  };
+  const sum = { at: Date.now(), by: byName, running: false, aps: 0, total: 0, updated: 0, foreign: [], missingLogin: r.missing.filter(d => !onlyAps || onlyAps.has(d.apId)).map(d => `${d.ip} (${d.name || d.ap})`), entries: 0, owners: {} };
+  const entries = [];
+  for (const d of r.devices) {
+    if (onlyAps && !onlyAps.has(d.apId)) continue;
+    sum.total++;
+    const ownerId = ownerFor(d);
+    const extra = { userdb_ap_id: d.apId, userdb_ap: d.ap, userdb_member: d.member ? d.userId : 0 };
+    const ex = db.findDeviceByHost(d.ip, 22);
+    if (ex) {
+      if (ex.owner_id && ex.owner_id !== ownerId) { const o = db.getUser(ex.owner_id); sum.foreign.push(`${d.ip} (${d.name || d.ap}) má u sebe ${o ? o.name : 'jiný uživatel'}`); continue; }
+      const f = { ...extra };
+      if (!ex.owner_id) f.owner_id = ownerId;
+      if (ex.username !== d.login || decrypt(ex.password_enc || '') !== d.password) { f.username = d.login; f.password_enc = encrypt(d.password); }
+      if (!ex.group_name) f.group_name = d.ap;
+      if (!ex.name && (d.name || d.note)) f.name = d.name || d.note;
+      db.updateDevice(ex.id, f); sum.updated++;
+      continue;
+    }
+    const ou = db.getUser(ownerId); sum.owners[ou ? ou.name : ownerId] = (sum.owners[ou ? ou.name : ownerId] || 0) + 1;
+    entries.push({ host: d.ip, port: 0, username: d.login, password: d.password, name: d.name || d.note || '', group_name: d.ap, extra, ownerId });
+  }
+  sum.aps = onlyAps ? onlyAps.size : r.admin.apCount; sum.entries = entries.length;
+  userdbImports.set(key, sum);
+  db.audit(byName, allMode ? 'import celé sítě z userdb' : 'import z userdb', `${r.admin.nick}: ${sum.total} zařízení z userdb, ${entries.length} nových ke skenu, ${sum.updated} aktualizováno, ${sum.foreign.length} u jiného uživatele${allMode ? `; vlastníci: ${Object.entries(sum.owners).map(([k, v]) => `${k} ${v}`).join(', ')}` : ''}`);
+  // do výsledku skenu se přidá i to, co se skenovat nebude: zařízení jiného uživatele a IP bez loginu v userdb
+  const foreign = sum.foreign.map(x => `${x} — každé zařízení může mít jen jednoho vlastníka, o předání požádej jeho nebo správce`);
+  const errors = sum.missingLogin.map(x => `${x}: v userdb chybí login/heslo — doplň je v userdb a načti znovu`);
+  if (entries.length) {
+    // sken bere max. 4096 adres na běh → větší import se rozdělí do víc běhů ve frontě
+    const CH = 2000;
+    for (let i = 0; i < entries.length; i += CH) {
+      const part = entries.slice(i, i + CH);
+      const o = { entries: part, creds: [], port: 22, track: 'v7-stable', parallel: 24, ownerId: acct.id, label: entries.length > CH ? `část ${i / CH + 1}/${Math.ceil(entries.length / CH)}` : '', foreign: i === 0 ? foreign : [], errors: i === 0 ? errors : [] };
+      discovery.prepare(o);
+      discovery.run(o).catch(e => bus.emit('event', { type: 'discovery-error', error: e.message }));
+    }
+    await new Promise(res2 => setTimeout(res2, 50));
+  } else { discovery.setResult({ ownerId: acct.id, foreign, errors }); bus.emit('event', { type: 'devices-changed' }); }
+  return sum;
+}
 const userdbImports = new Map(); // userId -> souhrn posledního importu z userdb (jen v paměti)
 /** účet ↔ správce v userdb (podle uid, e-mailu nebo přezdívky); vrací záznam správce nebo null */
 async function linkUserdb(userId, who) {
@@ -142,7 +206,7 @@ async function linkUserdb(userId, who) {
   return w;
 }
 const userdbFor = (req) => { if (!userdb.enabled()) return { enabled: false }; const u = req.user && db.getUser(req.user.id); return { enabled: true, uid: (u && u.userdb_uid) || 0, nick: (u && u.userdb_nick) || '' }; };
-const discoveryFor = (req) => { const st = discovery.status(); return st && (isAdmin(req) || st.ownerId === req.user.id) ? st : null; };
+const discoveryFor = (req) => discovery.status(req.user.id);
 /** SSE: událost projde jen tomu, kdo smí vidět dotčené zařízení / job */
 function eventFor(req, ev) {
   if (isAdmin(req)) return ev;
@@ -256,6 +320,23 @@ async function api(req, res, method, p, url) {
     const forId = isAdmin(req) && parseInt(url.searchParams.get('user') || 0, 10) ? parseInt(url.searchParams.get('user'), 10) : req.user.id;
     const acct = db.getUser(forId);
     if (!acct) return send(res, 404, { error: 'uživatel neexistuje' });
+    // správce: přehled všech oblastí a APček v userdb (import celé sítě); vlastníkem importovaných zařízení bude účet správce dané oblasti
+    if (method === 'GET' && p === '/api/userdb/me' && url.searchParams.get('all') && isAdmin(req)) {
+      const all = await userdb.areas();
+      const allDevs = db.listDevices();
+      const areasOut = [];
+      const queue = all.flatMap(a => a.aps.map(ap => ({ a, ap })));
+      const results = new Map();
+      let qi = 0;
+      await Promise.all(Array.from({ length: 8 }, async () => { while (qi < queue.length) { const { ap } = queue[qi++]; results.set(ap.id, await userdb.devicesForAp(ap.id).catch(() => [])); } }));
+      for (const a of all) {
+        const so = a.admins.find(x => x.role === 'SO') || a.admins[0] || null;
+        const ownerAcct = so ? db.getUserByUserdbUid(so.id) : null;
+        const aps = a.aps.map(ap => { const list = results.get(ap.id) || []; return { id: ap.id, name: ap.name, active: ap.active, address: ap.address, total: list.length, members: list.filter(d => d.member).length, imported: allDevs.filter(d => d.userdb_ap_id === ap.id).length }; });
+        areasOut.push({ id: a.id, name: a.name, role: '', admins: a.admins.map(x => `${x.nick} (${x.id}, ${x.role})`).join(', '), owner: so ? `${so.nick} (${so.id})${ownerAcct ? '' : ' — účet vznikne'}` : '— bez správce → ' + acct.name, aps });
+      }
+      return send(res, 200, { linked: true, all: true, user: { id: acct.id, name: acct.name }, admin: { id: acct.userdb_uid, nick: acct.userdb_nick || acct.name, email: acct.email }, areas: areasOut, lastImport: userdbImports.get(-1) || null });
+    }
     if (method === 'GET' && p === '/api/userdb/me') {
       if (!acct.userdb_uid) return send(res, 200, { linked: false, user: { id: acct.id, name: acct.name } });
       const w = await userdb.whoIs({ uid: acct.userdb_uid });
@@ -274,47 +355,28 @@ async function api(req, res, method, p, url) {
       return send(res, 200, { linked: true, user: { id: acct.id, name: acct.name }, admin: { id: w.id, nick: w.nick, email: w.email }, areas, lastImport: userdbImports.get(acct.id) || null });
     }
     if (method === 'POST' && p === '/api/userdb/import') {
-      if (!acct.userdb_uid) throw new Error('účet není navázaný na správce v userdb');
       const b = await readBody(req).catch(() => ({}));
+      const allMode = !!b.all && isAdmin(req);
+      if (!allMode && !acct.userdb_uid) throw new Error('účet není navázaný na správce v userdb');
       const onlyAps = Array.isArray(b.aps) && b.aps.length ? new Set(b.aps.map(Number)) : null;
-      const r = await userdb.devicesFor({ uid: acct.userdb_uid }, { apIds: onlyAps ? [...onlyAps] : null });
-      if (!r.admin) throw new Error('správce v userdb nenalezen');
-      const sum = { at: Date.now(), by: req.user.name, aps: 0, total: 0, updated: 0, foreign: [], missingLogin: r.missing.filter(d => !onlyAps || onlyAps.has(d.apId)).map(d => `${d.ip} (${d.name || d.ap})`), entries: 0 };
-      const entries = [];
-      for (const d of r.devices) {
-        if (onlyAps && !onlyAps.has(d.apId)) continue;
-        sum.total++;
-        const extra = { userdb_ap_id: d.apId, userdb_ap: d.ap, userdb_member: d.member ? d.userId : 0 };
-        const ex = db.findDeviceByHost(d.ip, 22);
-        if (ex) {
-          if (ex.owner_id && ex.owner_id !== acct.id) { const o = db.getUser(ex.owner_id); sum.foreign.push(`${d.ip} (${d.name || d.ap}) má u sebe ${o ? o.name : 'jiný uživatel'}`); continue; }
-          const f = { ...extra };
-          if (!ex.owner_id) f.owner_id = acct.id;
-          if (ex.username !== d.login || decrypt(ex.password_enc || '') !== d.password) { f.username = d.login; f.password_enc = encrypt(d.password); }
-          if (!ex.group_name) f.group_name = d.ap;
-          if (!ex.name && (d.name || d.note)) f.name = d.name || d.note;
-          db.updateDevice(ex.id, f); sum.updated++;
-          continue;
-        }
-        entries.push({ host: d.ip, port: 0, username: d.login, password: d.password, name: d.name || d.note || '', group_name: d.ap, extra });
-      }
-      sum.aps = onlyAps ? onlyAps.size : r.admin.apCount; sum.entries = entries.length;
-      userdbImports.set(acct.id, sum);
-      audit(req, 'import z userdb', `${r.admin.nick}: ${sum.total} zařízení z userdb, ${entries.length} nových ke skenu, ${sum.updated} aktualizováno, ${sum.foreign.length} u jiného uživatele`);
-      // do výsledku skenu se přidá i to, co se skenovat nebude: zařízení jiného uživatele a IP bez loginu v userdb
-      const foreign = sum.foreign.map(x => `${x} — každé zařízení může mít jen jednoho vlastníka, o předání požádej jeho nebo správce`);
-      const errors = sum.missingLogin.map(x => `${x}: v userdb chybí login/heslo — doplň je v userdb a načti znovu`);
-      if (entries.length) {
-        const o = { entries, creds: [], port: 22, track: 'v7-stable', parallel: 24, ownerId: acct.id, foreign, errors };
-        discovery.prepare(o);
-        discovery.run(o).catch(e => bus.emit('event', { type: 'discovery-error', error: e.message }));
-        await new Promise(res2 => setTimeout(res2, 50));
-      } else { discovery.setResult({ ownerId: acct.id, foreign, errors }); bus.emit('event', { type: 'devices-changed' }); }
-      return send(res, 200, { summary: sum, discovery: discovery.status() });
+      const key = allMode ? -1 : acct.id;
+      const prev = userdbImports.get(key);
+      if (prev && prev.running) throw new Error('import z userdb ještě běží (' + (prev.phase || '') + ')');
+      // stahování loginů z userdb trvá (1 dotaz na IP; celá síť = tisíce) → běží na pozadí, UI se ptá na /api/userdb/import-status
+      const prog = { at: Date.now(), by: req.user.name, running: true, phase: 'načítám seznam zařízení z userdb', progress: '' };
+      userdbImports.set(key, prog);
+      const byName = req.user.name, isAdm = isAdmin(req), ip = clientIp(req);
+      setImmediate(async () => { try { await runUserdbImport({ acct, allMode, onlyAps, key, prog, byName, isAdm, ip }); } catch (e) { userdbImports.set(key, { at: Date.now(), by: byName, error: e.message, running: false }); bus.emit('event', { type: 'discovery-error', error: 'import z userdb: ' + e.message }); } });
+      return send(res, 200, { started: true });
+    }
+    if (method === 'GET' && p === '/api/userdb/import-status') {
+      const key = url.searchParams.get('all') && isAdmin(req) ? -1 : acct.id;
+      return send(res, 200, { summary: userdbImports.get(key) || null, discovery: discovery.status(acct.id) });
     }
     return send(res, 404, { error: 'neznámá akce' });
   }
   if (method === 'POST' && p === '/api/discover') {
+
     const b = await readBody(req);
     const ranges = String(b.ranges || '').split(/[\s,;]+/).filter(Boolean);
     const creds = String(b.creds || '').split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('#')).map(l => { const [username, ...rest] = l.split(/\s+/); let password = rest.join(' '); if (password === '""' || password === "''") password = ''; return { username, password }; }).filter(c => c.username);
@@ -332,11 +394,11 @@ async function api(req, res, method, p, url) {
     });
     if (entryErrors.length) throw new Error(entryErrors.join('; '));
     const o = { ranges, entries, creds, port: parseInt(b.port || 22, 10), group_name: b.group_name || '', track: b.track || 'v7-stable', parallel: parseInt(b.parallel || 24, 10), ownerId: req.user.id };
-    discovery.prepare(o); // validace → 400 s popisem chyby
+    discovery.prepare(o); // validace → 400 s popisem chyby (sken se zařadí do fronty, když jiný běží)
     audit(req, 'sken rozsahu', [...ranges, ...(entries.length ? [`${entries.length} zařízení ze seznamu`] : [])].join(' '));
     discovery.run(o).catch(e => bus.emit('event', { type: 'discovery-error', error: e.message }));
     await new Promise(r => setTimeout(r, 50));
-    return send(res, 200, discovery.status());
+    return send(res, 200, discovery.status(req.user.id));
   }
   if (method === 'GET' && p === '/api/discover') return send(res, 200, discoveryFor(req));
   // hromadné smazání vybraných zařízení
@@ -364,8 +426,6 @@ async function api(req, res, method, p, url) {
     const ids = (b.ids || []).map(Number).filter(i => db.getDevice(i));
     let n = 0;
     for (const id of ids) { const d = db.getDevice(id); if (d.owner_id === target) continue; db.updateDevice(id, { owner_id: target }); n++; bus.emit('event', { type: 'device', device: db.getDevice(id) }); }
-    // rodič mimo nového vlastníka by uživatel neviděl → vazbu zrušit, ať netrčí do cizího seznamu
-    for (const id of ids) { const d = db.getDevice(id); if (d.parent_id) { const par = db.getDevice(d.parent_id); if (par && par.owner_id !== target) db.updateDevice(id, { parent_id: 0 }); } }
     audit(req, 'zařízení předána', `${n}× → ${tu.name}`);
     bus.emit('event', { type: 'devices-changed' });
     return send(res, 200, { moved: n, owner: tu.name });
@@ -373,9 +433,11 @@ async function api(req, res, method, p, url) {
   // hromadné přebrání detekovaných rodičů (jen kde není nastaven)
   if (method === 'POST' && p === '/api/devices/accept-parents') {
     const b = await readBody(req).catch(() => ({}));
-    const all = visDevices(req);
+    const all = db.listDevices().filter(d => !d.dup_of); // kandidáti na rodiče napříč účty
+    const mine = new Set(visDevices(req).map(d => d.id));
     let n = 0;
     for (const d of all) {
+      if (!mine.has(d.id)) continue;
       if (d.parent_id && !b.overwrite) continue;
       const sp = suggestParent(d, all);
       if (sp && sp.id && sp.id !== d.parent_id && !db.descendantIds(d.id).includes(sp.id)) { db.updateDevice(d.id, { parent_id: sp.id, parent_src: sp.src || '' }); n++; }
@@ -609,7 +671,7 @@ const server = http.createServer(async (req, res) => {
     const authed = !!req.user;
     if (method === 'POST' && p === '/api/logout') return send(res, 200, { ok: true }, { 'Set-Cookie': `mtu_session=; Path=${cfg.basePath || '/'}; HttpOnly; Max-Age=0` });
     // pro deploy: co právě běží (bez přihlášení, jen počty) — restart služby by to přerušil
-    if (p === '/api/busy') return send(res, 200, { jobs: runner.running().length, discovery: !!(discovery.status() && !discovery.status().finishedAt && discovery.running), scanning: scanner.inProgress.size });
+    if (p === '/api/busy') return send(res, 200, { jobs: runner.running().length, discovery: discovery.busy, scanning: scanner.inProgress.size });
     if (p === '/api/whoami') return send(res, 200, { authed, user: req.user, admin: authed && isAdmin(req), userdb: userdbFor(req), sso: sso.enabled(), passwordLogin: pwLoginAllowed(req), registration: !!db.getSettings().allow_registration, netHint: cfg.netHint });
 
     if (p.startsWith('/api/')) {

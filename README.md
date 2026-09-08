@@ -14,8 +14,8 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
   uptime, nahrání balíčků přes SFTP, ověření názvu a velikosti na routeru, restart, kontrola verze, čekání na obnovení
   bezdrátových spojů a potomků, upgrade RouterBOOT s dalším restartem. Bez ověřených balíčků se nikdy nerestartuje.
 - **Topologie:** rodič se určí ze skenu (stanice → sektor podle registrace, 60 GHz protějšek, napájení z PoE portu,
-  CAPsMAN, brána i na jiné IP téhož routeru). Rodič podle brány je jen slabý odhad a přepíše se, jakmile je znám
-  lepší; ručně nastavený rodič se nemění. Stejný kus pod více IP (podle sériového čísla) má jen jeden hlavní záznam.
+  CAPsMAN, brána i na jiné IP téhož routeru), i napříč účty. Rodič podle brány je jen slabý odhad a přepíše se, jakmile
+  je znám lepší; ručně nastavený rodič se nemění. Stejný kus pod více IP (podle sériového čísla) má jen jeden hlavní záznam.
 - **Pořadí a zámky:** nadřazený prvek se nerestartuje, dokud jeho potomci v jobu neskončí; chyba potomka rodiče
   zablokuje. Jobů může běžet víc naráz (každý po jednom zařízení), zařízení nesmí být ve dvou jobech a před restartem
   se čeká na cizí job na sousedícím zařízení. PoE watchdog na napájecím rodiči se na dobu položky vypne.
@@ -36,7 +36,8 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
   přihlášení naváže podle e-mailu na správce oblasti v userdb.
 - **Import z userdb:** v dialogu „Přidat zařízení (sken)“ tlačítko „Natáhnout z userdb“ → tabulka oblastí a APček
   → import zařízení APček i zařízení členů pod nimi včetně loginů. Typ zařízení z evidence se ignoruje, co je RouterOS
-  rozhodne sken po SSH. Ruční sken (seznam `ip uživatel heslo` nebo rozsahy) zůstává.
+  rozhodne sken po SSH. Správce může natáhnout celou síť; zařízení připadnou účtům správců oblastí (založí se dopředu
+  podle e-mailu). Ruční sken (seznam `ip uživatel heslo` nebo rozsahy) zůstává.
 - **Obnova mrtvého zařízení:** postup v nápovědě (záložní bootloader → Netinstall se stejnou verzí jako záloha →
   obnova z binární zálohy nebo exportu; od 7.24 Netinstall ze sousedního MikroTiku).
 
@@ -52,9 +53,9 @@ lib/ros.js         SSH/SFTP klient pro RouterOS (v6 i v7), timeouty, přerušen�
 lib/inspect.js     zjištění stavu zařízení (jen čtení)
 lib/planner.js     plán hopů a balíčků, blokátory a varování, seznamy rizikových verzí a HW
 lib/runner.js      job engine (kontrola → záloha → staging → ověření → restart → ověření → firmware), zámky
-lib/scanner.js     periodický a hromadný sken, duplicity podle sériového čísla
+lib/scanner.js     kontrola zařízení (po načtení, ručně, před jobem; žádný plošný periodický sken), duplicity podle sériového čísla
 lib/topology.js    určení rodiče (rádio, PoE, CAPsMAN, brána)
-lib/discovery.js   sken adres a rozsahů, zakládání zařízení
+lib/discovery.js   sken adres a rozsahů ve frontě (víc uživatelů naráz), zakládání zařízení
 lib/userdb.js      klient evidence sítě (oblasti, správci, zařízení APček, loginy)
 lib/sso.js         OpenID Connect (authorization code + PKCE)
 lib/versions.js    verze z upgrade.mikrotik.com, katalog a cache balíčků
