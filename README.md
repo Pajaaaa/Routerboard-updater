@@ -1,93 +1,83 @@
 # MikroTik upgrader
 
-Webový nástroj pro bezpečný hromadný upgrade MikroTik RouterOS (neveřejný, za heslem).
-Zařízení se zadají (IP, login, heslo), nástroj je skenuje (verze, model, místo, firmware…) a v jobech
-je postupně, **jedno po druhém**, upgraduje na nejnovější verzi podle tracku (v7 stable / v7 long-term / v6 long-term / hold).
+Webový nástroj pro bezpečný hromadný upgrade MikroTik RouterOS a RouterBOOT v komunitní síti (vznikl pro HKFree).
+Zařízení se načtou z evidence sítě (userdb) nebo skenem, nástroj je zkontroluje, sestaví z nich topologii
+(kdo koho napájí a připojuje) a v jobech je **jedno po druhém, od antén k páteři** upgraduje na nejnovější verzi
+svého tracku (v7 stable / v7 long-term / v6 long-term / hold).
 
-## Bezpečnostní principy
+Repozitář je veřejný: **neobsahuje žádná hesla, klíče ani adresy konkrétní sítě.** Vše, co je specifické pro
+nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastavení aplikace.
 
-- **Sken jen čte.** Data se berou přes `:put [... get ...]`, nic se nemění.
-- **Sériově.** V jednu chvíli se upgraduje jediné zařízení; před každým krokem se znovu zjistí živý stav a přepočítá plán.
-- **Nikdy downgrade.** Cíl nižší než aktuální verze = přeskočeno.
-- **Hopy.** v6.x → nejnovější v6 long-term → v7 (režim upload rovnou na cíl s explicitním `wireless` balíčkem; režim router přes kanály long-term → upgrade (7.12.x) → stable).
-- **Blokátory** (nic se nespustí): nečitelná verze, nízký uptime, málo RAM, cizí `.npk` v kořeni, rozpracovaný download updateru,
-  změněný SSH host key, chybějící balíček pro architekturu, nedostatek místa (mimo 16MB zařízení, kde se upload zkusí a při selhání se uklidí),
-  dynamický routing (BGP/OSPF/filtry/MPLS) při 6→7 bez explicitního povolení, wifiwave2 → 7.13+.
-- **Záloha před každým hopem:** `/export show-sensitive` (vždy, přes stdout) + `/system backup` (SFTP). Ukládá se na server do `data/backups/<id>/`.
-- **Ověření před restartem:** balíčky se stahují z download.mikrotik.com na server (kontrola velikosti), nahrají přes SFTP
-  (fallback `/tool fetch` z tohoto webu s jednorázovým tokenem) a na routeru se ověří název + velikost + že tam není žádný jiný `.npk`.
-  Bez úspěšného ověření se **nerestartuje** a nahrané soubory se smažou.
-- **Nic nevisí navždy:** každý SSH příkaz má timeout, SFTP přenos se přeruší po 2 min bez postupu (nebo 30 min celkem), pád spojení
-  uprostřed operace ji hned ukončí chybou, „Zrušit"/„Přeskočit" přeruší i rozběhnutý přenos a watchdog runneru zabije spojení po 30 min
-  bez aktivity. Po přerušeném uploadu se tool znovu připojí a částečně nahraný `.npk` z routeru smaže.
-- **Po restartu:** čeká se na výpadek a návrat (timeout v nastavení), ověří se identita/sériové číslo, verze, rozhraní, IP adresy, bezdrát.
-  Pak volitelně `/system routerboard upgrade` (přes dočasný skript, bez interaktivního dotazu) + další restart + ověření.
-- **Služby routeru:** volitelně (Nastavení) při ostrém běhu `/ip service`: služby mimo seznam vypnout, všem nastavit povolené adresy.
-  ssh se nikdy nevypne, adresy se použijí jen když obsahují i IP serveru (ochrana proti zamknutí); mění se jen odchylky, dry run jen vypíše.
-- **Vzdálené logování:** volitelně (Nastavení) při ostrém běhu `/system logging action` target=remote + pravidlo pro každé téma; přidá jen, co chybí.
-- **Bezdrátové spoje:** sken ukládá stav každého rádiového spoje (stanice→AP MAC, klienti sektoru, 60 GHz protějšky s MCS/RSSI, CAP↔CAPsMAN).
-  Po každém restartu se čeká na obnovení (stanice na stejném AP, ≥ 80 % klientů zpět, 60 GHz MCS ≥ 1, CAP registrován); jinak položka selže
-  a job se zastaví před nadřazeným prvkem. Ovladač rádia (wireless vs. wifi-qcom) se nikdy nemění. Druhý konec spoje mimo job = varování.
-- **Známé vadné verze:** x.y.0 až po 14 dnech, seznam regresí per HW (60 GHz 7.19.4/7.5/6.47.x, RB2011, RB3011, IPQ-40xx, CRS3xx, PPC, CHR)
-  a obecných (7.17, 7.19, 7.20, 7.23.4, 7.24…). Vadné bloky flash > 5 % blokují, „kernel failure" v logu varuje, otisk zneužití SSH
-  zranitelnosti (9/2026) a device-mode „flagged" se hlásí. Podrobná rešerše: `docs/reserse-bezpecny-upgrade.md`.
-- **Obnova mrtvého zařízení:** postup v nápovědě (záložní bootloader → Netinstall se stejnou verzí jako záloha → `/system backup load` z binární zálohy, nebo `.rsc` přes `run-after-reset` na jiné verzi; od 7.24 Netinstall z rodiče).
-- **Stop při chybě** (výchozí), **dry run** (jen plán), **kanárci** (první kus od každého modelu, pak čekání na potvrzení), **naplánovaný start** („spustit v“), pauza mezi zařízeními.
-- **Hardware bez v7:** pevný seznam (MIPS-LE, < 64 MB RAM, smips, staré RB4xx, 32 MB kusy RB711/RB750/RB751/RB951-2n/SXT G/OmniTIK 5/Groove) cílí na poslední v6 long-term; v7 jde povolit u zařízení (`allow_v7`) nebo globálně, u MIPS-LE nikdy.
-- **Málo volné RAM:** zařízení se nejdřív restartuje a kontrola se opakuje; blokuje se až když to nepomůže.
-- **Zámek napříč uživateli:** před restartem se čeká, když jiný uživatel právě upgraduje zařízení fyzicky nad/pod tímto (rodič/potomek, soused, PoE dítě, rádiový protějšek).
-- **Vlastní restartovací skripty** (scheduler/netwatch s /system reboot) se na dobu položky vypnou; **práva uživatele** (write, reboot, ftp, policy, test) se kontrolují předem; **po restartu** ping na bránu z routeru, počet sousedů a počty položek konfigurace proti stavu před upgradem; **trend vadných bloků** mezi skeny.
-- **Preventivní restart:** zařízení s uptime nad limit (výchozí 180 dní) se před upgradem restartuje a ověří (fórum: po měsících provozu častěji nenabootuje po upgradu).
-- **Import z userdb (hkfree):** účet navázaný na správce oblasti v userdb (SSO podle e-mailu, nebo ručně správcem v Uživatelích) si v dialogu „Přidat zařízení (sken)“ tlačítkem „Natáhnout z userdb“ vybere APčka a naimportuje zařízení svých APček i zařízení členů pod nimi včetně loginů (`/monitoring/get-zarizeni?ap=&uzivatele=1` + `/device/get-credentials/<ip>`). Typy zařízení z userdb se ignorují, co je RouterOS rozhodne sken po SSH. APčko = skupina, zařízení členů mají štítek „člen“. Klíč v `MTU_USERDB_USER/PASS`. Nástroj `node tools/userdb-who.js <uid|e-mail|nick> [--devices]` ukáže, komu co patří.
-- **Souběh jobů:** runner na job, jobů může běžet libovolně mnoho (i jednoho uživatele), každý po jednom zařízení; zařízení nesmí být ve dvou jobech, před restartem se čeká na cizí job na sousedícím zařízení.
-- Restart serveru uprostřed jobu → job se pozastaví, rozpracovaná položka dostane stav „neznámý" (nutný sken).
+## Hlavní vlastnosti
 
-## Topologie a pořadí
-
-- U zařízení lze nastavit **nadřazený prvek** (co ho napájí/připojuje: sektor, PoE switch, router). Neřízené prvky (bez loginu, jen kvůli topologii) = přidané zařízení přepnuté v editaci na „jen prvek topologie".
-- Uplink se detekuje ze skenu: rozhraní default route + `/ip neighbor` (rodič se navrhne jen když adresa souseda = brána, nebo je brána v seznamu). Tlačítko „Přebrat detekované rodiče".
-- Job jde vždy od listů: antény → sektory → nadřazené. Nadřazený prvek se nerestartuje, dokud jeho potomci v jobu neskončili; když potomek skončí chybou/neznámým stavem, rodič se **zablokuje**. Po restartu rodiče se čeká, až se potomci zase ozvou (TCP probe).
-- **Účty:** každý uživatel vidí a upgraduje jen zařízení, která sám přidal; správce vidí vše, přiděluje zařízení jiným vlastníkům
-  (editace zařízení), spravuje účty a nastavení. Samoregistrace na přihlašovací stránce (role uživatel) jde v nastavení vypnout.
-  První správce vznikne při startu z `MTU_ADMIN_USER` + `MTU_PASSWORD`; dosavadní zařízení připadnou jemu. Hesla scrypt, session
-  podepsaná cookie, uživatel se ověřuje z DB při každém požadavku (vypnutí účtu platí hned). Upgrady běží pro celý server po jednom.
-- **Přidávání zařízení jen skenem**: seznam řádků `ip[:port] uživatel heslo [název]` (každé zařízení vlastní login) a/nebo rozsahy CIDR / `a.b.c.x-y` se společnými loginy; TCP probe → SSH login → RouterOS se založí do seznamu. Ruční formulář není.
-
-## Opatření proti umrtvení (rešerše fór a dokumentace MikroTik, 9/2026)
-
-| Příčina | Opatření v nástroji |
-|---|---|
-| výpadek napájení během zápisu (PoE od rodiče, slabé napájení) | pořadí potomci→rodiče, rodič se nerestartuje během upgradu potomka, varování při napětí < 11 V, servisní okno |
-| neúplný/poškozený balíček a přesto restart (updater `install`) | velikost proti download.mikrotik.com, ověření na routeru, žádný cizí .npk, jinak žádný restart |
-| chybějící `wireless`/`wifi-qcom` po 7.13 (i 60GHz) | balíček wireless se přidá podle rozhraní (wlan, w60g) a podle v6 balíčků; verze musí sedět s routeros |
-| „not enough space for upgrade" na 16 MB flash | mezikrok 7.12.x, upload se při selhání uklidí; u flash/ zařízení limit RAM |
-| kernel bugy čerstvých verzí, bootloopy | min. stáří vydání (výchozí 3 dny), seznam zakázaných verzí, kanárci po modelech |
-| starý RouterBOOT před v7 | firmware se upgraduje ještě na v6, po každém hopu znovu (+ restart, ověření) |
-| auto-upgrade firmware routeru → druhý restart | detekuje se, čeká se na druhý cyklus |
-| konverze konfigurace 6→7 | BGP/OSPF/filtry/MPLS blokováno bez povolení; VLAN filtering, CAPsMAN, scheduler varování |
-| protected-routerboot | varování (Netinstall při havárii nejde) |
-| nenabootování po upgradu | u zařízení s více oddíly `/partitions copy-to` + `fallback-to` před upgradem; u ≥128 MB flash doporučení repartition |
+- **Bezpečný postup pro každé zařízení:** záloha (export + binární), volitelný preventivní restart při dlouhém
+  uptime, nahrání balíčků přes SFTP, ověření názvu a velikosti na routeru, restart, kontrola verze, čekání na obnovení
+  bezdrátových spojů a potomků, upgrade RouterBOOT s dalším restartem. Bez ověřených balíčků se nikdy nerestartuje.
+- **Topologie:** rodič se určí ze skenu (stanice → sektor podle registrace, 60 GHz protějšek, napájení z PoE portu,
+  CAPsMAN, brána i na jiné IP téhož routeru). Rodič podle brány je jen slabý odhad a přepíše se, jakmile je znám
+  lepší; ručně nastavený rodič se nemění. Stejný kus pod více IP (podle sériového čísla) má jen jeden hlavní záznam.
+- **Pořadí a zámky:** nadřazený prvek se nerestartuje, dokud jeho potomci v jobu neskončí; chyba potomka rodiče
+  zablokuje. Jobů může běžet víc naráz (každý po jednom zařízení), zařízení nesmí být ve dvou jobech a před restartem
+  se čeká na cizí job na sousedícím zařízení. PoE watchdog na napájecím rodiči se na dobu položky vypne.
+- **Předběžná kontrola naplánovaného jobu:** hned po naplánování se zařízení zkontrolují a v detailu jobu je vidět, co
+  by v době startu bránilo upgradu; kontrola se dá zopakovat a před startem proběhne znovu.
+- **Verze:** x.y.0 až po 14 dnech, seznam verzí s doloženou regresí pro konkrétní hardware i obecně, hardware bez v7
+  (MIPS-LE, < 64 MB RAM, smips, staré RB4xx, 32 MB kusy) cílí na poslední v6; jde povolit per zařízení.
+  Podrobná rešerše rizik: `docs/reserse-bezpecny-upgrade.md`.
+- **Kontroly před upgradem:** dostupnost a práva uživatele, místo ve flash a RAM (málo RAM → restart a nový pokus),
+  cizí .npk/RouterBOOT soubory, vadné bloky flash a jejich trend, dynamický routing při 6→7, neovladatelný PoE prvek
+  nad zařízením, druhý konec 60 GHz spoje, kvalita rádia (signál, CCQ, MCS, chybovost), vlastní restartovací skripty,
+  ping-watchdog, CAPsMAN policy, SFP/PoE změny chování mezi verzemi, otisky zneužití SSH zranitelností.
+- **Po restartu:** verze, balíčky, log, rozhraní a IP, spoje (stanice na stejném AP, ≥ 80 % klientů sektoru zpět,
+  60 GHz MCS ≥ 1, CAP registrován), ping na bránu z routeru, sousedé, počty položek konfigurace proti stavu před upgradem.
+- **Volitelná hardening:** `/ip service` (vypnutí nepotřebných služeb, povolené adresy; ssh se nikdy nevypne a adresy
+  se použijí jen když obsahují IP serveru) a vzdálené logování na syslog. Mění se jen odchylky.
+- **Účty:** přihlášení přes OpenID Connect (SSO). Každý vidí jen svá zařízení, správce vše. Účet se při prvním
+  přihlášení naváže podle e-mailu na správce oblasti v userdb.
+- **Import z userdb:** v dialogu „Přidat zařízení (sken)“ tlačítko „Natáhnout z userdb“ → tabulka oblastí a APček
+  → import zařízení APček i zařízení členů pod nimi včetně loginů. Typ zařízení z evidence se ignoruje, co je RouterOS
+  rozhodne sken po SSH. Ruční sken (seznam `ip uživatel heslo` nebo rozsahy) zůstává.
+- **Obnova mrtvého zařízení:** postup v nápovědě (záložní bootloader → Netinstall se stejnou verzí jako záloha →
+  obnova z binární zálohy nebo exportu; od 7.24 Netinstall ze sousedního MikroTiku).
 
 ## Stack
 
-Node.js 22 (`node:sqlite`, bez buildu), jediná závislost `ssh2`. Hesla routerů jsou v DB šifrovaná (AES-256-GCM, klíč `MTU_SECRET`).
-Přihlášení heslem (`MTU_PASSWORD`) a/nebo přes SSO (OpenID Connect, `SSO_*` v env; authorization code + PKCE, identita z userinfo, volitelný allowlist e-mailů). Kdo job založil a spustil, je v logu jobu. Živé události přes SSE.
+Node.js 22 (`node:sqlite`, bez build kroku), jediná závislost `ssh2`. Hesla routerů jsou v DB šifrovaná
+(AES-256-GCM, klíč `MTU_SECRET`). Session je podepsaná cookie, uživatel se ověřuje z DB při každém požadavku.
+Živé události přes SSE.
 
 ```
-server.js        HTTP API + statika + SSE
-lib/ros.js       SSH/SFTP klient pro RouterOS (v6 i v7, legacy algoritmy)
-lib/inspect.js   zjištění stavu (jen čtení)
-lib/planner.js   plán hopů, balíčků, blokátory
-lib/runner.js    job engine (záloha → staging → ověření → restart → ověření → firmware)
-lib/scanner.js   periodický sken
-lib/versions.js  verze z upgrade.mikrotik.com, katalog a cache balíčků
-public/          UI (vanilla JS)
+server.js          HTTP API, statika, SSE, účty, import z userdb
+lib/ros.js         SSH/SFTP klient pro RouterOS (v6 i v7), timeouty, přerušení přenosu
+lib/inspect.js     zjištění stavu zařízení (jen čtení)
+lib/planner.js     plán hopů a balíčků, blokátory a varování, seznamy rizikových verzí a HW
+lib/runner.js      job engine (kontrola → záloha → staging → ověření → restart → ověření → firmware), zámky
+lib/scanner.js     periodický a hromadný sken, duplicity podle sériového čísla
+lib/topology.js    určení rodiče (rádio, PoE, CAPsMAN, brána)
+lib/discovery.js   sken adres a rozsahů, zakládání zařízení
+lib/userdb.js      klient evidence sítě (oblasti, správci, zařízení APček, loginy)
+lib/sso.js         OpenID Connect (authorization code + PKCE)
+lib/versions.js    verze z upgrade.mikrotik.com, katalog a cache balíčků
+lib/db.js          SQLite schéma a přístup k datům
+public/            UI (vanilla JS, bez buildu)
+tools/userdb-who.js  ověření, komu v userdb patří které oblasti a zařízení
+docs/              rešerše rizik upgradu
 ```
 
 ## Nasazení
 
-- Node.js 22+, `npm install --omit=optional`, env podle `env.example` (heslo webu, šifrovací klíč, veřejná URL).
+- Node.js 22+, `npm install --omit=optional`, proměnné podle `env.example` (šifrovací klíč, veřejná URL, SSO klient,
+  klíč do userdb). Přihlášení heslem lze omezit jen na localhost nebo vypnout (`MTU_PASSWORD_LOGIN`).
 - Služba `mikrotik-upgrader.service` (uprav cesty a uživatele), port 2820 jen na 127.0.0.1.
-- Reverse proxy (nginx) `location /mikrotik/` → `http://127.0.0.1:2820/mikrotik/`, `proxy_buffering off` kvůli SSE.
-- Data (DB, zálohy, cache balíčků) v `data/` — nejsou v gitu. Server musí mít přístup na routery přes SSH a na download.mikrotik.com.
-- `deploy.sh` nasazuje přes ssh a restartuje službu až ve chvíli, kdy neběží žádný job (cíl v `deploy.env`, viz skript).
+- Reverse proxy (nginx) `location /mikrotik/` → `http://127.0.0.1:2820/mikrotik/`, `proxy_buffering off` kvůli SSE,
+  hlavička `X-Forwarded-For`.
+- Data (DB, zálohy, cache balíčků) v `data/`, nejsou v gitu. Server musí mít přístup na routery přes SSH,
+  na download.mikrotik.com a na userdb.
+- `deploy.sh` nasazuje přes ssh (cíl v `deploy.env`, není v gitu) a službu restartuje až ve chvíli, kdy neběží žádný
+  job, sken ani import (`/api/busy`), a to po dvou klidových kontrolách po sobě. Restart uprostřed jobu ho pozastaví a
+  rozpracovaná položka dostane stav „neznámý“.
+
+## Co v repu není a nikdy nemá být
+
+Hesla a klíče (env, `deploy.env`, `.env`), databáze a zálohy (`data/`), konkrétní adresy sítě. Příklady v UI berou
+prefix sítě z `MTU_NET_HINT`, výchozí je dokumentační rozsah.
