@@ -385,7 +385,7 @@ function renderJobDetail() {
       <td>${['pending'].includes(it.status) && !(rs && rs.itemId === it.id) ? `<button class="small iskip" data-id="${it.id}">přeskočit</button>` : ''} ${['failed', 'blocked', 'skipped', 'unknown', 'done'].includes(it.status) && !isCur ? `<button class="small iretry" data-id="${it.id}">znovu</button>` : ''}</td></tr>`).join('')}
     </tbody></table></div>
     <details class="logbox" ${logOpen ? 'open' : ''}><summary>Podrobný log</summary>
-      <div class="row logtools"><label class="check"><input type="checkbox" id="logimp" ${LOGIMP ? 'checked' : ''}> jen důležité (varování, chyby, milníky)</label>
+      <div class="row logtools"><label class="check"><input type="checkbox" id="logimp" ${LOGIMP ? 'checked' : ''}> jen důležité (varování, chyby, začátek a výsledek zařízení)</label>
         <select id="logdev" title="jen řádky jednoho zařízení"><option value="0">všechna zařízení</option>${items.map(it => `<option value="${it.device_id}" ${state.logDev === it.device_id ? 'selected' : ''}>${esc(it.dev_name || it.identity || it.host)} · ${esc(it.host)}</option>`).join('')}</select></div>
       <div class="log ${LOGIMP ? 'imp' : ''}" id="joblog" data-dev="${state.logDev || 0}">${(() => { const nm = logNames(items); return state.jobLog.map(l => logLine(l, nm)).join(''); })()}</div></details></div>`;
   document.querySelector('details.logbox').ontoggle = (e) => { state.logOpen = e.target.open; };
@@ -403,8 +403,8 @@ function renderJobDetail() {
 }
 const ACTIVE = new Set(['checking', 'backup', 'upload', 'reboot', 'verify', 'firmware']);
 async function itemAction(id, a) { try { await api(`/items/${id}/${a}`, { method: 'POST' }); await openJob(state.job.job.id); } catch (e) { toast(e.message, true); } }
-// důležité řádky logu (pro filtr „jen důležité"): varování/chyby + milníky (začátek zařízení, restart, návrat, hotovo, firmware, blokátory, kontrola)
-const LOG_IMPORTANT_RE = /^(===|✔|♥|hotovo|Job |Server |STOP|BLOK|Předběžná|kontrola: |DRY RUN|restart|čekám na návrat|port \d+ znovu|nahráno|nahrávám|upgrade firmware|log potvrdil|updater (stav|už)|Položka|přeskak|záloha|pozastav|zrušen|identita|spojení po čekání)/i;
+// důležité řádky logu (pro filtr „jen důležité"): varování/chyby + začátek a výsledek každého zařízení + zprávy o jobu (start, pauza, blokátory, kontrola)
+const LOG_IMPORTANT_RE = /^(===|♥|hotovo|Job |Server |STOP|BLOK|Předběžná|kontrola: |DRY RUN|Položka|přeskak|pozastav|zrušen)/i;
 const logImportant = (l) => l.level !== 'info' || LOG_IMPORTANT_RE.test(String(l.msg || ''));
 // prefix „zařízení · IP" podle device_id (names: Map device_id → text); v detailu zařízení se nepoužívá
 const logLine = (l, names) => { const n = names && l.device_id ? names.get(l.device_id) : ''; return `<div class="${l.level}${logImportant(l) ? '' : ' lo'}" data-dev="${l.device_id || 0}"><span class="t">${fmtMs(l.ts)}</span>${n ? `<span class="dev">${esc(n)}</span> ` : ' '}${esc(l.msg)}</div>`; };
