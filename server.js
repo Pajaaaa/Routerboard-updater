@@ -1,4 +1,5 @@
 'use strict';
+const { devLabel } = require('./lib/label');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -49,7 +50,7 @@ function withSuggestions(devs) {
     if (!allMap) allMap = new Map(db.listDevices().map(x => [x.id, x]));
     const p = allMap.get(d.parent_id); if (!p) return null;
     if (!userNames.has(p.owner_id)) { const u = db.getUser(p.owner_id); userNames.set(p.owner_id, u ? (u.userdb_nick || u.name) : ''); }
-    return { name: p.name || p.identity || p.host, user: userNames.get(p.owner_id) };
+    return { name: devLabel(p), user: userNames.get(p.owner_id) };
   };
   void byId;
   const sc = settingsByOwner();
@@ -453,7 +454,7 @@ async function api(req, res, method, p, url) {
       if (!canSee(req, d)) continue;
       if (runner.isDeviceBusy(id)) { skipped.push(`${d.host} je právě v jobu`); continue; }
       db.deleteDevice(id); deleted++;
-      audit(req, 'zařízení smazáno', `${d.host} ${d.name || d.identity || ''}`);
+      audit(req, 'zařízení smazáno', `${d.host} ${devLabel(d)}`);
       bus.emit('event', { type: 'device-deleted', id, owner_id: d.owner_id });
     }
     return send(res, 200, { deleted, skipped });
