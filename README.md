@@ -75,9 +75,11 @@ docs/              rešerše rizik upgradu
   hlavička `X-Forwarded-For`.
 - Data (DB, zálohy, cache balíčků) v `data/`, nejsou v gitu. Server musí mít přístup na routery přes SSH,
   na download.mikrotik.com a na userdb.
-- `deploy.sh` nasazuje přes ssh (cíl v `deploy.env`, není v gitu) a službu restartuje až ve chvíli, kdy neběží žádný
-  job, sken ani import (`/api/busy`), a to po dvou klidových kontrolách po sobě. Restart uprostřed jobu ho pozastaví a
-  rozpracovaná položka dostane stav „neznámý“.
+- `deploy.sh` nasazuje za provozu: soubory nahraje do vedlejšího adresáře, zapne *drain* (`/api/drain`, jen z
+  localhostu): běžící joby dokončí aktuální zařízení a pozastaví se, nové se jen zařadí. Až neběží žádný job, sken ani
+  import (`/api/busy`, dvě klidové kontroly po sobě), vymění soubory a restartuje službu; pozastavené joby po startu
+  samy pokračují. Když se služba do hodiny neuvolní, restart se neprovede a drain se vypne. Tvrdý restart uprostřed jobu
+  (výpadek) job pozastaví a rozpracovaná položka dostane stav „neznámý“.
 
 ## Co v repu není a nikdy nemá být
 
