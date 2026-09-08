@@ -4,7 +4,7 @@ const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const MB = 1048576;
 let ADV = false; try { ADV = localStorage.getItem('mtu_adv') === '1'; } catch {}
-const state = { owner: 0, authed: false, auth: { sso: false, passwordLogin: true, user: null }, view: 'devices', advanced: ADV, devices: [], jobs: [], latest: { versions: {} }, settings: {}, runner: {}, tracks: [], selected: new Set(), filter: '', group: '', sort: 'tree', modal: null, job: null, jobLog: [], detail: null, scanning: [] };
+const state = { scanProg: null, owner: 0, authed: false, auth: { sso: false, passwordLogin: true, user: null }, view: 'devices', advanced: ADV, devices: [], jobs: [], latest: { versions: {} }, settings: {}, runner: {}, tracks: [], selected: new Set(), filter: '', group: '', sort: 'tree', modal: null, job: null, jobLog: [], detail: null, scanning: [] };
 
 async function api(path, opts = {}) {
   const r = await fetch(BASE + '/api' + path, { headers: { 'Content-Type': 'application/json' }, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
@@ -521,7 +521,7 @@ function renderModal() {
         <div class="row" style="margin-top:6px"><button id="udbload" style="background:var(--err);border-color:var(--err);color:#fff;font-weight:600">⇩ Natáhnout z userdb${state.auth.userdb.nick && !md.user ? ` (${esc(state.auth.userdb.nick)})` : ''}</button></div><div id="udb"></div></div>` : ''}
       <div class="panel" style="margin-top:10px"><h2>Výsledek</h2><div id="discres">${discoveryHtml(state.discovery)}</div></div>
       <div class="row"><button id="mclose">Zavřít</button></div></div>`;
-    $('#discf').onsubmit = async (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); try { state.discovery = await api('/discover', { method: 'POST', body: b }); renderModal(); } catch (e2) { toast(e2.message, true); } };
+    $('#discf').onsubmit = async (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); try { state.scanProg = null; state.discovery = await api('/discover', { method: 'POST', body: b }); renderModal(); } catch (e2) { toast(e2.message, true); } };
     if (udbOn) {
       const forUser = md.user ? `?user=${md.user}` : '';
       const box = $('#udb');
@@ -540,7 +540,7 @@ function renderModal() {
           const aps = [...box.querySelectorAll('.apsel:checked')].map(c => +c.value);
           if (!aps.length) return toast('zaškrtni aspoň jedno APčko', true);
           $('#udbgo').disabled = true;
-          try { const x = await api('/userdb/import' + forUser, { method: 'POST', body: { aps } }); state.discovery = x.discovery; toast(`z userdb: ${x.summary.entries} nových do skenu, ${x.summary.updated} doplněno`); const r2 = $('#discres'); if (r2) r2.innerHTML = discoveryHtml(state.discovery); $('#udbgo').insertAdjacentHTML('afterend', sumHtml(x.summary)); }
+          try { state.scanProg = null; const x = await api('/userdb/import' + forUser, { method: 'POST', body: { aps } }); state.discovery = x.discovery; toast(`z userdb: ${x.summary.entries} nových do skenu, ${x.summary.updated} doplněno`); const r2 = $('#discres'); if (r2) r2.innerHTML = discoveryHtml(state.discovery); $('#udbgo').insertAdjacentHTML('afterend', sumHtml(x.summary)); }
           catch (e) { toast(e.message, true); $('#udbgo').disabled = false; }
         };
       };
@@ -646,12 +646,20 @@ function parentOptions(sel, selfId = 0) {
   const list = state.devices.filter(d => d.id !== selfId).sort((a, b) => devName(a).localeCompare(devName(b)));
   return `<option value="0" ${!sel ? 'selected' : ''}>— žádný —</option>` + list.map(d => `<option value="${d.id}" ${d.id === sel ? 'selected' : ''}>${esc(devName(d))} (${esc(d.host)})${d.managed ? '' : ' [neřízený]'}</option>`).join('');
 }
+function scanProgHtml() {
+  const p = state.scanProg; if (!p) return '';
+  if (p.done < p.total) return `<div style="margin:8px 0"><b>⏳ Kontrola zařízení a topologie:</b> ${p.done}/${p.total} <span class="muted">(verze, model, sousedé, rodič — po dokončení se seznam seřadí jako strom)</span><div class="progress" style="margin:6px 0"><div style="width:${p.total ? p.done / p.total * 100 : 0}%"></div></div></div>`;
+  const devs = (p.ids || []).map(id => state.devices.find(d => d.id === id)).filter(Boolean);
+  const withParent = devs.filter(d => d.parent_id).length, unreachable = devs.filter(d => d.scan_status && d.scan_status !== 'ok').length;
+  return `<div style="margin:8px 0"><b>✔ Kontrola zařízení a topologie hotová:</b> ${p.total} zařízení, rodič určen u ${withParent}${unreachable ? `, ${unreachable} nedostupných nebo s chybou` : ''} <span class="muted">— kde rodič chybí, nastav ho tužkou ✎ nebo použij „Přebrat detekované rodiče“</span></div>`;
+}
 function discoveryHtml(st) {
   if (!st || st.total === undefined) return '<span class="muted">Zatím žádný sken. Zadej adresy nebo rozsah a aspoň jeden login.</span>';
   st = { found: [], authFailed: [], errors: [], foreign: [], notRouterOS: [], ...st };
   const running = !st.finishedAt;
   return `<div>${running ? '⏳ běží' : '✔ hotovo'}: ${st.done}/${st.total} adres, ${st.open} s otevřeným SSH, <b>${st.added} nových založeno</b>, ${st.existing} už v seznamu, ${st.foreign.length ? `<b style="color:var(--err)">${st.foreign.length} u jiného uživatele</b>, ` : ''}${st.authFailed.length} bez platného loginu, ${st.notRouterOS.length ? `${st.notRouterOS.length} není RouterOS, ` : ''}${st.errors.length} chyb</div>
     <div class="progress" style="margin:6px 0"><div style="width:${st.total ? st.done / st.total * 100 : 0}%"></div></div>
+    ${st.finishedAt && st.added ? scanProgHtml() : ''}
     ${st.found.length ? `<details open><summary>nalezené (${st.found.length})</summary><div class="mono" >${st.found.map(f => `<div>${esc(f.host)} ${esc(f.identity || '')} ${esc(f.board || '')} ${esc(f.version || '')}${f.existing ? ' <span class="muted">(už v seznamu)</span>' : ''}</div>`).join('')}</div></details>` : ''}
     ${st.foreign.length ? `<details open><summary>už má u sebe jiný uživatel (${st.foreign.length})</summary><div class="mono" >${st.foreign.map(esc).join('<br>')}</div></details>` : ''}
     ${st.notRouterOS.length ? `<details open><summary>SSH otevřené, ale není to RouterOS (${st.notRouterOS.length})</summary><div class="mono" >${st.notRouterOS.map(esc).join('<br>')}</div></details>` : ''}
@@ -697,6 +705,8 @@ function connectSSE() {
     else if (ev.type === 'runner') { loadState().then(render); }
     else if (ev.type === 'discovery' || ev.type === 'discovery-done') { state.discovery = ev.state; const r = $('#discres'); if (r) r.innerHTML = discoveryHtml(ev.state); if (ev.type === 'discovery-done') { toast(`sken rozsahu hotov: ${ev.state.added} nových zařízení`); loadState().then(() => { if (state.modal && state.modal.type === 'discover') renderModal(); else render(); }); } }
     else if (ev.type === 'discovery-error') toast('sken rozsahu: ' + ev.error, true);
+    else if (ev.type === 'scan-progress' && ev.tag === 'discovery') { state.scanProg = { done: ev.done, total: ev.total, ids: ev.ids }; const r = $('#discres'); if (r && state.discovery) r.innerHTML = discoveryHtml(state.discovery); }
+    else if (ev.type === 'scan-done' && ev.tag === 'discovery' && state.scanProg) { state.scanProg = { ...state.scanProg, done: state.scanProg.total, ids: ev.ids || state.scanProg.ids }; loadState().then(() => { render(); const r = $('#discres'); if (r && state.discovery) r.innerHTML = discoveryHtml(state.discovery); }); }
     else if (ev.type === 'devices-changed') loadState().then(render);
     else if (ev.type === 'latest') { state.latest = ev.latest; render(); }
     else if (ev.type === 'scan-done') { toast(`sken hotov (${ev.count} zařízení)`); loadState().then(render); }

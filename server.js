@@ -20,7 +20,7 @@ runner.on('event', (ev) => bus.emit('event', ev));
 const scanner = new Scanner(runner, bus);
 const discovery = new Discovery(bus);
 // nově nalezená zařízení ze skenu rozsahu hned plně naskenovat (uptime, místo, topologie…)
-bus.on('event', (ev) => { if (ev.type === 'discovery-done' && ev.state) { const ids = (ev.state.found || []).filter(f => f.id).map(f => f.id); if (ids.length) scanner.scanAll(ids).catch(() => {}); } });
+bus.on('event', (ev) => { if (ev.type === 'discovery-done' && ev.state) { const ids = (ev.state.found || []).filter(f => f.id).map(f => f.id); if (ids.length) scanner.scanAll(ids, { ownerId: ev.state.ownerId || 0, tag: 'discovery' }).catch(() => {}); } });
 
 const { suggestParent } = require('./lib/topology');
 const userdb = require('./lib/userdb');
@@ -149,6 +149,7 @@ function eventFor(req, ev) {
     case 'progress': { const j = db.getJob(ev.job_id); return j && j.owner_id === uid ? ev : null; }
     case 'runner': return ev.status && ev.status.ownerId === uid ? ev : null;
     case 'discovery': case 'discovery-done': return ev.state && ev.state.ownerId === uid ? ev : null;
+    case 'scan-progress': return ev.ownerId === uid ? ev : null;
     case 'discovery-error': case 'devices-changed': case 'latest': case 'scan-done': return ev;
     default: return null;
   }
