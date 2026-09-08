@@ -407,7 +407,8 @@ async function itemAction(id, a) { try { await api(`/items/${id}/${a}`, { method
 const LOG_IMPORTANT_RE = /^(===|♥|hotovo|Job |Server |STOP|BLOK|Předběžná|kontrola: |DRY RUN|Položka|přeskak|pozastav|zrušen)/i;
 const logImportant = (l) => l.level !== 'info' || LOG_IMPORTANT_RE.test(String(l.msg || ''));
 // prefix „zařízení · IP" podle device_id (names: Map device_id → text); v detailu zařízení se nepoužívá
-const logLine = (l, names) => { const n = names && l.device_id ? names.get(l.device_id) : ''; return `<div class="${l.level}${logImportant(l) ? '' : ' lo'}" data-dev="${l.device_id || 0}"><span class="t">${fmtMs(l.ts)}</span>${n ? `<span class="dev">${esc(n)}</span> ` : ' '}${esc(l.msg)}</div>`; };
+// prefix má pevnou šířku (CSS .dev), dlouhý název se ořízne s „…“ a celý je v tooltipu — řádky zůstávají zarovnané; bez zařízení je prázdný
+const logLine = (l, names) => { const n = names && l.device_id ? names.get(l.device_id) : ''; return `<div class="${l.level}${logImportant(l) ? '' : ' lo'}" data-dev="${l.device_id || 0}"><span class="t">${fmtMs(l.ts)}</span>${names ? `<span class="dev" title="${esc(n)}">${esc(n)}</span> ` : ' '}${esc(l.msg)}</div>`; };
 // prefix řádku: název a zkrácená IP (poslední dva oktety, např. 90.55); bez názvu celá IP
 const shortIp = (h) => { const m = String(h || '').match(/^\d+\.\d+\.(\d+\.\d+)$/); return m ? m[1] : String(h || ''); };
 const logNames = (items) => new Map((items || []).map(it => [it.device_id, `${it.dev_name || it.identity || it.host}${it.host && (it.dev_name || it.identity) ? ' · ' + shortIp(it.host) : ''}`]));
