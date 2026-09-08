@@ -85,6 +85,7 @@ function render() {
     <div class="runner-pill ${running ? 'live' : ''}" id="runnerpill">${running ? ownRuns.map(({ r, job, dev }) => `<div class="clickable" data-job="${r.jobId}"><span class="pulse"></span><b>job #${r.jobId}</b>${job ? ` ${esc(job.name).slice(0, 40)}` : ''}${dev ? `<br><span class="hint">${esc(devName(dev))}</span>` : ''}</div>`).join('') : 'žádný tvůj job neběží'}${(state.runner.others || []).length ? `<div class="hint" style="margin-top:6px;line-height:1.4">${state.runner.others.map(o => `${o.uid ? `<b>${o.uid}</b> ` : ''}${esc(o.user || 'jiný uživatel')}: ${o.jobs > 1 ? `${o.jobs} joby, ` : ''}upgrade ${o.total} zařízení${o.done ? `, hotovo ${o.done}` : ''}`).join('<br>')}</div>` : ''}</div>
     <label class="check advtoggle"><input type="checkbox" id="advtoggle" ${state.advanced ? 'checked' : ''}> Pokročilé zobrazení</label>
     ${state.auth.user ? `<div class="hint" style="padding:0 10px 4px">👤 ${esc(state.auth.user.name)}${state.admin ? ' <span class="chip">správce</span>' : ''}${state.auth.passwordLogin ? ' · <a href="#" id="chpw">heslo</a>' : ''}</div>` : ''}
+    ${state.auth.serverStartedAt ? `<div class="hint" style="padding:0 10px 4px" title="${new Date(state.auth.serverStartedAt).toLocaleString('cs-CZ')}">⟳ server od ${new Date(state.auth.serverStartedAt).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}${state.auth.draining ? ' · <b>aktualizuje se</b>' : ''}</div>` : ''}
     <div class="foot"><button class="small" id="refreshver" title="obnovit verze z upgrade.mikrotik.com">↻ verze</button><button class="small" id="logout">Odhlásit</button></div>
   </aside><main id="main"></main></div>`;
   app.querySelectorAll('nav button').forEach(b => b.onclick = () => { state.view = b.dataset.view; render(); });
@@ -758,6 +759,7 @@ let reloadT = null, renderT = null;
 function renderSoon() { if (renderT) return; renderT = setTimeout(() => { renderT = null; if (!state.modal) render(); }, 1000); }
 function scheduleReload() { if (reloadT) return; reloadT = setTimeout(async () => { reloadT = null; try { await loadState(); } catch {} render(); }, 2500); }
 async function loadState() {
+  try { const w = await api('/whoami'); if (w && w.serverStartedAt) { state.auth.serverStartedAt = w.serverStartedAt; state.auth.draining = !!w.draining; } } catch {}
   const s = await api('/state');
   Object.assign(state, { devices: s.devices, jobs: s.jobs, latest: s.latest, settings: s.settings, settingsOwn: s.settingsOwn || {}, settingsGlobal: s.settingsGlobal, runner: s.runner, tracks: s.tracks, scanning: s.scanning, discovery: s.discovery, admin: s.admin, auth: { ...state.auth, user: s.user } });
   if (s.admin) { try { state.users = await api('/users'); } catch { state.users = null; } }
@@ -789,7 +791,7 @@ function connectSSE() {
   es.onerror = () => { setTimeout(() => { if (state.authed) connectSSE(); }, 5000); };
 }
 (async () => {
-  try { const w = await api('/whoami'); state.authed = w.authed; state.netHint = w.netHint || '192.0.2'; state.auth = { sso: w.sso, passwordLogin: w.passwordLogin, registration: w.registration, user: w.user, userdb: w.userdb || { enabled: false } }; } catch { state.authed = false; }
+  try { const w = await api('/whoami'); state.authed = w.authed; state.netHint = w.netHint || '192.0.2'; state.auth = { sso: w.sso, passwordLogin: w.passwordLogin, registration: w.registration, user: w.user, userdb: w.userdb || { enabled: false }, serverStartedAt: w.serverStartedAt || 0, draining: !!w.draining }; } catch { state.authed = false; }
   if (state.authed) { await loadState(); connectSSE(); }
   render();
   setInterval(() => { if (state.authed && state.view === 'devices' && !state.modal) render(); }, 60000);
