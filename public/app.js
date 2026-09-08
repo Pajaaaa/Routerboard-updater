@@ -390,14 +390,14 @@ function renderJobDetail() {
     </tbody></table></div>
     <details class="logbox" ${logOpen ? 'open' : ''}><summary>Podrobný log</summary>
       <div class="row logtools"><label class="check"><input type="checkbox" id="logimp" ${LOGIMP ? 'checked' : ''}> jen důležité (varování, chyby, začátek a výsledek zařízení)</label>
-        <label class="check"><input type="checkbox" id="logip" ${LOGIP ? 'checked' : ''}> zobrazit IP</label><label class="check"><input type="checkbox" id="logfull" ${LOGFULL ? 'checked' : ''}> celý název (a celá IP)</label>
+        <label class="check"><input type="checkbox" id="logfull" ${LOGFULL ? 'checked' : ''}> zobrazit název</label><label class="check"><input type="checkbox" id="logip" ${LOGIP ? 'checked' : ''}> zobrazit IP</label>
         <select id="logdev" title="jen řádky jednoho zařízení"><option value="0">všechna zařízení</option>${items.map(it => `<option value="${it.device_id}" ${state.logDev === it.device_id ? 'selected' : ''}>${esc(devLabel(it))} · ${esc(it.host)}</option>`).join('')}</select></div>
-      <div class="log ${LOGIMP ? 'imp' : ''} ${LOGIP ? '' : 'noip'} ${LOGFULL ? 'full' : ''}" id="joblog" data-dev="${state.logDev || 0}">${(() => { const nm = logNames(items); return state.jobLog.map(l => logLine(l, nm)).join(''); })()}</div></details></div>`;
+      <div class="log ${LOGIMP ? 'imp' : ''} ${LOGIP ? '' : 'noip'} ${LOGFULL ? '' : 'nonm'}" id="joblog" data-dev="${state.logDev || 0}">${(() => { const nm = logNames(items); return state.jobLog.map(l => logLine(l, nm)).join(''); })()}</div></details></div>`;
   document.querySelector('details.logbox').ontoggle = (e) => { state.logOpen = e.target.open; };
   applyLogDevFilter();
   { const li = $('#logimp'); if (li) li.onchange = (e) => { LOGIMP = e.target.checked; try { localStorage.setItem('mtu_logimp', LOGIMP ? '1' : '0'); } catch {} $('#joblog').classList.toggle('imp', LOGIMP); }; }
   { const li = $('#logip'); if (li) li.onchange = (e) => { LOGIP = e.target.checked; try { localStorage.setItem('mtu_logip', LOGIP ? '1' : '0'); } catch {} $('#joblog').classList.toggle('noip', !LOGIP); }; }
-  { const lf = $('#logfull'); if (lf) lf.onchange = (e) => { LOGFULL = e.target.checked; try { localStorage.setItem('mtu_logfull', LOGFULL ? '1' : '0'); } catch {} $('#joblog').classList.toggle('full', LOGFULL); }; }
+  { const lf = $('#logfull'); if (lf) lf.onchange = (e) => { LOGFULL = e.target.checked; try { localStorage.setItem('mtu_logfull', LOGFULL ? '1' : '0'); } catch {} $('#joblog').classList.toggle('nonm', !LOGFULL); }; }
   { const ld = $('#logdev'); if (ld) ld.onchange = (e) => { state.logDev = +e.target.value || 0; $('#joblog').dataset.dev = state.logDev; applyLogDevFilter(); }; }
   if (atBottom && state.jobLog.length) window.scrollTo(0, document.documentElement.scrollHeight);
   on('#jb-start', () => jobAction(job.id, 'start')); on('#jb-cont', () => jobAction(job.id, 'continue')); on('#jb-precheck', () => jobAction(job.id, 'precheck'));
@@ -415,11 +415,10 @@ const LOG_IMPORTANT_RE = /^(===|♥|hotovo|Job |Server |STOP|BLOK|Předběžná|
 const logImportant = (l) => l.level !== 'info' || LOG_IMPORTANT_RE.test(String(l.msg || ''));
 // prefix „zařízení · IP" podle device_id (names: Map device_id → text); v detailu zařízení se nepoužívá
 // prefix má pevnou šířku (CSS .dev), dlouhý název se ořízne s „…“ a celý je v tooltipu — řádky zůstávají zarovnané; bez zařízení je prázdný
-const logLine = (l, names) => { const n = names && l.device_id ? names.get(l.device_id) : null; return `<div class="${l.level}${logImportant(l) ? '' : ' lo'}" data-dev="${l.device_id || 0}"><span class="t">${fmtMs(l.ts)}</span>${names ? `<span class="dev" title="${n ? esc(n.name + ' · ' + n.host) : ''}">${n ? `<span class="nm">${esc(n.name)}</span><span class="ip"> · <span class="ips">${esc(n.ipShort)}</span><span class="ipf">${esc(n.host)}</span></span>` : ''}</span> ` : ' '}${esc(l.msg)}</div>`; };
-// prefix řádku: název a zkrácená IP (poslední dva oktety, např. 90.55); bez názvu celá IP
-const shortIp = (h) => { const m = String(h || '').match(/^\d+\.\d+\.(\d+\.\d+)$/); return m ? m[1] : String(h || ''); };
-const logNames = (items) => new Map((items || []).map(it => [it.device_id, { name: devLabel(it), host: it.host || '', ipShort: shortIp(it.host) }]));
-let LOGIP = true, LOGFULL = false; try { LOGIP = localStorage.getItem('mtu_logip') !== '0'; LOGFULL = localStorage.getItem('mtu_logfull') === '1'; } catch {}
+const logLine = (l, names) => { const n = names && l.device_id ? names.get(l.device_id) : null; return `<div class="${l.level}${logImportant(l) ? '' : ' lo'}" data-dev="${l.device_id || 0}"><span class="t">${fmtMs(l.ts)}</span>${names ? `<span class="dev" title="${n ? esc(n.name + ' · ' + n.host) : ''}">${n ? `<span class="nm">${esc(n.name)}</span><span class="ip">${esc(n.host)}</span>` : ''}</span> ` : ' '}${esc(l.msg)}</div>`; };
+const logNames = (items) => new Map((items || []).map(it => [it.device_id, { name: devLabel(it), host: it.host || '' }]));
+// prefix řádku: název a/nebo IP podle voleb nad logem; nic nezaškrtnuto = holý log
+let LOGIP = true, LOGFULL = true; try { LOGIP = localStorage.getItem('mtu_logip') !== '0'; LOGFULL = localStorage.getItem('mtu_logfull') !== '0'; } catch {}
 // sledování konce logu: true jen když je uživatel odrolovaný ke konci stránky; přepíná se podle skutečného rolování
 /** plovoucí ↑/↓ vpravo dole: jen když je stránka delší než obrazovka */
 function updatePageNav() { const n = $('#pagenav'); if (!n) return; n.hidden = document.documentElement.scrollHeight <= window.innerHeight + 300; }
