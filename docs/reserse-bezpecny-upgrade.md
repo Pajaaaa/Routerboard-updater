@@ -43,7 +43,7 @@ hromadný upgrade, bezpečnostní advisory (MikroTik 9/2026, CERT Polska). Ozna�
 | `wireless` × `wifi-qcom(-ac)` nesmí být aktivní současně (7.18 odmítne) | Packages, changelog 7.18 | blokátor při obou v sadě; ovladač se nikdy nemění |
 | z v6 nejdřív poslední v6, pak 7.12.1, pak cíl; min. 64 MB RAM; routing konverze jen jednou | Upgrading to v7 | hopy 6.49.x → 7.12.1 → cíl (16 MB) / přímo; RAM kontrola; BGP/OSPF/MPLS blokováno bez povolení |
 | „strongly recommended to upgrade the bootloader after RouterOS update … followed by a reboot" | RouterBOOT | firmware až po ověřeném RouterOS, samostatný restart, nikdy backup RouterBOOT |
-| `auto-upgrade=yes` = firmware po dalším restartu | RouterBOARD | čeká se na druhý restart |
+| `auto-upgrade=yes` = RouterBOOT se při startu sám zapíše, aktivní až po dalším (ručním) restartu | RouterBOARD | zápis se neopakuje, nástroj jen restartuje |
 | partitions: NAND, ≥128 MiB (7.20+), fallback-to; kritérium selhání nedokumentováno | Partitions | copy-to + fallback před upgradem, repartition jen ručně |
 | device-mode 7.17+: `routerboard`, `partitions`, `install-any-version` vypnuté; změna = fyzické potvrzení, 3 pokusy | Device-mode | čte se; „not allowed by device-mode" u firmwaru = varování, ne pád |
 | write-back cache (CCR, RB4011): zápis do flash zpožděn až 40 s, výpadek = prázdné soubory | Files | velikost souboru se ověřuje na routeru před restartem |
