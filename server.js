@@ -727,7 +727,7 @@ const server = http.createServer(async (req, res) => {
       if (on != null) { runner.setDraining(on === '1'); console.log(`drain ${on === '1' ? 'zapnut' : 'vypnut'} (deploy)`); }
       return send(res, 200, { draining: runner.draining, jobs: runner.running().length });
     }
-    if (p === '/api/whoami') return send(res, 200, { authed, user: req.user, admin: authed && isAdmin(req), userdb: userdbFor(req), serverStartedAt: SERVER_STARTED_AT, draining: runner.draining, sso: sso.enabled(), passwordLogin: pwLoginAllowed(req), registration: !!db.getSettings().allow_registration, netHint: cfg.netHint });
+    if (p === '/api/whoami') return send(res, 200, { authed, user: req.user, admin: authed && isAdmin(req), userdb: userdbFor(req), serverStartedAt: SERVER_STARTED_AT, sourceIp: cfg.sourceIp, draining: runner.draining, sso: sso.enabled(), passwordLogin: pwLoginAllowed(req), registration: !!db.getSettings().allow_registration, netHint: cfg.netHint });
 
     if (p.startsWith('/api/')) {
       if (!authed) return send(res, 401, { error: 'nepřihlášen' });

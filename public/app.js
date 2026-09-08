@@ -90,9 +90,11 @@ function render() {
     <label class="check advtoggle"><input type="checkbox" id="advtoggle" ${state.advanced ? 'checked' : ''}> Pokročilé zobrazení</label>
     ${state.auth.user ? `<div class="hint" style="padding:0 10px 4px">👤 ${esc(state.auth.user.name)}${state.admin ? ' <span class="chip">správce</span>' : ''}${state.auth.passwordLogin ? ' · <a href="#" id="chpw">heslo</a>' : ''}</div>` : ''}
     ${state.auth.serverStartedAt ? `<div class="hint" style="padding:0 10px 4px" title="${new Date(state.auth.serverStartedAt).toLocaleString('cs-CZ')}">⟳ server od ${new Date(state.auth.serverStartedAt).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}${state.auth.draining ? ' · <b>aktualizuje se</b>' : ''}</div>` : ''}
+    ${state.auth.sourceIp ? `<div class="hint" style="padding:0 10px 4px" title="Z této adresy se server připojuje na routery přes SSH. Povol ji ve firewallu routerů a v IP → Services → ssh (Available From), případně ve výjimce brute-force ochrany SSH."><span class="copyip clickable" data-ip="${esc(state.auth.sourceIp)}">🔑 SSH z ${esc(state.auth.sourceIp)}</span></div>` : ''}
     <div class="foot"><button class="small" id="refreshver" title="obnovit verze z upgrade.mikrotik.com">↻ verze</button><button class="small" id="logout">Odhlásit</button></div>
   </aside><main id="main"></main></div>`;
   app.querySelectorAll('nav button').forEach(b => b.onclick = () => { state.view = b.dataset.view; render(); });
+  app.querySelectorAll('.copyip').forEach(el => el.onclick = () => { try { navigator.clipboard.writeText(el.dataset.ip); toast('IP zkopírována: ' + el.dataset.ip); } catch {} });
   $('#logout').onclick = async () => { await api('/logout', { method: 'POST' }); state.authed = false; render(); };
   $('#refreshver').onclick = async () => { state.latest = await api('/versions/refresh', { method: 'POST' }); toast('verze obnoveny'); render(); };
   document.querySelectorAll('#runnerpill [data-job]').forEach(el => el.onclick = () => openJob(+el.dataset.job));
@@ -525,7 +527,7 @@ function renderSettings(m, adminMode = false) {
     <li><b>Známé vadné verze:</b> první vydání větve (x.y.0) se neinstaluje, dokud není staré aspoň 14 dní (od 7.13 dostala každá do 14 dní opravu), plus seznam verzí s regresí pro konkrétní HW (RB2011, RB3011, hAP ac2/ax, CRS3xx, PPC, CHR, 60 GHz) a obecně (7.17, 7.19, 7.20, 7.23.4, 7.24…). Vadné bloky flash nad 5 % blokují, záznamy „kernel failure" v logu varují, otisk zneužití SSH zranitelnosti (9/2026) nebo device-mode „flagged" se hlásí.</li>
     <li><b>Dry run</b> = jen kontrola a plán, nic se nemění. <b>Kanárci</b> = nejdřív jedno zařízení od každého modelu, pak čekání na potvrzení.</li>
     <li><b>Nejčastější příčiny umrtvení dle fór/dokumentace MikroTik a opatření:</b> výpadek napájení během zápisu (→ kontrola napětí, nikdy nerestartovat nadřazený PoE prvek během upgradu potomka, servisní okno); neúplný/poškozený balíček a přesto restart (→ kontrola velikosti proti download.mikrotik.com, žádný cizí .npk, bez ověření se nerestartuje); chybějící wireless/wifi balíček po 7.13 (→ doplní se podle rozhraní, i 60GHz); „not enough space" na 16 MB flash (→ mezikrok 7.12.x, upload se při selhání uklidí); kernel bugy čerstvých verzí a bootloopy (→ min. stáří verze, zakázané verze, kanárci po modelech); starý RouterBOOT před v7 (→ firmware ještě na v6); konverze konfigurace 6→7 (BGP/OSPF/filtry/MPLS blokováno, VLAN filtering varování); protected-routerboot (varování, Netinstall nejde); auto-upgrade firmware routeru (→ čeká se na druhý restart); víc oddílů (→ kopie do záložního oddílu + fallback-to).</li>
-    <li><b>Firewall na routerech:</b> nástroj se připojuje z IP serveru, na kterém běží. Pokud mají routery brute-force ochranu SSH (address-list ssh_blacklist apod.), doporučuji tuto IP přidat do výjimky — nástroj sice rozestupuje opakovaná spojení na 65 s, ale sken + job dělají několik přihlášení za sebou.</li>
+    <li><b>Firewall na routerech:</b> nástroj se připojuje z IP serveru, na kterém běží — je vidět vlevo dole („SSH z …“, kliknutím se zkopíruje). Pokud mají routery brute-force ochranu SSH (address-list ssh_blacklist apod.), doporučuji tuto IP přidat do výjimky — nástroj sice rozestupuje opakovaná spojení na 65 s, ale sken + job dělají několik přihlášení za sebou.</li>
     <li>Čeho se nástroj netýká: fyzicky mrtvá zařízení (výpadek napájení během zápisu) řeší jen Netinstall — proto se nikdy nerestartuje bez ověřených balíčků a zálohy.</li></ul></details></div>`;
   const ul = $('#userlist');
   if (ul) {
@@ -791,7 +793,7 @@ let reloadT = null, renderT = null;
 function renderSoon() { if (renderT) return; renderT = setTimeout(() => { renderT = null; if (!state.modal) render(); }, 1000); }
 function scheduleReload() { if (reloadT) return; reloadT = setTimeout(async () => { reloadT = null; try { await loadState(); } catch {} render(); }, 2500); }
 async function loadState() {
-  try { const w = await api('/whoami'); if (w && w.serverStartedAt) { state.auth.serverStartedAt = w.serverStartedAt; state.auth.draining = !!w.draining; } } catch {}
+  try { const w = await api('/whoami'); if (w && w.serverStartedAt) { state.auth.serverStartedAt = w.serverStartedAt; state.auth.draining = !!w.draining; if (w.sourceIp) state.auth.sourceIp = w.sourceIp; } } catch {}
   const s = await api('/state');
   Object.assign(state, { devices: s.devices, jobs: s.jobs, latest: s.latest, settings: s.settings, settingsOwn: s.settingsOwn || {}, settingsGlobal: s.settingsGlobal, runner: s.runner, tracks: s.tracks, scanning: s.scanning, discovery: s.discovery, admin: s.admin, auth: { ...state.auth, user: s.user } });
   if (s.admin) { try { state.users = await api('/users'); } catch { state.users = null; } }
@@ -823,7 +825,7 @@ function connectSSE() {
   es.onerror = () => { setTimeout(() => { if (state.authed) connectSSE(); }, 5000); };
 }
 (async () => {
-  try { const w = await api('/whoami'); state.authed = w.authed; state.netHint = w.netHint || '192.0.2'; state.auth = { sso: w.sso, passwordLogin: w.passwordLogin, registration: w.registration, user: w.user, userdb: w.userdb || { enabled: false }, serverStartedAt: w.serverStartedAt || 0, draining: !!w.draining }; } catch { state.authed = false; }
+  try { const w = await api('/whoami'); state.authed = w.authed; state.netHint = w.netHint || '192.0.2'; state.auth = { sso: w.sso, passwordLogin: w.passwordLogin, registration: w.registration, user: w.user, userdb: w.userdb || { enabled: false }, serverStartedAt: w.serverStartedAt || 0, sourceIp: w.sourceIp || '', draining: !!w.draining }; } catch { state.authed = false; }
   if (state.authed) { await loadState(); connectSSE(); }
   render();
   setInterval(() => { if (state.authed && state.view === 'devices' && !state.modal) render(); }, 60000);
