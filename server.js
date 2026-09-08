@@ -1,5 +1,6 @@
 'use strict';
 const { devLabel } = require('./lib/label');
+const { hostAllowed } = require('./lib/netaddr');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -137,6 +138,7 @@ function clientIp(req) { return (req.headers['x-real-ip'] || req.headers['x-forw
 
 function validateDevice(d) {
   if (!d.host || !/^[A-Za-z0-9.:_-]+$/.test(d.host)) throw new Error('neplatný host');
+  if (!hostAllowed(d.host, cfg.scanAllow)) throw new Error(`adresa ${d.host} je mimo povolené rozsahy (${cfg.scanAllow}) — přidávat jde jen IP adresy vlastní sítě`);
   if (!d.username && d.managed !== false) throw new Error('chybí uživatel');
   d.port = parseInt(d.port || 22, 10);
   if (!(d.port > 0 && d.port < 65536)) throw new Error('neplatný port');
