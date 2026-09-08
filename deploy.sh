@@ -1,13 +1,20 @@
 #!/bin/bash
-# Nasazení přes ssh: ./deploy.sh [drain|quiet]. drain (výchozí) = joby dokončí aktuální zařízení a pozastaví se, restart do hodiny;
-# quiet = nikoho neomezuje, čeká až 4 h na chvíli bez jobů/skenů. Soubory se vymění až při restartu.
+# Nasazení přes ssh: ./deploy.sh [drain|quiet|static]. drain (výchozí) = joby dokončí aktuální zařízení a pozastaví se, restart do hodiny;
+# quiet = nikoho neomezuje, čeká až 4 h na chvíli bez jobů/skenů; static = jen public/ bez restartu. Soubory se vymění až při restartu.
 # Cíl se čte z deploy.env (není v gitu): DEPLOY_HOST=ssh-alias  DEPLOY_DIR=/cesta/na/serveru  DEPLOY_USER=uzivatel  DEPLOY_SERVICE=mikrotik-upgrader
 set -e
 cd "$(dirname "$0")"
 [ -f deploy.env ] && . ./deploy.env
 : "${DEPLOY_HOST:?nastav DEPLOY_HOST v deploy.env}" "${DEPLOY_DIR:?nastav DEPLOY_DIR v deploy.env}"
 DEPLOY_USER=${DEPLOY_USER:-$USER}; DEPLOY_SERVICE=${DEPLOY_SERVICE:-mikrotik-upgrader}
-SRC=$(basename "$PWD"); cd ..
+SRC=$(basename "$PWD")
+# režim static: jen webové soubory (public/), bez restartu služby — server je čte z disku, uživatelům stačí obnovit stránku.
+# Použij jen pro změny UI, které nepotřebují nové API na serveru.
+if [ "${1:-}" = static ]; then
+  tar czf - public | ssh "$DEPLOY_HOST" "tar xzf - -C '$DEPLOY_DIR' && chown -R '$DEPLOY_USER:$DEPLOY_USER' '$DEPLOY_DIR/public'" && echo "webové soubory nasazeny bez restartu"
+  exit $?
+fi
+cd ..
 # soubory jdou nejdřív do vedlejšího adresáře a do ostrého se přesunou až těsně před restartem služby —
 # jinak by prohlížeče dostaly nové UI proti staré běžící službě („neznámé API“), když se s restartem čeká na job
 STAGE="${DEPLOY_DIR}.staged"
