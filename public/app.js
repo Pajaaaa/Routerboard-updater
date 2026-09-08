@@ -548,6 +548,7 @@ function settingsFields(s) {
     <h2>Povolit rizikové (jinak blokováno)</h2>
     ${c('allow_v7_routing_migration', 'přechod v6 → v7 s BGP / OSPF / routing filtry / MPLS')}
     ${c('allow_v7_small_flash', 'přechod v6 → v7 na 16 MB flash bez adresáře flash')}
+    ${c('allow_old_small_flash', '16 MB flash na v6 pod 6.45 (6.42.x, 6.43.x): upgradovat s odložením balíčku do RAM — pojistka z jednoho pádu DISC Lite5 6.43; pouštěj přes den s dosažitelným členem')}
     ${c('allow_v7_low_ram', 'v7 na zařízeních s méně než 64 MB RAM (RB750, hAP lite — hrozí OOM bootloop)')}
     <h2>Služby routeru (/ip service)</h2>
     ${c('harden_services', 'při ostrém běhu vypnout služby mimo seznam a všem nastavit povolené adresy (ssh se nikdy nevypne, adresy jen když obsahují IP tohoto serveru)')}
