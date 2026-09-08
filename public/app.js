@@ -6,7 +6,8 @@ const MB = 1048576;
 let ADV = false; try { ADV = localStorage.getItem('mtu_adv') === '1'; } catch {}
 /** připojí klik na prvek, když existuje (helper používaný napříč pohledy) */
 const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
-const state = { scanProg: null, owner: 0, authed: false, auth: { sso: false, passwordLogin: true, user: null }, view: 'devices', advanced: ADV, devices: [], jobs: [], latest: { versions: {} }, settings: {}, runner: {}, tracks: [], selected: new Set(), filter: '', group: '', sort: 'tree', modal: null, job: null, jobLog: [], detail: null, scanning: [] };
+let VF = ''; try { VF = localStorage.getItem('mtu_vf') || ''; } catch {}
+const state = { vf: VF, scanProg: null, owner: 0, authed: false, auth: { sso: false, passwordLogin: true, user: null }, view: 'devices', advanced: ADV, devices: [], jobs: [], latest: { versions: {} }, settings: {}, runner: {}, tracks: [], selected: new Set(), filter: '', group: '', sort: 'tree', modal: null, job: null, jobLog: [], detail: null, scanning: [] };
 
 async function api(path, opts = {}) {
   const r = await fetch(BASE + '/api' + path, { headers: { 'Content-Type': 'application/json' }, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
@@ -141,7 +142,12 @@ function treeOrder(devs) {
 }
 function filteredDevices() {
   const f = state.filter.toLowerCase();
-  let list = state.devices.filter(d => (!state.owner || d.owner_id === state.owner) && (!state.group || d.group_name === state.group) && (!f || [d.host, d.name, d.identity, d.board_name, d.model, d.version, d.group_name, d.notes].join(' ').toLowerCase().includes(f)));
+  // filtr podle verze/stavu: vše / v6 / v7 / k upgradu / aktuální / nedostupné
+  const vf = state.vf || '';
+  const vfMatch = (d) => { if (!vf) return true; const v = String(d.version || ''); if (vf === 'v6') return v.startsWith('6.'); if (vf === 'v7') return v.startsWith('7.'); if (vf === 'need') return needsUpgrade(d); if (vf === 'ok') return plainStatus(d).cls === 'b-ok'; if (vf === 'bad') return d.scan_status && !['ok', 'never'].includes(d.scan_status); return true; };
+  const base = state.devices.filter(d => (!state.owner || d.owner_id === state.owner) && (!state.group || d.group_name === state.group));
+  const vfCounts = { v6: base.filter(d => String(d.version || '').startsWith('6.')).length, v7: base.filter(d => String(d.version || '').startsWith('7.')).length, need: base.filter(needsUpgrade).length, ok: base.filter(d => plainStatus(d).cls === 'b-ok').length, bad: base.filter(d => d.scan_status && !['ok', 'never'].includes(d.scan_status)).length };
+  let list = state.devices.filter(d => vfMatch(d) && (!state.owner || d.owner_id === state.owner) && (!state.group || d.group_name === state.group) && (!f || [d.host, d.name, d.identity, d.board_name, d.model, d.version, d.group_name, d.notes].join(' ').toLowerCase().includes(f)));
   const s = state.sort;
   if (s === 'tree') return treeOrder(list);
   list.sort((a, b) => {
@@ -184,6 +190,7 @@ function renderDevices(m) {
     <button class="danger" id="delsel" ${state.selected.size ? '' : 'disabled'} title="smaže vybraná zařízení z evidence včetně historie a záloh (vlastní; správce jakákoli)">✕ Smazat vybrané (${state.selected.size})</button>
     <span class="spacer"></span>
     ${state.admin && state.users && state.users.length > 1 ? `<select id="ownerf" title="zobrazit zařízení jednoho uživatele"><option value="0" ${!state.owner ? 'selected' : ''}>všichni vlastníci</option>${state.users.map(u => `<option value="${u.id}" ${u.id === state.owner ? 'selected' : ''}>${esc(u.name)} (${state.devices.filter(d => d.owner_id === u.id).length})</option>`).join('')}</select>` : ''}
+    <select id="vfilter" title="filtr podle verze a stavu"><option value="" ${!vf ? 'selected' : ''}>zobrazit vše (${base.length})</option><option value="need" ${vf === 'need' ? 'selected' : ''}>k upgradu (${vfCounts.need})</option><option value="v6" ${vf === 'v6' ? 'selected' : ''}>na v6 (${vfCounts.v6})</option><option value="v7" ${vf === 'v7' ? 'selected' : ''}>na v7 (${vfCounts.v7})</option><option value="ok" ${vf === 'ok' ? 'selected' : ''}>aktuální (${vfCounts.ok})</option><option value="bad" ${vf === 'bad' ? 'selected' : ''}>nedostupné / chyba (${vfCounts.bad})</option></select>
     ${groups.length ? `<select id="group"><option value="">všechny skupiny</option>${groups.map(g => `<option ${g === state.group ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select>` : ''}
     <select id="sort"><option value="tree" ${state.sort === 'tree' ? 'selected' : ''}>řadit: strom (topologie)</option><option value="priority" ${state.sort === 'priority' ? 'selected' : ''}>priorita</option><option value="name" ${state.sort === 'name' ? 'selected' : ''}>název</option><option value="version" ${state.sort === 'version' ? 'selected' : ''}>verze</option><option value="model" ${state.sort === 'model' ? 'selected' : ''}>model</option><option value="seen" ${state.sort === 'seen' ? 'selected' : ''}>naposledy viděno</option></select>
     <input id="filter" placeholder="hledat…" value="${esc(state.filter)}" style="width:170px"></div>
@@ -217,6 +224,7 @@ function renderDevices(m) {
   });
   m.querySelectorAll('.acceptp').forEach(b => b.onclick = async () => { try { await api(`/devices/${b.dataset.id}`, { method: 'PUT', body: { parent_id: +b.dataset.pid } }); await loadState(); render(); } catch (e) { toast(e.message, true); } });
   const g = $('#group'); if (g) g.onchange = (e) => { state.group = e.target.value; render(); };
+  const vfs = $('#vfilter'); if (vfs) vfs.onchange = (e) => { state.vf = e.target.value; state.selected.clear(); try { localStorage.setItem('mtu_vf', state.vf); } catch {} render(); };
   const of = $('#ownerf'); if (of) of.onchange = (e) => { state.owner = +e.target.value; try { localStorage.setItem('mtu_owner', String(state.owner)); } catch {} state.selected.clear(); render(); };
   const mv = $('#movesel'); if (mv) mv.onclick = () => openModal({ type: 'move', ids: [...state.selected] });
   $('#sort').onchange = (e) => { state.sort = e.target.value; render(); };
