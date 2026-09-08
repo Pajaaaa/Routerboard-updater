@@ -154,5 +154,5 @@ tr.root-row td{border-top:2px solid var(--line2)}
 .ssobtn:hover{filter:brightness(1.06)}
 
 /* modální okna rostou s obsahem, roluje se celá stránka (ne vnitřek okna) */
-.modalbg{align-items:flex-start;overflow:auto;padding:24px 0}
+.modal-bg{align-items:flex-start;overflow:auto;padding:24px 12px}
 .modal{max-height:none;overflow:visible}
