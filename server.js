@@ -114,17 +114,17 @@ const visJobs = (req, n) => isAdmin(req) ? db.listJobs(n) : db.listJobs(n, req.u
 const runnerStatusFor = (req) => {
   const st = runner.status(req.user.id);
   st.busy = runner.running().map(x => x.deviceId).filter(Boolean); // zařízení právě v jobu (kohokoli) — jen id
-  // cizí běžící joby jen informačně: kdo, kolik zařízení, kolik hotovo (správce vidí; ostatní jen počet)
+  // cizí běžící joby jen informačně: kdo (userdb uid + přezdívka), kolik zařízení, kolik hotovo; otevřít je smí jen správce
   const byUser = new Map();
   for (const x of runner.running().filter(x => x.ownerId !== req.user.id)) {
     const u = db.getUser(x.ownerId); const items = db.getJobItems(x.jobId);
     const done = items.filter(i => !['pending', 'checking', 'backup', 'upload', 'reboot', 'verify', 'firmware', 'running'].includes(i.status)).length;
-    const k = x.ownerId; const cur = byUser.get(k) || { user: u ? u.name : '?', total: 0, done: 0, jobs: 0, jobId: 0 };
+    const k = x.ownerId; const cur = byUser.get(k) || { user: u ? (u.userdb_nick || u.name) : '?', uid: u ? (u.userdb_uid || 0) : 0, total: 0, done: 0, jobs: 0, jobId: 0 };
     cur.total += items.length; cur.done += done; cur.jobs++; if (isAdmin(req) && !cur.jobId) cur.jobId = x.jobId;
     byUser.set(k, cur);
   }
   const others = [...byUser.values()];
-  st.others = isAdmin(req) ? others : others.map(o => ({ user: '', total: o.total, done: o.done, jobId: 0 }));
+  st.others = isAdmin(req) ? others : others.map(o => ({ ...o, jobId: 0 })); // všichni vidí kdo (uid + přezdívka) a kolik; detail jobu jen správce
   return st;
 };
 const userdbImports = new Map(); // userId -> souhrn posledního importu z userdb (jen v paměti)
