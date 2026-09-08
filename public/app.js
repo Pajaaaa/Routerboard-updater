@@ -70,8 +70,18 @@ function shortReason(txt) { const parts = String(txt || '').split(' | '); return
 const badge = (map, k) => { const [c, t] = map[k] || ['b-muted', k]; return `<span class="badge ${c}">${esc(t)}</span>`; };
 
 // ---------- render ----------
+// překreslení celé stránky (živé události, minutový refresh) nesmí uživateli utéct: když má rozbalenou nabídku nebo píše do pole,
+// překreslení se odloží až po opuštění prvku; jinak se zachová poloha rolování a rozbalené <details> (jen při stejném pohledu)
+let pendingRender = false, lastRenderedView = '';
+function userBusy() { try { const el = document.activeElement; if (!el || el === document.body) return false; const t = el.tagName; return (t === 'SELECT' || t === 'INPUT' || t === 'TEXTAREA') && el.type !== 'checkbox' && el.type !== 'radio' && !!el.closest('#app'); } catch { return false; } }
+try { document.addEventListener('focusout', () => { if (pendingRender) setTimeout(() => { if (pendingRender && !userBusy() && !state.modal) { pendingRender = false; render(); } }, 250); }); } catch {}
 function render() {
   const app = $('#app');
+  if (state.authed && userBusy()) { pendingRender = true; return; }
+  pendingRender = false;
+  const sameView = lastRenderedView === state.view; lastRenderedView = state.view;
+  const keepY = sameView ? window.scrollY : 0;
+  let openKeys = new Set(); try { if (sameView) [...document.querySelectorAll('#main details')].forEach((d, i) => { if (d.open) openKeys.add(d.id || 'i' + i); }); } catch {}
   if (!state.authed) { app.innerHTML = `<div class="login panel"><h2>MikroTik upgrader</h2><p>Bezpečný hromadný upgrade RouterOS.</p>
       ${state.auth.sso ? `<a class="ssobtn" href="${BASE}/auth/login">Přihlásit přes hkfree SSO</a>` : ''}
       ${state.auth.passwordLogin ? `${state.auth.sso ? '<div class="hint" style="margin:14px 0 6px">nebo účtem</div>' : ''}<form id="loginf"><input type="text" id="un" placeholder="uživatel" autocomplete="username" ${state.auth.sso ? '' : 'autofocus'}><input type="password" id="pw" placeholder="heslo" autocomplete="current-password"><button class="${state.auth.sso ? '' : 'primary'}" style="width:100%">Přihlásit</button></form>
@@ -114,6 +124,8 @@ function render() {
   else renderSettings(m);
   m.insertAdjacentHTML('afterbegin', statsStrip());
   renderModal();
+  if (openKeys.size) { try { [...document.querySelectorAll('#main details')].forEach((d, i) => { if (openKeys.has(d.id || 'i' + i)) d.open = true; }); } catch {} }
+  if (sameView) { try { window.scrollTo(0, keepY); } catch {} }
 }
 function latestBar() {
   const v = state.latest.versions || {};
