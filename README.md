@@ -68,7 +68,7 @@ docs/              rešerše rizik upgradu
 
 ## Nasazení
 
-- Node.js 22+, `npm install --omit=optional`, proměnné podle `env.example` (šifrovací klíč, veřejná URL, SSO klient,
+- Node.js 22+, `npm install --omit=dev --omit=optional` (jsdom je jen vývojová závislost pro preflight), proměnné podle `env.example` (šifrovací klíč, veřejná URL, SSO klient,
   klíč do userdb). Přihlášení heslem lze omezit jen na localhost nebo vypnout (`MTU_PASSWORD_LOGIN`).
 - Služba `mikrotik-upgrader.service` (uprav cesty a uživatele), port 2820 jen na 127.0.0.1.
 - Reverse proxy (nginx) `location /mikrotik/` → `http://127.0.0.1:2820/mikrotik/`, `proxy_buffering off` kvůli SSE,
@@ -76,7 +76,8 @@ docs/              rešerše rizik upgradu
 - Data (DB, zálohy, cache balíčků) v `data/`, nejsou v gitu. Server musí mít přístup na routery přes SSH,
   na download.mikrotik.com a na userdb.
 - Před každým nasazením běží `tools/preflight.sh`: syntaxe všech souborů, start serveru nanečisto s prázdnou databází a
-  průchod základního API, vykreslení všech pohledů UI bez prohlížeče (`tools/ui-smoke.js`). Při chybě se nic nenasadí.
+  průchod základního API, vykreslení všech pohledů UI v opravdovém DOM (jsdom, `tools/ui-real.js`: správce i uživatel, s heslem
+  i jen SSO, kontrola klíčových prvků) a s náhradou DOM přes všechna řazení a filtry (`tools/ui-smoke.js`). Při chybě se nic nenasadí.
 - `deploy.sh [drain|quiet|static]` nasazuje za provozu (`static` = jen webové soubory bez restartu (`quiet` = nikoho neomezuje, čeká až 4 h na chvíli bez jobů): soubory nahraje do vedlejšího adresáře, v režimu drain zapne *drain* (`/api/drain`, jen z
   localhostu): běžící joby dokončí aktuální zařízení a pozastaví se, nové se jen zařadí. Až neběží žádný job, sken ani
   import (`/api/busy`, dvě klidové kontroly po sobě), vymění soubory a restartuje službu; pozastavené joby po startu

@@ -20,7 +20,9 @@ for p in /api/whoami /api/state /api/stats /api/settings /api/jobs /api/rules /a
 done
 curl -s -X PUT -b "$J" -H 'content-type: application/json' -d '{"min_uptime_min":11}' http://127.0.0.1:28999/mikrotik/api/settings/mine | grep -q '"min_uptime_min":11' || { echo "uložení nastavení selhalo"; exit 1; }
 grep -iE "error|TypeError|ReferenceError" "$T/server.log" | grep -v ExperimentalWarning && { echo "chyby v logu serveru"; exit 1; }
+echo "3/4 vykreslení UI v opravdovém DOM (jsdom) proti serveru nanečisto"
+node tools/ui-real.js http://127.0.0.1:28999 preflight preflight-heslo || { echo "UI v opravdovém DOM selhalo"; exit 1; }
 kill $SP 2>/dev/null; SP=
-echo "3/3 vykreslení UI"
+echo "4/4 vykreslení UI (náhrada DOM, všechna řazení a filtry)"
 node tools/ui-smoke.js
 echo "preflight OK"
