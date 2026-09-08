@@ -648,14 +648,15 @@ function parentOptions(sel, selfId = 0) {
 }
 function discoveryHtml(st) {
   if (!st || st.total === undefined) return '<span class="muted">Zatím žádný sken. Zadej adresy nebo rozsah a aspoň jeden login.</span>';
-  st = { found: [], authFailed: [], errors: [], foreign: [], ...st };
+  st = { found: [], authFailed: [], errors: [], foreign: [], notRouterOS: [], ...st };
   const running = !st.finishedAt;
-  return `<div>${running ? '⏳ běží' : '✔ hotovo'}: ${st.done}/${st.total} adres, ${st.open} s otevřeným SSH, <b>${st.added} nových založeno</b>, ${st.existing} už v seznamu, ${st.foreign.length ? `<b style="color:var(--err)">${st.foreign.length} u jiného uživatele</b>, ` : ''}${st.authFailed.length} bez platného loginu, ${st.errors.length} chyb</div>
+  return `<div>${running ? '⏳ běží' : '✔ hotovo'}: ${st.done}/${st.total} adres, ${st.open} s otevřeným SSH, <b>${st.added} nových založeno</b>, ${st.existing} už v seznamu, ${st.foreign.length ? `<b style="color:var(--err)">${st.foreign.length} u jiného uživatele</b>, ` : ''}${st.authFailed.length} bez platného loginu, ${st.notRouterOS.length ? `${st.notRouterOS.length} není RouterOS, ` : ''}${st.errors.length} chyb</div>
     <div class="progress" style="margin:6px 0"><div style="width:${st.total ? st.done / st.total * 100 : 0}%"></div></div>
     ${st.found.length ? `<details open><summary>nalezené (${st.found.length})</summary><div class="mono" style="max-height:200px;overflow:auto">${st.found.map(f => `<div>${esc(f.host)} ${esc(f.identity || '')} ${esc(f.board || '')} ${esc(f.version || '')}${f.existing ? ' <span class="muted">(už v seznamu)</span>' : ''}</div>`).join('')}</div></details>` : ''}
     ${st.foreign.length ? `<details open><summary>už má u sebe jiný uživatel (${st.foreign.length})</summary><div class="mono" style="max-height:150px;overflow:auto">${st.foreign.map(esc).join('<br>')}</div></details>` : ''}
+    ${st.notRouterOS.length ? `<details><summary>SSH otevřené, ale není to RouterOS (${st.notRouterOS.length})</summary><div class="mono" style="max-height:150px;overflow:auto">${st.notRouterOS.map(esc).join('<br>')}</div></details>` : ''}
     ${st.authFailed.length ? `<details><summary>SSH otevřené, login neprošel (${st.authFailed.length})</summary><div class="mono" style="max-height:150px;overflow:auto">${st.authFailed.map(esc).join('<br>')}</div></details>` : ''}
-    ${st.errors.length ? `<details><summary>chyby (${st.errors.length})</summary><div class="mono" style="max-height:150px;overflow:auto">${st.errors.map(esc).join('<br>')}</div></details>` : ''}`;
+    ${st.errors.length ? `<details ${st.errors.length <= 12 ? 'open' : ''}><summary>chyby / nedostupné (${st.errors.length}) — „port 22 neodpovídá“ bývá zařízení bez SSH nebo jiná značka než MikroTik</summary><div class="mono" style="max-height:150px;overflow:auto">${st.errors.map(esc).join('<br>')}</div></details>` : ''}`;
 }
 function planHtml(p) {
   return `<div>${p.blockers.length ? `<b style="color:var(--err)">Blokováno:</b><ul class="plain blocklist">${p.blockers.map(b => `<li>${esc(b)}</li>`).join('')}</ul>` : p.nothingToDo ? '<span class="badge b-ok">nic k dělání — aktuální</span>' : ''}

@@ -293,12 +293,15 @@ async function api(req, res, method, p, url) {
       sum.aps = onlyAps ? onlyAps.size : r.admin.apCount; sum.entries = entries.length;
       userdbImports.set(acct.id, sum);
       audit(req, 'import z userdb', `${r.admin.nick}: ${sum.total} zařízení z userdb, ${entries.length} nových ke skenu, ${sum.updated} aktualizováno, ${sum.foreign.length} u jiného uživatele`);
+      // do výsledku skenu se přidá i to, co se skenovat nebude: zařízení jiného uživatele a IP bez loginu v userdb
+      const foreign = sum.foreign.map(x => `${x} — každé zařízení může mít jen jednoho vlastníka, o předání požádej jeho nebo správce`);
+      const errors = sum.missingLogin.map(x => `${x}: v userdb chybí login/heslo — doplň je v userdb a načti znovu`);
       if (entries.length) {
-        const o = { entries, creds: [], port: 22, track: 'v7-stable', parallel: 24, ownerId: acct.id };
+        const o = { entries, creds: [], port: 22, track: 'v7-stable', parallel: 24, ownerId: acct.id, foreign, errors };
         discovery.prepare(o);
         discovery.run(o).catch(e => bus.emit('event', { type: 'discovery-error', error: e.message }));
         await new Promise(res2 => setTimeout(res2, 50));
-      } else bus.emit('event', { type: 'devices-changed' });
+      } else { discovery.setResult({ ownerId: acct.id, foreign, errors }); bus.emit('event', { type: 'devices-changed' }); }
       return send(res, 200, { summary: sum, discovery: discovery.status() });
     }
     return send(res, 404, { error: 'neznámá akce' });
