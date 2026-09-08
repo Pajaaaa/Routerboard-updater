@@ -7,7 +7,8 @@ let ADV = false; try { ADV = localStorage.getItem('mtu_adv') === '1'; } catch {}
 /** připojí klik na prvek, když existuje (helper používaný napříč pohledy) */
 const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
 let VF = ''; try { VF = localStorage.getItem('mtu_vf') || ''; } catch {}
-let SORT = 'tree', SORTDIR = 'asc'; try { const v = (localStorage.getItem('mtu_sort') || '').split(':'); if (v[0]) { SORT = v[0]; SORTDIR = v[1] || 'asc'; } } catch {}
+// řazení se nepamatuje: po každém načtení stránky je výchozí strom topologie (jiné řazení platí jen do obnovení stránky)
+let SORT = 'tree', SORTDIR = 'asc'; try { localStorage.removeItem('mtu_sort'); } catch {}
 const state = { vf: VF, scanProg: null, sortDir: SORTDIR, owner: 0, authed: false, auth: { sso: false, passwordLogin: true, user: null }, view: 'devices', advanced: ADV, devices: [], jobs: [], latest: { versions: {} }, settings: {}, runner: {}, tracks: [], selected: new Set(), filter: '', group: '', sort: SORT, modal: null, job: null, jobLog: [], detail: null, scanning: [] };
 
 async function api(path, opts = {}) {
@@ -283,9 +284,9 @@ function renderDevices(m) {
   const vfs = $('#vfilter'); if (vfs) vfs.onchange = (e) => { state.vf = e.target.value; state.selected.clear(); try { localStorage.setItem('mtu_vf', state.vf); } catch {} render(); };
   const of = $('#ownerf'); if (of) of.onchange = (e) => { state.owner = +e.target.value; try { localStorage.setItem('mtu_owner', String(state.owner)); } catch {} state.selected.clear(); render(); };
   const mv = $('#movesel'); if (mv) mv.onclick = () => openModal({ type: 'move', ids: [...state.selected] });
-  on('#sorttree', () => { state.sort = 'tree'; state.sortDir = 'asc'; try { localStorage.setItem('mtu_sort', 'tree:asc'); } catch {} render(); });
-  $('#sort').onchange = (e) => { state.sort = e.target.value; state.sortDir = 'asc'; try { localStorage.setItem('mtu_sort', state.sort + ':asc'); } catch {} render(); };
-  m.querySelectorAll('th.sorth').forEach(h => h.onclick = () => { const k = h.dataset.sort; if (state.sort === k && state.sortDir === 'desc') { state.sort = 'tree'; state.sortDir = 'asc'; } else if (state.sort === k) state.sortDir = 'desc'; else { state.sort = k; state.sortDir = 'asc'; } try { localStorage.setItem('mtu_sort', state.sort + ':' + state.sortDir); } catch {} render(); });
+  on('#sorttree', () => { state.sort = 'tree'; state.sortDir = 'asc'; render(); });
+  $('#sort').onchange = (e) => { state.sort = e.target.value; state.sortDir = 'asc'; render(); };
+  m.querySelectorAll('th.sorth').forEach(h => h.onclick = () => { const k = h.dataset.sort; if (state.sort === k && state.sortDir === 'desc') { state.sort = 'tree'; state.sortDir = 'asc'; } else if (state.sort === k) state.sortDir = 'desc'; else { state.sort = k; state.sortDir = 'asc'; } render(); });
   $('#filter').oninput = (e) => { state.filter = e.target.value; const pos = e.target.selectionStart; render(); const f = $('#filter'); f.focus(); f.setSelectionRange(pos, pos); };
   $('#selall').onchange = (e) => { for (const d of list) { if (d._ctx) continue; e.target.checked ? state.selected.add(d.id) : state.selected.delete(d.id); } render(); };
   m.querySelectorAll('.sel').forEach(c => c.onchange = (e) => { const id = +c.dataset.id; e.target.checked ? state.selected.add(id) : state.selected.delete(id); render(); });
