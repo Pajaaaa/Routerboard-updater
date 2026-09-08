@@ -94,7 +94,11 @@ function render() {
     ${state.auth.serverStartedAt ? `<div class="hint" style="padding:0 10px 4px" title="${new Date(state.auth.serverStartedAt).toLocaleString('cs-CZ')}">⟳ server od ${new Date(state.auth.serverStartedAt).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}${state.auth.draining ? ' · <b>aktualizuje se</b>' : ''}</div>` : ''}
     ${state.auth.sourceIp ? `<div class="hint" style="padding:0 10px 4px" title="Z této adresy se server připojuje na routery přes SSH. Povol ji ve firewallu routerů a v IP → Services → ssh (Available From), případně ve výjimce brute-force ochrany SSH."><span class="copyip clickable" data-ip="${esc(state.auth.sourceIp)}">🔑 SSH z ${esc(state.auth.sourceIp)}</span></div>` : ''}
     <div class="foot"><button class="small" id="refreshver" title="obnovit verze z upgrade.mikrotik.com">↻ verze</button><button class="small" id="logout">Odhlásit</button></div>
-  </aside><main id="main"></main></div>`;
+  </aside><main id="main"></main></div>
+  <div class="pagenav" id="pagenav" hidden><button type="button" id="gotop" title="na začátek stránky">↑</button><button type="button" id="gobottom" title="na konec stránky">↓</button></div>`;
+  on('#gotop', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+  on('#gobottom', () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' }));
+  updatePageNav();
   app.querySelectorAll('nav button').forEach(b => b.onclick = () => { state.view = b.dataset.view; render(); });
   app.querySelectorAll('.copyip').forEach(el => el.onclick = () => { try { navigator.clipboard.writeText(el.dataset.ip); toast('IP zkopírována: ' + el.dataset.ip); } catch {} });
   $('#logout').onclick = async () => { await api('/logout', { method: 'POST' }); state.authed = false; render(); };
@@ -406,6 +410,9 @@ const logImportant = (l) => l.level !== 'info' || LOG_IMPORTANT_RE.test(String(l
 const logLine = (l, names) => { const n = names && l.device_id ? names.get(l.device_id) : ''; return `<div class="${l.level}${logImportant(l) ? '' : ' lo'}" data-dev="${l.device_id || 0}"><span class="t">${fmtMs(l.ts)}</span>${n ? `<span class="dev">${esc(n)}</span> ` : ' '}${esc(l.msg)}</div>`; };
 const logNames = (items) => new Map((items || []).map(it => [it.device_id, `${it.dev_name || it.identity || it.host}${it.host && (it.dev_name || it.identity) ? ' · ' + it.host : ''}`]));
 // sledování konce logu: true jen když je uživatel odrolovaný ke konci stránky; přepíná se podle skutečného rolování
+/** plovoucí ↑/↓ vpravo dole: jen když je stránka delší než obrazovka */
+function updatePageNav() { const n = $('#pagenav'); if (!n) return; n.hidden = document.documentElement.scrollHeight <= window.innerHeight + 300; }
+try { window.addEventListener('resize', updatePageNav); new MutationObserver(() => updatePageNav()).observe(document.body, { childList: true, subtree: true }); } catch {}
 let LOGFOLLOW = false;
 try { window.addEventListener('scroll', () => { LOGFOLLOW = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 120; }, { passive: true }); } catch {}
 let LOGIMP = false; try { LOGIMP = localStorage.getItem('mtu_logimp') === '1'; } catch {}

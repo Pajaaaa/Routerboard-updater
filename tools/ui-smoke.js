@@ -10,6 +10,7 @@ global.document = { body: mk(), documentElement: { scrollHeight: 0 }, getElement
 global.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
 global.location = window.location; global.EventSource = function () { this.close = () => {}; }; global.FormData = function () { return { get: () => '', entries: () => [] }; };
 global.fetch = async () => ({ ok: true, status: 200, json: async () => [], text: async () => '', headers: { get: () => 'application/json' } });
+global.MutationObserver = function () { this.observe = () => {}; };
 global.confirm = () => false; global.prompt = () => null; global.alert = () => {}; global.setInterval = () => 0; global.setTimeout = () => 0; global.requestAnimationFrame = () => 0;
 let m = { exports: {} };
 try { new Function('module', src + '\nmodule.exports = { state, renderDevices, renderSettings, renderJobs, renderHelp, renderJobDetail };')(m); }
