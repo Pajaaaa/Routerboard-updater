@@ -586,7 +586,7 @@ async function api(req, res, method, p, url) {
     let queued = null;
     if (b.start && !options.start_at) queued = runner.startOrQueue(jobId);
     else if (b.start && options.start_at && options.precheck && !options.dry_run) runner.earlyPrecheck(jobId).catch(e => db.addLog(jobId, 0, 0, 'warn', 'předběžná kontrola se nepovedla: ' + e.message));
-    bus.emit('event', { type: 'job', job: db.listJobs(200).find(j => j.id === jobId) });
+    bus.emit('event', { type: 'job', job: db.getJobSummary(jobId) });
     return send(res, 200, { id: jobId, queued: !!(queued && queued.queued), behind: queued && queued.behind });
   }
   if (seg[0] === 'jobs' && seg[1]) {
@@ -603,7 +603,7 @@ async function api(req, res, method, p, url) {
       db.addLog(id, 0, 0, 'warn', `Zrušení: ${who(req)}`); audit(req, 'job zrušen', `#${id}`);
       if (rj) rj.cancel();
       else { db.updateJob(id, { status: 'cancelled', status_note: 'zrušeno', finished_at: db.now() }); for (const it of db.getJobItems(id)) if (it.status === 'pending') db.updateJobItem(it.id, { status: 'skipped', error: 'job zrušen' }); }
-      bus.emit('event', { type: 'job', job: db.listJobs(200).find(j => j.id === id) });
+      bus.emit('event', { type: 'job', job: db.getJobSummary(id) });
       return send(res, 200, runnerStatusFor(req));
     }
     if (method === 'POST' && seg[2] === 'continue') {
