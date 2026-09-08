@@ -167,3 +167,16 @@ tr.root-row td{border-top:2px solid var(--line2)}
 
 th.sorth{cursor:pointer;user-select:none}
 th.sorth:hover{color:var(--ink,#111)}
+
+/* nápověda: tabulky pravidel bez přesahu přes okraj panelu */
+.help .tablewrap{margin:0;padding:0}
+/* úzké displeje: levý panel nahoře jako vodorovná lišta, obsah pod ním, žádné vodorovné rolování */
+@media (max-width:820px){
+  .shell{grid-template-columns:1fr}
+  .side{position:static;height:auto;border-right:none;border-bottom:1px solid var(--line);flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px}
+  .side nav{flex-direction:row;flex-wrap:wrap}
+  .side .spacer{display:none}
+  .side .foot,.side .runner-pill{width:100%}
+  .stats .stat{flex:1 1 90px;max-width:none}
+  .tablewrap{margin:0;padding:0}
+}
