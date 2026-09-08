@@ -518,7 +518,7 @@ function renderModal() {
       <label>track pro nové<select name="track">${state.tracks.map(t => `<option>${t}</option>`).join('')}</select></label><label>souběžně<input name="parallel" type="number" value="24" min="1" max="64"></label>
       <div class="wide row"><button class="primary" ${state.discovery && !state.discovery.finishedAt ? 'disabled' : ''}>Spustit sken</button></div></form>
       ${udbOn ? `<div class="panel" style="margin-top:10px"><h2>Z userdb</h2><div class="hint">Nebo si zařízení natáhni z evidence hkfree: ukáže se seznam tvých APček, zaškrtneš, která chceš, a načtou se i s loginy (zařízení APčka i antény členů pod ním; co není RouterOS, sken vyřadí).</div>
-        <div class="row" style="margin-top:6px"><button id="udbload" style="background:var(--err);border-color:var(--err);color:#fff;font-weight:700;padding:10px 18px;font-size:15px">⇩ Natáhnout z userdb${state.auth.userdb.nick && !md.user ? ` (${esc(state.auth.userdb.nick)})` : ''}</button></div><div id="udb"></div></div>` : ''}
+        <div class="row" style="margin-top:6px"><button id="udbload" style="background:var(--err);border-color:var(--err);color:#fff;font-weight:600">⇩ Natáhnout z userdb${state.auth.userdb.nick && !md.user ? ` (${esc(state.auth.userdb.nick)})` : ''}</button></div><div id="udb"></div></div>` : ''}
       <div class="panel" style="margin-top:10px"><h2>Výsledek</h2><div id="discres">${discoveryHtml(state.discovery)}</div></div>
       <div class="row"><button id="mclose">Zavřít</button></div></div>`;
     $('#discf').onsubmit = async (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); try { state.discovery = await api('/discover', { method: 'POST', body: b }); renderModal(); } catch (e2) { toast(e2.message, true); } };
