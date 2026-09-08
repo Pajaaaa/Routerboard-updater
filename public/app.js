@@ -4,6 +4,8 @@ const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const MB = 1048576;
 let ADV = false; try { ADV = localStorage.getItem('mtu_adv') === '1'; } catch {}
+/** připojí klik na prvek, když existuje (helper používaný napříč pohledy) */
+const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
 const state = { scanProg: null, owner: 0, authed: false, auth: { sso: false, passwordLogin: true, user: null }, view: 'devices', advanced: ADV, devices: [], jobs: [], latest: { versions: {} }, settings: {}, runner: {}, tracks: [], selected: new Set(), filter: '', group: '', sort: 'tree', modal: null, job: null, jobLog: [], detail: null, scanning: [] };
 
 async function api(path, opts = {}) {
@@ -201,7 +203,6 @@ function renderDevices(m) {
     <td class="acts">${ps.act === 'upgrade' && !busy ? `<button class="small ok up1" data-id="${d.id}">▶ Upgradovat</button>` : ''} ${ps.act === 'scan' ? `<button class="small scan1" data-id="${d.id}">⟳ Zkontrolovat</button>` : adv ? `<button class="small scan1" data-id="${d.id}" title="zkontrolovat">⟳</button>` : ''} <button class="small edit1" data-id="${d.id}" title="upravit">✎</button></td></tr>`; }).join('')}
   ${list.length ? '' : `<tr><td colspan="${adv ? 11 : 6}" class="empty">Zatím žádná zařízení. Přidej je skenem: zadáš IP adresy nebo rozsahy a loginy, nalezené routery se založí samy.</td></tr>`}
   </tbody></table></div></div>`;
-  const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
   on('#discover', () => openModal({ type: 'discover' }));
   on('#scanall', async () => { await api('/scan', { method: 'POST', body: {} }); toast('kontrola všech zařízení spuštěna'); });
   on('#scansel', async () => { await api('/scan', { method: 'POST', body: { ids: [...state.selected] } }); toast('kontrola spuštěna'); });
@@ -344,7 +345,6 @@ function renderJobDetail() {
     <details class="logbox" ${logOpen ? 'open' : ''}><summary>Podrobný log</summary><div class="log" id="joblog">${state.jobLog.map(logLine).join('')}</div></details></div>`;
   document.querySelector('details.logbox').ontoggle = (e) => { state.logOpen = e.target.open; };
   if (atBottom && state.jobLog.length) window.scrollTo(0, document.documentElement.scrollHeight);
-  const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
   on('#jb-start', () => jobAction(job.id, 'start')); on('#jb-cont', () => jobAction(job.id, 'continue')); on('#jb-precheck', () => jobAction(job.id, 'precheck'));
   on('#jb-pause', () => jobAction(job.id, 'pause')); on('#jb-skip', () => jobAction(job.id, 'skip-current'));
   on('#jb-cancel', () => { if (confirm('Zrušit běžící upgrade? Aktuální zařízení se bezpečně dokončí nebo uklidí.')) jobAction(job.id, 'cancel'); });
