@@ -518,7 +518,7 @@ function renderModal() {
       <label>track pro nové<select name="track">${state.tracks.map(t => `<option>${t}</option>`).join('')}</select></label><label>souběžně<input name="parallel" type="number" value="24" min="1" max="64"></label>
       <div class="wide row"><button class="primary" ${state.discovery && !state.discovery.finishedAt ? 'disabled' : ''}>Spustit sken</button></div></form>
       ${udbOn ? `<div class="panel" style="margin-top:10px"><h2>Z userdb</h2><div class="hint">Nebo si zařízení natáhni z evidence hkfree: ukáže se seznam tvých APček, zaškrtneš, která chceš, a načtou se i s loginy (zařízení APčka i antény členů pod ním; co není RouterOS, sken vyřadí).</div>
-        <div class="row" style="margin-top:6px"><button id="udbload">⇩ Natáhnout z userdb${state.auth.userdb.nick && !md.user ? ` (${esc(state.auth.userdb.nick)})` : ''}</button></div><div id="udb"></div></div>` : ''}
+        <div class="row" style="margin-top:6px"><button id="udbload" style="background:var(--err);border-color:var(--err);color:#fff;font-weight:700;padding:10px 18px;font-size:15px">⇩ Natáhnout z userdb${state.auth.userdb.nick && !md.user ? ` (${esc(state.auth.userdb.nick)})` : ''}</button></div><div id="udb"></div></div>` : ''}
       <div class="panel" style="margin-top:10px"><h2>Výsledek</h2><div id="discres">${discoveryHtml(state.discovery)}</div></div>
       <div class="row"><button id="mclose">Zavřít</button></div></div>`;
     $('#discf').onsubmit = async (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); try { state.discovery = await api('/discover', { method: 'POST', body: b }); renderModal(); } catch (e2) { toast(e2.message, true); } };
@@ -654,9 +654,9 @@ function discoveryHtml(st) {
     <div class="progress" style="margin:6px 0"><div style="width:${st.total ? st.done / st.total * 100 : 0}%"></div></div>
     ${st.found.length ? `<details open><summary>nalezené (${st.found.length})</summary><div class="mono" style="max-height:200px;overflow:auto">${st.found.map(f => `<div>${esc(f.host)} ${esc(f.identity || '')} ${esc(f.board || '')} ${esc(f.version || '')}${f.existing ? ' <span class="muted">(už v seznamu)</span>' : ''}</div>`).join('')}</div></details>` : ''}
     ${st.foreign.length ? `<details open><summary>už má u sebe jiný uživatel (${st.foreign.length})</summary><div class="mono" style="max-height:150px;overflow:auto">${st.foreign.map(esc).join('<br>')}</div></details>` : ''}
-    ${st.notRouterOS.length ? `<details><summary>SSH otevřené, ale není to RouterOS (${st.notRouterOS.length})</summary><div class="mono" style="max-height:150px;overflow:auto">${st.notRouterOS.map(esc).join('<br>')}</div></details>` : ''}
-    ${st.authFailed.length ? `<details><summary>SSH otevřené, login neprošel (${st.authFailed.length})</summary><div class="mono" style="max-height:150px;overflow:auto">${st.authFailed.map(esc).join('<br>')}</div></details>` : ''}
-    ${st.errors.length ? `<details ${st.errors.length <= 12 ? 'open' : ''}><summary>chyby / nedostupné (${st.errors.length}) — „port 22 neodpovídá“ bývá zařízení bez SSH nebo jiná značka než MikroTik</summary><div class="mono" style="max-height:150px;overflow:auto">${st.errors.map(esc).join('<br>')}</div></details>` : ''}`;
+    ${st.notRouterOS.length ? `<details open><summary>SSH otevřené, ale není to RouterOS (${st.notRouterOS.length})</summary><div class="mono" style="max-height:150px;overflow:auto">${st.notRouterOS.map(esc).join('<br>')}</div></details>` : ''}
+    ${st.authFailed.length ? `<details open><summary>SSH otevřené, login neprošel (${st.authFailed.length})</summary><div class="mono" style="max-height:150px;overflow:auto">${st.authFailed.map(esc).join('<br>')}</div></details>` : ''}
+    ${st.errors.length ? `<details open><summary>chyby / nedostupné (${st.errors.length}) — „port 22 neodpovídá“ bývá zařízení bez SSH nebo jiná značka než MikroTik</summary><div class="mono" style="max-height:150px;overflow:auto">${st.errors.map(esc).join('<br>')}</div></details>` : ''}`;
 }
 function planHtml(p) {
   return `<div>${p.blockers.length ? `<b style="color:var(--err)">Blokováno:</b><ul class="plain blocklist">${p.blockers.map(b => `<li>${esc(b)}</li>`).join('')}</ul>` : p.nothingToDo ? '<span class="badge b-ok">nic k dělání — aktuální</span>' : ''}
