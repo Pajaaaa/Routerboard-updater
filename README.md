@@ -85,5 +85,5 @@ docs/              rešerše rizik upgradu
 
 ## Co v repu není a nikdy nemá být
 
-Hesla a klíče (env, `deploy.env`, `.env`), databáze a zálohy (`data/`), konkrétní adresy sítě. Příklady v UI berou
+Hesla a klíče (env, `deploy.env`, `.env`), databáze a zálohy (`data/`), konkrétní adresy sítě (`public/local.js`, vzor `public/local.example.js`). Příklady v UI berou
 prefix sítě z `MTU_NET_HINT`, výchozí je dokumentační rozsah.

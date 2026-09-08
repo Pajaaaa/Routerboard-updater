@@ -3,3 +3,4 @@ data/
 .env
 *.log
 deploy.env
+public/local.js
