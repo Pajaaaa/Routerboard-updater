@@ -84,7 +84,7 @@ function render() {
     <div class="spacer"></div>
     <div class="runner-pill ${running ? 'live' : ''}" id="runnerpill">${running ? ownRuns.map(({ r, job, dev }) => `<div class="clickable" data-job="${r.jobId}"><span class="pulse"></span><b>job #${r.jobId}</b>${job ? ` ${esc(job.name).slice(0, 40)}` : ''}${dev ? `<br><span class="hint">${esc(devName(dev))}</span>` : ''}</div>`).join('') : 'žádný tvůj job neběží'}${(state.runner.others || []).length ? `<div class="hint" style="margin-top:6px;line-height:1.4">${state.runner.others.map(o => o.user ? `${esc(o.user)}: ${o.jobs > 1 ? `${o.jobs} joby, ` : ''}upgrade ${o.total} zařízení${o.done ? `, hotovo ${o.done}` : ''}` : `jiný uživatel: upgrade ${o.total} zařízení`).join('<br>')}</div>` : ''}</div>
     <label class="check advtoggle"><input type="checkbox" id="advtoggle" ${state.advanced ? 'checked' : ''}> Pokročilé zobrazení</label>
-    ${state.auth.user ? `<div class="hint" style="padding:0 10px 4px">👤 ${esc(state.auth.user.name)}${state.admin ? ' <span class="chip">správce</span>' : ''} · <a href="#" id="chpw">heslo</a></div>` : ''}
+    ${state.auth.user ? `<div class="hint" style="padding:0 10px 4px">👤 ${esc(state.auth.user.name)}${state.admin ? ' <span class="chip">správce</span>' : ''}${state.auth.passwordLogin ? ' · <a href="#" id="chpw">heslo</a>' : ''}</div>` : ''}
     <div class="foot"><button class="small" id="refreshver" title="obnovit verze z upgrade.mikrotik.com">↻ verze</button><button class="small" id="logout">Odhlásit</button></div>
   </aside><main id="main"></main></div>`;
   app.querySelectorAll('nav button').forEach(b => b.onclick = () => { state.view = b.dataset.view; render(); });
@@ -339,9 +339,9 @@ function renderHelp(m) {
 
   <div class="panel help"><h2>Účet a přihlášení</h2>
   <ul class="plain">
-    <li><b>Registrace:</b> na přihlašovací stránce „Nemáš účet? Zaregistruj se“, jméno a heslo (aspoň 8 znaků). Nový účet je běžný uživatel. Správce může registraci vypnout v Nastavení.</li>
+    <li><b>Přihlášení:</b> přes hkfree SSO (stejný účet jako do userdb). Účet v upgraderu vznikne sám při prvním přihlášení a podle e-mailu se naváže na správce oblasti v userdb, takže hned jde načíst zařízení svých APček. Odhlásit se dá odkazem vlevo dole.</li>
     <li><b>Co vidíš:</b> jen zařízení, která sis sám přidal, a jen svoje upgrady, zálohy a logy. Každé zařízení má jen jednoho vlastníka: adresu, kterou už někdo má u sebe, sken znovu nepřidá a řekne ti, kdo ji má; o předání požádej jeho nebo správce. Správce vidí všechno, může zařízení předat jinému uživateli (tužka ✎ → vlastník, nebo ⇄ Přesunout vybrané) a spravuje účty a nastavení.</li>
-    <li><b>Heslo</b> si změníš odkazem „heslo“ vlevo dole. Přihlášení vydrží 30 dní. Vypnutý účet přestane fungovat okamžitě.</li>
+    <li><b>Přihlášení vydrží 30 dní.</b> Vypnutý účet přestane fungovat okamžitě.</li>
   </ul></div>
 
   <div class="panel help"><h2>Postup krok za krokem</h2>
@@ -438,9 +438,9 @@ function renderSettings(m) {
     <label>témata (čárkou)<input name="remote_log_topics" type="text" value="${esc(s.remote_log_topics)}" placeholder="critical,error,info,warning"></label>
     <div class="wide"><button class="primary">Uložit</button></div></form></div>
   ${state.admin ? `<div class="panel"><h2>Uživatelé</h2><div class="hint" style="margin-bottom:8px">Každý vidí a upgraduje jen zařízení, která sám přidal (nebo mu je správce přidělil v editaci zařízení). Správce vidí vše a spravuje účty i nastavení.</div>
-    <label class="check" style="margin-bottom:8px"><input type="checkbox" id="regtoggle" ${s.allow_registration ? 'checked' : ''}> povolit samoregistraci na přihlašovací stránce (nový účet = role uživatel)</label>
+    ${state.auth.passwordLogin ? `<label class="check" style="margin-bottom:8px"><input type="checkbox" id="regtoggle" ${s.allow_registration ? 'checked' : ''}> povolit samoregistraci na přihlašovací stránce (nový účet = role uživatel)</label>
     <div id="userlist">načítám…</div>
-    <form id="useradd" class="form" style="margin-top:12px"><h2>Nový účet</h2><label>jméno<input name="name" required autocomplete="off"></label><label>heslo (aspoň 8 znaků)<input name="password" type="password" required minlength="8" autocomplete="new-password"></label><label>role<select name="role"><option value="user">uživatel</option><option value="admin">správce</option></select></label><label>&nbsp;<button class="primary">Založit</button></label></form></div>
+    <form id="useradd" class="form" style="margin-top:12px"><h2>Nový účet</h2><label>jméno<input name="name" required autocomplete="off"></label><label>heslo (aspoň 8 znaků)<input name="password" type="password" required minlength="8" autocomplete="new-password"></label><label>role<select name="role"><option value="user">uživatel</option><option value="admin">správce</option></select></label><label>&nbsp;<button class="primary">Založit</button></label></form>` : '<div class="hint" style="margin-bottom:8px">Účty vznikají samy při prvním přihlášení přes SSO (podle e-mailu) a navážou se na správce v userdb.</div>'}</div>
   <div class="panel"><details id="auditbox"><summary><b>Kdo co dělal</b> (audit posledních akcí)</summary><div id="auditlist" class="hint">načítám…</div></details></div>` : ''}
   <div class="panel"><details ${state.advanced ? 'open' : ''}><summary><b>Jak to funguje</b> (podrobně)</summary><ul class="plain">
     <li><b>Sken</b> jen čte: verze, model, architektura, firmware, místo, RAM, balíčky, rizikové příznaky. Nikdy nic nemění.</li>
@@ -466,7 +466,7 @@ function renderSettings(m) {
       try { state.users = await api('/users'); } catch (e) { ul.textContent = e.message; return; }
       const me = state.auth.user;
       ul.innerHTML = `<table><thead><tr><th>jméno</th><th>role</th>${state.auth.userdb && state.auth.userdb.enabled ? '<th>userdb</th>' : ''}<th>naposledy přihlášen</th><th>stav</th><th></th></tr></thead><tbody>${state.users.map(u => `<tr class="${u.disabled ? 'muted' : ''}"><td>${esc(u.name)}${me && u.id === me.id ? ' <span class="muted">(ty)</span>' : ''}</td><td>${u.role === 'admin' ? 'správce' : 'uživatel'}</td>${state.auth.userdb && state.auth.userdb.enabled ? `<td>${u.userdb_uid ? `${esc(u.userdb_nick)} <span class="muted">(${u.userdb_uid})</span> <button class="small" data-act="udbimp" data-id="${u.id}" title="načíst jeho zařízení z userdb">⇩ import</button>` : '<span class="muted">—</span>'} <button class="small" data-act="udb" data-id="${u.id}">vazba</button></td>` : ''}<td class="muted">${u.last_login_at ? fmtTs(Math.floor(u.last_login_at / 1000)) : '—'}</td><td>${u.disabled ? '<span class="badge b-err">vypnutý</span>' : '<span class="badge b-ok">aktivní</span>'}</td><td class="acts">
-        <button class="small" data-act="pw" data-id="${u.id}">nové heslo</button> <button class="small" data-act="role" data-id="${u.id}">${u.role === 'admin' ? 'odebrat správce' : 'udělat správcem'}</button> <button class="small" data-act="dis" data-id="${u.id}">${u.disabled ? 'zapnout' : 'vypnout'}</button> <button class="small danger" data-act="del" data-id="${u.id}">smazat</button></td></tr>`).join('')}</tbody></table>`;
+        ${state.auth.passwordLogin ? `<button class="small" data-act="pw" data-id="${u.id}">nové heslo</button> ` : ''}<button class="small" data-act="role" data-id="${u.id}">${u.role === 'admin' ? 'odebrat správce' : 'udělat správcem'}</button> <button class="small" data-act="dis" data-id="${u.id}">${u.disabled ? 'zapnout' : 'vypnout'}</button> <button class="small danger" data-act="del" data-id="${u.id}">smazat</button></td></tr>`).join('')}</tbody></table>`;
       ul.querySelectorAll('button[data-act]').forEach(b => b.onclick = async () => {
         const id = +b.dataset.id, u = state.users.find(x => x.id === id);
         try {
@@ -487,8 +487,8 @@ function renderSettings(m) {
       });
     };
     renderUsers();
-    $('#regtoggle').onchange = async (e) => { try { state.settings = await api('/settings', { method: 'PUT', body: { allow_registration: e.target.checked } }); toast(e.target.checked ? 'registrace povolena' : 'registrace vypnuta'); } catch (e2) { toast(e2.message, true); } };
-    $('#useradd').onsubmit = async (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); try { await api('/users', { method: 'POST', body: b }); toast(`účet ${b.name} založen`); e.target.reset(); await renderUsers(); } catch (e2) { toast(e2.message, true); } };
+    if ($('#regtoggle')) $('#regtoggle').onchange = async (e) => { try { state.settings = await api('/settings', { method: 'PUT', body: { allow_registration: e.target.checked } }); toast(e.target.checked ? 'registrace povolena' : 'registrace vypnuta'); } catch (e2) { toast(e2.message, true); } };
+    if ($('#useradd')) $('#useradd').onsubmit = async (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); try { await api('/users', { method: 'POST', body: b }); toast(`účet ${b.name} založen`); e.target.reset(); await renderUsers(); } catch (e2) { toast(e2.message, true); } };
   }
   const ab = $('#auditbox'); if (ab) ab.ontoggle = async () => { if (!ab.open) return; try { const rows = await api('/audit'); $('#auditlist').innerHTML = rows.length ? `<table>${rows.map(r => `<tr><td class="muted">${fmtTs(Math.floor(r.ts / 1000))}</td><td>${esc(r.user)}</td><td class="mono">${esc(r.ip || '')}</td><td>${esc(r.action)}</td><td class="muted" style="white-space:normal">${esc(r.detail)}</td></tr>`).join('')}</table>` : 'zatím nic'; } catch (e) { $('#auditlist').textContent = e.message; } };
   $('#setf').onsubmit = async (e) => { e.preventDefault(); const fd = new FormData(e.target); const body = {}; for (const k of Object.keys(s)) { const el = e.target.elements[k]; if (!el) continue; body[k] = el.type === 'checkbox' ? el.checked : el.type === 'text' ? el.value : parseFloat(el.value); } try { state.settings = await api('/settings', { method: 'PUT', body }); toast('uloženo'); render(); } catch (e2) { toast(e2.message, true); } };

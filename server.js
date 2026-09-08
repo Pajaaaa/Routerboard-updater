@@ -87,6 +87,13 @@ function cookies(req) {
   return out;
 }
 const loginAttempts = new Map();
+/** přihlášení heslem: podle MTU_PASSWORD_LOGIN (yes / local = jen přímo z localhostu bez proxy / no) */
+function pwLoginAllowed(req) {
+  const m = cfg.passwordLogin;
+  if (m === 'yes' || m === 'true' || m === '1') return true;
+  if (m === 'local') { const sock = req.socket && req.socket.remoteAddress; return !req.headers['x-forwarded-for'] && !req.headers['x-real-ip'] && ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(sock); }
+  return false;
+}
 function clientIp(req) { return (req.headers['x-real-ip'] || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim(); }
 
 function validateDevice(d) {
@@ -564,7 +571,7 @@ const server = http.createServer(async (req, res) => {
     }
     // login
     if (method === 'POST' && p === '/api/login') {
-      if (!cfg.passwordLogin) return send(res, 400, { error: 'přihlášení heslem je vypnuté, použij SSO' });
+      if (!pwLoginAllowed(req)) return send(res, 400, { error: 'přihlášení heslem je vypnuté, použij SSO' });
       const ip = clientIp(req);
       const a = loginAttempts.get(ip) || { n: 0, t: 0 };
       if (a.n >= 8 && Date.now() - a.t < 10 * 60e3) return send(res, 429, { error: 'příliš mnoho pokusů, zkus to za 10 minut' });
@@ -579,7 +586,7 @@ const server = http.createServer(async (req, res) => {
     }
     // samoregistrace: jméno + heslo, role uživatel; správce ji může v nastavení vypnout
     if (method === 'POST' && p === '/api/register') {
-      if (!db.getSettings().allow_registration) return send(res, 403, { error: 'registrace je vypnutá, požádej správce o účet' });
+      if (!pwLoginAllowed(req) || !db.getSettings().allow_registration) return send(res, 403, { error: 'registrace je vypnutá, přihlas se přes SSO' });
       const ip = clientIp(req);
       const a = loginAttempts.get('reg:' + ip) || { n: 0, t: 0 };
       if (a.n >= 5 && Date.now() - a.t < 60 * 60e3) return send(res, 429, { error: 'příliš mnoho registrací z této adresy, zkus to za hodinu' });
@@ -603,7 +610,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && p === '/api/logout') return send(res, 200, { ok: true }, { 'Set-Cookie': `mtu_session=; Path=${cfg.basePath || '/'}; HttpOnly; Max-Age=0` });
     // pro deploy: co právě běží (bez přihlášení, jen počty) — restart služby by to přerušil
     if (p === '/api/busy') return send(res, 200, { jobs: runner.running().length, discovery: !!(discovery.status() && !discovery.status().finishedAt && discovery.running), scanning: scanner.inProgress.size });
-    if (p === '/api/whoami') return send(res, 200, { authed, user: req.user, admin: authed && isAdmin(req), userdb: userdbFor(req), sso: sso.enabled(), passwordLogin: cfg.passwordLogin, registration: !!db.getSettings().allow_registration, netHint: cfg.netHint });
+    if (p === '/api/whoami') return send(res, 200, { authed, user: req.user, admin: authed && isAdmin(req), userdb: userdbFor(req), sso: sso.enabled(), passwordLogin: pwLoginAllowed(req), registration: !!db.getSettings().allow_registration, netHint: cfg.netHint });
 
     if (p.startsWith('/api/')) {
       if (!authed) return send(res, 401, { error: 'nepřihlášen' });
