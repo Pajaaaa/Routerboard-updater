@@ -141,13 +141,17 @@ function treeOrder(devs) {
   for (const d of devs) if (!seen.has(d.id)) { seen.add(d.id); out.push({ ...d, _depth: 0, _prefix: '', _last: true, _kids: 0 }); } // cykly
   return out;
 }
+// filtr podle verze/stavu: vše / v6 / v7 / k upgradu / aktuální / nedostupné (sdílí ho seznam i hlavička s počty)
+function vfInfo() {
+  const vf = state.vf || '';
+  const vfMatch = (d) => { if (!vf) return true; const v = String(d.version || ''); if (vf === 'v6') return v.startsWith('6.'); if (vf === 'v7') return v.startsWith('7.'); if (vf === 'need') return needsUpgrade(d); if (vf === 'ok') return plainStatus(d).cls === 'b-ok'; if (vf === 'bad') return !!d.scan_status && !['ok', 'never'].includes(d.scan_status); return true; };
+  const base = state.devices.filter(d => (!state.owner || d.owner_id === state.owner) && (!state.group || d.group_name === state.group));
+  const vfCounts = { v6: base.filter(d => String(d.version || '').startsWith('6.')).length, v7: base.filter(d => String(d.version || '').startsWith('7.')).length, need: base.filter(needsUpgrade).length, ok: base.filter(d => plainStatus(d).cls === 'b-ok').length, bad: base.filter(d => !!d.scan_status && !['ok', 'never'].includes(d.scan_status)).length };
+  return { vf, vfMatch, base, vfCounts };
+}
 function filteredDevices() {
   const f = state.filter.toLowerCase();
-  // filtr podle verze/stavu: vše / v6 / v7 / k upgradu / aktuální / nedostupné
-  const vf = state.vf || '';
-  const vfMatch = (d) => { if (!vf) return true; const v = String(d.version || ''); if (vf === 'v6') return v.startsWith('6.'); if (vf === 'v7') return v.startsWith('7.'); if (vf === 'need') return needsUpgrade(d); if (vf === 'ok') return plainStatus(d).cls === 'b-ok'; if (vf === 'bad') return d.scan_status && !['ok', 'never'].includes(d.scan_status); return true; };
-  const base = state.devices.filter(d => (!state.owner || d.owner_id === state.owner) && (!state.group || d.group_name === state.group));
-  const vfCounts = { v6: base.filter(d => String(d.version || '').startsWith('6.')).length, v7: base.filter(d => String(d.version || '').startsWith('7.')).length, need: base.filter(needsUpgrade).length, ok: base.filter(d => plainStatus(d).cls === 'b-ok').length, bad: base.filter(d => d.scan_status && !['ok', 'never'].includes(d.scan_status)).length };
+  const { vfMatch } = vfInfo();
   let list = state.devices.filter(d => vfMatch(d) && (!state.owner || d.owner_id === state.owner) && (!state.group || d.group_name === state.group) && (!f || [d.host, d.name, d.identity, d.board_name, d.model, d.version, d.group_name, d.notes].join(' ').toLowerCase().includes(f)));
   const s = state.sort;
   if (s === 'tree') return treeOrder(list);
@@ -187,6 +191,7 @@ function renderDevices(m) {
   const segs = [['ok', 'aktuální', 'var(--ok)'], ['old', 'čeká na upgrade', 'var(--warn)'], ['v6', 'v6, čeká na v7', 'var(--v6)'], ['unreachable', 'nedostupné', 'var(--err)'], ['hold', 'neupgradují se', 'var(--muted)'], ['unknown', 'nezkontrolované', 'var(--line2)']];
   const total = devs.length || 1;
   const running = state.runner.running;
+  const { vf, base, vfCounts } = vfInfo();
   const th = (key, label) => `<th class="clickable sorth" data-sort="${key}" title="seřadit podle: ${label} (druhý klik obrátí pořadí)">${label}${state.sort === key ? (state.sortDir === 'desc' ? ' ▼' : ' ▲') : ''}</th>`;
   m.innerHTML = `<h1>Zařízení</h1><div class="fleet"><div class="head"><div class="count">${devs.length}<small>zařízení ve správě</small></div>
       <div class="row">${toUpgrade.length ? `<button class="primary" id="upall">▶ Upgradovat vše potřebné (${toUpgrade.length})</button>` : `<span class="hint">${devs.length ? 'Všechna dostupná zařízení jsou aktuální.' : 'Začni přidáním zařízení.'}</span>`}</div></div>
