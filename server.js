@@ -9,7 +9,7 @@ const { encrypt, decrypt, makeSession, checkSession, hashPassword, verifyPasswor
 const V = require('./lib/versions');
 const { RunnerPool } = require('./lib/runner');
 const { Scanner } = require('./lib/scanner');
-const { plan, NO_V7, KNOWN_BAD, GLOBAL_BAD } = require('./lib/planner');
+const { plan, effectiveTrack, NO_V7, KNOWN_BAD, GLOBAL_BAD } = require('./lib/planner');
 const sso = require('./lib/sso');
 const { Discovery } = require('./lib/discovery');
 
@@ -35,6 +35,8 @@ function slimFlags(f) {
   return o;
 }
 const slimDevice = (d) => d && d.flags ? { ...d, flags: slimFlags(d.flags), packages: undefined } : d;
+// nastavení podle vlastníka zařízení (per uživatel), načtené jednou za volání — ne dotaz do DB na každé zařízení
+function settingsByOwner() { const m = new Map(); return (uid) => { const k = uid || 0; if (!m.has(k)) m.set(k, db.getSettings(k || undefined)); return m.get(k); }; }
 function withSuggestions(devs) {
   // no_v7: pravidla ze seznamu HW bez v7, která na zařízení sedí (UI podle toho ukáže „povolit v7“ jen tam, kde má smysl)
   // parent_foreign: rodič, kterého uživatel nevidí (zařízení jiného vlastníka) — jen název a kdo ho má
@@ -50,7 +52,8 @@ function withSuggestions(devs) {
     return { name: p.name || p.identity || p.host, user: userNames.get(p.owner_id) };
   };
   void byId;
-  return devs.map(d => { const rules = NO_V7.filter(r => { try { return r.test(d); } catch { return false; } }); return { ...slimDevice(d), suggested_parent: d.parent_id ? null : suggestParent(d, devs), parent_foreign: foreignParent(d), no_v7: rules.map(r => r.why), no_v7_hard: rules.some(r => r.hard) }; });
+  const sc = settingsByOwner();
+  return devs.map(d => { const rules = NO_V7.filter(r => { try { return r.test(d); } catch { return false; } }); const eff = effectiveTrack(d, sc(d.owner_id)); return { ...slimDevice(d), suggested_parent: d.parent_id ? null : suggestParent(d, devs), parent_foreign: foreignParent(d), no_v7: rules.map(r => r.why), no_v7_hard: rules.some(r => r.hard), eff_track: eff }; });
 }
 
 const { targetFor } = require('./lib/planner');
@@ -68,9 +71,11 @@ function networkStatsCompute() {
   const devs = db.listDevices().filter(d => d.managed);
   const busy = new Set(runner.running().map(x => x.deviceId).filter(Boolean));
   const st = { total: devs.length, upToDate: 0, needs: 0, stayV6: 0, unreachable: 0, upgrading: busy.size, hold: 0, never: 0, dead: 0 };
+  const sc = settingsByOwner();
   for (const d of devs) {
-    if (d.track === 'hold') st.hold++;
-    if (d.track === 'v6-long-term') st.stayV6++;
+    const eff = effectiveTrack(d, sc(d.owner_id));
+    if (eff === 'hold') st.hold++;
+    if (eff === 'v6-long-term') st.stayV6++;
     if (!d.enabled) continue;
     if (d.scan_status === 'never' || !d.version) { st.never++; continue; }
     if (d.scan_status !== 'ok') {
@@ -80,7 +85,7 @@ function networkStatsCompute() {
       if ((d.last_upgrade_at && (!d.last_seen_at || d.last_seen_at <= d.last_upgrade_at + 60)) || (lastItem && lastItem.status === 'failed' && /nevrátil/.test(lastItem.error || ''))) st.dead++;
       continue;
     }
-    const t = targetFor(d.track, latest);
+    const t = targetFor(eff, latest);
     if (!t) continue;
     const c = V.cmpVersion(d.version, t);
     if (Number.isFinite(c) && c < 0) st.needs++; else st.upToDate++;
