@@ -82,6 +82,7 @@ th{color:var(--muted);font-weight:500;font-size:12px;position:sticky;top:0;backg
 tbody tr:hover td{background:#0f1a2a05}
 tr.selected td{background:var(--accent-soft)}
 tr.muted td{opacity:.55}
+tr.ctx td{opacity:.5;font-style:italic}tr.ctx td.name b{font-weight:400}
 .mono{font-family:var(--mono);font-size:12px}
 .muted{color:var(--muted)}
 
