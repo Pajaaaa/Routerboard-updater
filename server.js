@@ -464,6 +464,7 @@ async function api(req, res, method, p, url) {
     if (b.start && options.start_at) { db.updateJob(jobId, { status: 'scheduled', status_note: `spustí se ${new Date(options.start_at * 1000).toLocaleString('cs-CZ')}` }); db.addLog(jobId, 0, 0, 'info', `Naplánováno na ${new Date(options.start_at * 1000).toLocaleString('cs-CZ')} (${who(req)}).`); }
     let queued = null;
     if (b.start && !options.start_at) queued = runner.startOrQueue(jobId);
+    else if (b.start && options.start_at && options.precheck && !options.dry_run) runner.earlyPrecheck(jobId).catch(e => db.addLog(jobId, 0, 0, 'warn', 'předběžná kontrola se nepovedla: ' + e.message));
     bus.emit('event', { type: 'job', job: db.listJobs(200).find(j => j.id === jobId) });
     return send(res, 200, { id: jobId, queued: !!(queued && queued.queued), behind: queued && queued.behind });
   }
@@ -475,6 +476,7 @@ async function api(req, res, method, p, url) {
     if (method === 'GET' && seg[2] === 'log') return send(res, 200, db.getLog(id, parseInt(q.get('after') || '0', 10)));
     const rj = runner.runnerOfJob(id); // runner, ve kterém job právě běží (null = neběží)
     if (method === 'POST' && seg[2] === 'start') { db.addLog(id, 0, 0, 'info', `Spuštění: ${who(req)}`); audit(req, 'job spuštěn', `#${id} ${job.name}`); const q = runner.startOrQueue(id); return send(res, 200, { ...runnerStatusFor(req), queued: q.queued, behind: q.behind }); }
+    if (method === 'POST' && seg[2] === 'precheck') { if (rj) throw new Error('job právě běží'); db.addLog(id, 0, 0, 'info', `Předběžná kontrola na vyžádání: ${who(req)}`); runner.earlyPrecheck(id).catch(e => db.addLog(id, 0, 0, 'warn', 'předběžná kontrola se nepovedla: ' + e.message)); await new Promise(r2 => setTimeout(r2, 50)); return send(res, 200, { ok: true }); }
     if (method === 'POST' && seg[2] === 'pause') { if (!rj) throw new Error('tento job neběží'); db.addLog(id, 0, 0, 'info', `Pozastavení: ${who(req)}`); audit(req, 'job pozastaven', `#${id}`); rj.pause(); return send(res, 200, runnerStatusFor(req)); }
     if (method === 'POST' && seg[2] === 'cancel') {
       db.addLog(id, 0, 0, 'warn', `Zrušení: ${who(req)}`); audit(req, 'job zrušen', `#${id}`);

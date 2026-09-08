@@ -231,6 +231,7 @@ const JOB_PLAIN = { queued: 'připraven ke spuštění', running: 'probíhá', p
 /** štítek jobu: „hotovo" jen když všechno prošlo; jinak s chybou / s výhradami / nic neprovedeno */
 function jobBadge(j) {
   const c = j.counts || {};
+  if (j.status === 'scheduled') { const ep = j.options && j.options.early_precheck; if (ep && ep.blocked) return `<span class="badge b-err" title="předběžná kontrola: ${ep.blocked} zařízení se přeskočí">naplánován, ${ep.blocked} k opravě</span>`; if (ep && ep.warned) return '<span class="badge b-warn">naplánován, upozornění</span>'; if (ep) return '<span class="badge b-ok">naplánován, zkontrolováno</span>'; }
   if (j.status !== 'done') return badge(JOB_LABEL, j.status);
   if (c.failed || c.unknown) return '<span class="badge b-err">skončilo s chybou</span>';
   if ((c.blocked || 0) + (c.skipped || 0) > 0) return c.done ? '<span class="badge b-warn">hotovo s výhradami</span>' : '<span class="badge b-err">nic neprovedeno</span>';
@@ -265,7 +266,15 @@ function jobBanner(job, items) {
   if (job.status === 'running') return { cls: 'info', html: `<b>Probíhá${o.dry_run || /kontrola/.test(job.status_note || '') ? ' kontrola' : ' upgrade'}.</b> ${cur ? `Teď: <b>${esc(cur.dev_name || cur.identity || cur.host)}</b> — ${esc(cur.step || 'připojení')}.` : ''} Zbývá ${c.pending || 0}. Stránku můžeš zavřít, běží to na serveru.` };
   if (job.status === 'waiting' && /^kontrola hotová/.test(job.status_note || '')) return { cls: 'warn', html: `<b>Kontrola hotová, upgrade ještě nezačal.</b> ${esc(job.status_note.replace(/^kontrola hotová: /, '').replace(/ — .*$/, ''))}. Projdi řádky s „přeskočí se" a upozorněními níže. Klikni <b>Pokračovat</b>, upgrade pojede jen na připravených zařízeních. Každé trvá obvykle 3–10 minut.` };
   if (job.status === 'waiting') return { cls: 'warn', html: `<b>Čeká na tebe.</b> První kus od každého modelu je hotový. Ověř, že fungují, a klikni <b>Pokračovat</b>.` };
-  if (job.status === 'scheduled') return { cls: 'info', html: `<b>Naplánováno na ${o.start_at ? new Date(o.start_at * 1000).toLocaleString('cs-CZ') : '?'}.</b> Spustí se samo; když bude v tu chvíli běžet tvůj jiný upgrade, počká, až skončí. Zrušit jde tlačítkem Zrušit.` };
+  if (job.status === 'scheduled') {
+    const ep = o.early_precheck;
+    const head = `<b>Naplánováno na ${o.start_at ? new Date(o.start_at * 1000).toLocaleString('cs-CZ') : '?'}.</b> Spustí se samo; když bude v tu chvíli běžet jiný upgrade na stejných zařízeních, počká.`;
+    if (!ep) return { cls: 'info', html: `${head} ${/předběžná kontrola/.test(job.status_note || '') ? '<br>⏳ Právě běží předběžná kontrola, výsledek se objeví tady a v logu.' : ''}` };
+    const list = (arr, cls) => arr.length ? `<ul class="plain blocklist" style="margin:4px 0 0 0">${arr.map(x => `<li class="${cls}">${esc(x)}</li>`).join('')}</ul>` : '';
+    if (ep.blocked) return { cls: 'err', html: `${head}<br><b>Předběžná kontrola (${fmtTs(Math.floor(ep.at / 1000))}): ${ep.blocked} zařízení by se přeskočilo.</b> Oprav to za dne, kontrola se před startem zopakuje.${list(ep.reasons || [], '')}${ep.warns && ep.warns.length ? `<div style="margin-top:6px">Upozornění (nebrání):</div>${list(ep.warns, 'muted')}` : ''}` };
+    if (ep.warned) return { cls: 'warn', html: `${head}<br><b>Předběžná kontrola (${fmtTs(Math.floor(ep.at / 1000))}): vše připraveno, ${ep.warned} s upozorněním.</b>${list(ep.warns || [], 'muted')}` };
+    return { cls: 'info', html: `${head}<br>✔ Předběžná kontrola (${fmtTs(Math.floor(ep.at / 1000))}): ${ep.ready} zařízení připraveno, nic nebrání.` };
+  }
   if (job.status === 'waiting-window') return { cls: 'info', html: `<b>Čeká na servisní okno</b> ${esc(o.window)}. Spustí se samo.` };
   if (job.status === 'paused') return { cls: 'err', html: `<b>Zastaveno.</b> ${esc(job.status_note)}<br><span class="hint">Podívej se na řádek s chybou níže. Když je zařízení v pořádku, klikni <b>Pokračovat</b> (chybná položka se přeskočí), nebo ji dej <b>znovu</b>.</span>` };
   if (job.status === 'done') {
@@ -297,6 +306,7 @@ function renderJobDetail() {
     <div class="row" style="margin:10px 0">
       ${['queued', 'paused'].includes(job.status) && !isCur ? `<button class="ok" id="jb-start">▶ ${job.status === 'paused' ? 'Pokračovat' : 'Spustit'}</button>` : ''}
       ${job.status === 'waiting' && !isCur ? `<button class="ok" id="jb-cont">▶ Pokračovat</button>` : ''}
+      ${job.status === 'scheduled' && !isCur ? `<button id="jb-precheck" title="znovu ověří, co by v době startu bránilo upgradu">🔍 Zkontrolovat teď</button>` : ''}
       ${isCur ? `<button id="jb-pause" ${rs.pauseRequested ? 'disabled' : ''}>⏸ Zastavit po aktuálním zařízení</button><button id="jb-skip">⏭ Přeskočit aktuální</button><button class="danger" id="jb-cancel">■ Zrušit</button>` : ''}
       ${!['done', 'cancelled'].includes(job.status) && !isCur ? `<button class="danger" id="jb-cancel2">■ Zrušit</button>` : ''}</div>
     <div class="tablewrap"><table><thead><tr><th>#</th><th>Zařízení</th><th>Stav</th>${adv ? '<th>Krok</th>' : ''}<th>Verze</th>${adv ? '<th>Firmware</th>' : ''}<th>Poznámka</th><th></th></tr></thead><tbody>
@@ -309,7 +319,7 @@ function renderJobDetail() {
   document.querySelector('details.logbox').ontoggle = (e) => { state.logOpen = e.target.open; };
   if (atBottom && state.jobLog.length) window.scrollTo(0, document.documentElement.scrollHeight);
   const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
-  on('#jb-start', () => jobAction(job.id, 'start')); on('#jb-cont', () => jobAction(job.id, 'continue'));
+  on('#jb-start', () => jobAction(job.id, 'start')); on('#jb-cont', () => jobAction(job.id, 'continue')); on('#jb-precheck', () => jobAction(job.id, 'precheck'));
   on('#jb-pause', () => jobAction(job.id, 'pause')); on('#jb-skip', () => jobAction(job.id, 'skip-current'));
   on('#jb-cancel', () => { if (confirm('Zrušit běžící upgrade? Aktuální zařízení se bezpečně dokončí nebo uklidí.')) jobAction(job.id, 'cancel'); });
   on('#jb-cancel2', () => { if (confirm('Zrušit tento upgrade?')) jobAction(job.id, 'cancel'); });
@@ -338,7 +348,7 @@ function renderHelp(m) {
   <ol>
     <li><b>Přidej zařízení.</b> Tlačítko <b>+ Přidat zařízení (sken)</b>. Nasypeš seznam řádků <code>ip uživatel heslo [název]</code>, každé zařízení se svým loginem (port jako <code>ip:port</code>, prázdné heslo jako <code>""</code>). A/nebo rozsahy (<code>10.x.x.0/24</code>, <code>10.x.x.10-50</code>) se společnými loginy. Zařízení, kde login projde a běží RouterOS, se přidají sama a hned zkontrolují. Uživatel na routeru musí mít plná práva (skupina full).</li>
     <li><b>Zkontroluj strom.</b> Seznam je řazený jako strom: nahoře router nebo PoE switch, pod ním odsazené to, co napájí nebo připojuje. Rodiče si nástroj zjistí sám: anténa podle sektoru, ke kterému je registrovaná (5 GHz i 60 GHz), CAP podle CAPsMAN, ostatní podle brány. Když chybí, tužkou ✎ nastav <b>nadřazený prvek</b>. Na pořadí záleží: nejdřív antény, nakonec sektor a router, aby nikomu nevypadl proud ani spoj uprostřed zápisu.</li>
-    <li><b>Spusť upgrade.</b> <b>Upgradovat vše potřebné</b> nahoře, nebo zaškrtni zařízení a <b>Upgradovat vybrané</b>, nebo ▶ u řádku. V dialogu můžeš zadat <b>spustit v</b> (datum a čas, prázdné = hned; pro dnešní noc vyber zítřejší datum). Potvrzení ti řekne, jestli se to spouští hned, nebo plánuje.</li>
+    <li><b>Spusť upgrade.</b> <b>Upgradovat vše potřebné</b> nahoře, nebo zaškrtni zařízení a <b>Upgradovat vybrané</b>, nebo ▶ u řádku. V dialogu můžeš zadat <b>spustit v</b> (datum a čas, prázdné = hned; pro dnešní noc vyber zítřejší datum). Potvrzení ti řekne, jestli se to spouští hned, nebo plánuje. Naplánovaný job se hned zkontroluje: v detailu jobu uvidíš, co by v noci bránilo upgradu (nedostupné zařízení, málo místa, chybějící login, riziková verze…), a můžeš to opravit ještě za dne; tlačítko <b>Zkontrolovat teď</b> kontrolu zopakuje a před startem se udělá znovu automaticky.</li>
     <li><b>Kontrola a běh.</b> Nejdřív se všechna zařízení zkontrolují a upgrade pokračuje sám. Zařízení s překážkou se přeskočí a nedotknou, upozornění zůstanou v logu. U každého zařízení: záloha (export + binární), případně preventivní restart při uptime nad limit, nahrání balíčků, ověření názvu a velikosti na routeru, restart, kontrola verze, čekání na obnovení spojů a potomků, firmware RouterBOOT s dalším restartem.</li>
     <li><b>Průběh.</b> Na stránce Upgrady vidíš, které zařízení se právě dělá a jaký krok. Stránku můžeš zavřít, běží to na serveru. Jedno zařízení trvá 3 až 10 minut, přechod v6 → v7 i 20 minut. Vlevo dole vidíš své běžící joby (klik otevře detail) a informačně i to, kolik zařízení právě upgradují ostatní. Nahoře je proužek statistik celé sítě: kolik zařízení je aktuálních, kolik čeká, kolik je nedostupných a jak dopadly poslední upgrady.</li>
     <li><b>Když se to zastaví.</b> Červený pruh řekne proč. Podívej se na zařízení (ping, Winbox, spoj). Když je v pořádku, klikni <b>Pokračovat</b> (chybná položka se přeskočí) nebo u položky dej <b>znovu</b>. Nadřazený prvek chybného zařízení se neupgraduje, dokud chybu nevyřešíš.</li>
