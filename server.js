@@ -553,7 +553,12 @@ async function api(req, res, method, p, url) {
   }
 
   // joby
-  if (method === 'GET' && p === '/api/jobs') return send(res, 200, visJobs(req, 100));
+  if (method === 'GET' && p === '/api/jobs') {
+    // správce může chtít celou historii jednoho uživatele (přehled jinak nese jen posledních N jobů celé sítě)
+    const owner = parseInt(q.get('owner') || '0', 10), limit = Math.min(2000, parseInt(q.get('limit') || '100', 10) || 100);
+    if (owner && isAdmin(req)) return send(res, 200, db.listJobs(limit, owner));
+    return send(res, 200, visJobs(req, limit));
+  }
   if (method === 'POST' && p === '/api/jobs') {
     const b = await readBody(req);
     let ids = (b.deviceIds || []).map(Number).filter(n => canSee(req, db.getDevice(n)));
