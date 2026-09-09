@@ -416,12 +416,35 @@ async function api(req, res, method, p, url) {
       const myAps = new Set(); for (const a of w.areas) for (const ap of a.aps) myAps.add(Number(ap.id));
       const ids = Array.isArray(b.ids) ? b.ids.map(Number).filter(Boolean).slice(0, 2000) : [];
       let taken = 0; const skipped = [];
+      const sectorCache = new Map(); // host sektoru → registrované MAC (živě), ať se na sektor nepřipojuje pro každé zařízení zvlášť
+      const all = db.listDevices();
+      const up = (m) => String(m || '').toUpperCase();
+      const liveRegs = async (sec) => {
+        if (sectorCache.has(sec.id)) return sectorCache.get(sec.id);
+        const raw = db.getDeviceRaw(sec.id); const macs = new Set();
+        const c = new RosClient({ host: raw.host, port: raw.port, username: raw.username, password: decrypt(raw.password_enc), timeoutMs: 15000, expectedHostKey: raw.host_key || '' });
+        try { await c.connect(); for (const menu of ['/interface wireless registration-table', '/interface wifi registration-table']) { const rows = (await c.list(menu, ['mac-address'])) || []; for (const r of rows) macs.add(up(r['mac-address'])); } } finally { try { c.close(); } catch {} }
+        sectorCache.set(sec.id, macs); return macs;
+      };
       for (const id of ids) {
         const d = db.getDeviceRaw(id);
         if (!d) { skipped.push(`#${id}: neexistuje`); continue; }
         if (!d.userdb_ap_id || !myAps.has(Number(d.userdb_ap_id))) { skipped.push(`${d.host}: není pod APčkem tvé oblasti`); continue; }
         if (d.owner_id === acct.id) continue;
         if (runner.isDeviceBusy(id)) { skipped.push(`${d.host}: právě v jobu`); continue; }
+        // ověření na sektoru: stanice musí být teď registrovaná na sektoru z mé oblasti (userdb může být zastaralá); drátový kus musí viset pod zařízením mé oblasti
+        let fl = {}; try { fl = JSON.parse(d.flags || '{}'); } catch {}
+        const st = ((fl.links && fl.links.stations) || []).find(x => x.ap && x.ap.mac);
+        if (st) {
+          const sec = all.find(x => [...(((x.flags || {}).links || {}).aps || []), ...(((x.flags || {}).links || {}).wifi || [])].some(a => up(a.mac) === up(st.ap.mac)));
+          if (!sec) { skipped.push(`${d.host}: jeho sektor (${st.ap.mac}) není v seznamu zařízení — nejde ověřit`); continue; }
+          if (!(sec.owner_id === acct.id || (sec.userdb_ap_id && myAps.has(Number(sec.userdb_ap_id))))) { skipped.push(`${d.host}: sektor ${sec.identity || sec.host} není v tvé oblasti`); continue; }
+          let regs; try { regs = await liveRegs(sec); } catch (e) { skipped.push(`${d.host}: sektor ${sec.identity || sec.host} neodpovídá (${String(e.message).slice(0, 40)})`); continue; }
+          if (!regs.has(up(st.mac))) { skipped.push(`${d.host}: teď není registrovaný na sektoru ${sec.identity || sec.host}`); continue; }
+        } else {
+          const par = d.parent_id ? all.find(x => x.id === d.parent_id) : null;
+          if (!par || !(par.owner_id === acct.id || (par.userdb_ap_id && myAps.has(Number(par.userdb_ap_id))))) { skipped.push(`${d.host}: bez rádiového spoje a nadřazený prvek není v tvé oblasti`); continue; }
+        }
         const prev = db.getUser(d.owner_id);
         db.updateDevice(id, { owner_id: acct.id });
         audit(req, 'zařízení převzato', `${d.host} ${devLabel(d)} od ${prev ? (prev.userdb_nick || prev.name) : d.owner_id} (AP ${d.userdb_ap || d.userdb_ap_id})`);
