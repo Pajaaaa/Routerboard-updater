@@ -857,6 +857,8 @@ else if (!db.listUsers().length) { console.error('žádný uživatel a MTU_PASSW
 server.listen(cfg.port, cfg.host, () => {
   console.log(`mikrotik-upgrader běží na http://${cfg.host}:${cfg.port}${cfg.basePath}/ (data v ${cfg.dataDir})`);
   V.refreshLatest().then(l => console.log('nejnovější verze:', JSON.stringify(Object.fromEntries(Object.entries(l.versions).map(([k, v]) => [k, v.version]))))).catch(e => console.error('verze:', e.message));
+  // předehřát keš seznamu zařízení pro správce hned po startu (skládá se ~1 s a blokuje smyčku) — dřív než se rozjedou joby a SSH spojení
+  setTimeout(() => { try { adminDevicesJson({ user: { role: 'admin' } }); } catch (e) { console.error('keš zařízení:', e.message); } }, 300);
   scanner.startPeriodic();
 });
 process.on('SIGTERM', () => { server.close(); process.exit(0); });
