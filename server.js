@@ -595,6 +595,7 @@ async function api(req, res, method, p, url) {
     bus.emit('event', { type: 'devices-changed' });
     return send(res, 200, { updated: n });
   }
+  if (method === 'POST' && p === '/api/scan/cancel') { const ok = scanner.cancelCheck(req.user.id); if (ok) audit(req, 'kontrola zrušena', ''); return send(res, 200, { cancelled: ok }); }
   if (method === 'POST' && p === '/api/scan') {
     const b = await readBody(req).catch(() => ({}));
     const mine = new Set(visDevices(req).map(d => d.id));
