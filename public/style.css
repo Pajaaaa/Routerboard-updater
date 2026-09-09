@@ -91,7 +91,6 @@ tr.ctx td{opacity:.5;font-style:italic}tr.ctx td.name b{font-weight:400}
 .badge::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
 .b-ok{color:var(--ok)}.b-warn{color:var(--warn)}.b-err{color:var(--err)}.b-muted{color:var(--muted)}.b-v6{color:var(--v6)}.b-info{color:var(--info)}
 .chip{display:inline-block;padding:1px 7px;border-radius:5px;font-size:11.5px;background:var(--panel2);color:var(--ink2);font-family:var(--mono)}
-.chip-foreign{background:var(--warn);color:#fff;font-family:inherit;font-weight:600}
 .sub{display:block;color:var(--muted);font-size:11px;line-height:1.3;margin-top:1px}
 td.name{white-space:normal;min-width:150px}
 td.parent{white-space:normal;max-width:170px;font-size:12px}
