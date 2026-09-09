@@ -39,6 +39,14 @@ function slimFlags(f) {
 const slimDevice = (d) => d && d.flags ? { ...d, flags: slimFlags(d.flags), packages: undefined } : d;
 // nastavení podle vlastníka zařízení (per uživatel), načtené jednou za volání — ne dotaz do DB na každé zařízení
 function settingsByOwner() { const m = new Map(); return (uid) => { const k = uid || 0; if (!m.has(k)) m.set(k, db.getSettings(k || undefined)); return m.get(k); }; }
+let adminDevCache = null; // { ver, at, json }
+/** JSON seznamu zařízení pro odpověď /api/state: správce dostane společnou keš (platí do změny zařízení/nastavení, max 5 s), uživatel svůj seznam rovnou */
+function adminDevicesJson(req) {
+  if (!isAdmin(req)) return JSON.stringify(withSuggestions(visDevices(req)));
+  const ver = db.dataVersion();
+  if (!adminDevCache || adminDevCache.ver !== ver || Date.now() - adminDevCache.at > 5000) adminDevCache = { ver, at: Date.now(), json: JSON.stringify(withSuggestions(db.listDevices())) };
+  return adminDevCache.json;
+}
 function withSuggestions(devs) {
   // no_v7: pravidla ze seznamu HW bez v7, která na zařízení sedí (UI podle toho ukáže „povolit v7“ jen tam, kde má smysl)
   // parent_foreign: rodič, kterého uživatel nevidí (zařízení jiného vlastníka) — jen název a kdo ho má
@@ -288,7 +296,14 @@ async function api(req, res, method, p, url) {
   if (method === 'GET' && p === '/api/state') {
     const latest = V.getLatest();
     if (!latest.fetchedAt) await V.refreshLatest().catch(() => {});
-    return send(res, 200, { latest: V.getLatest(), settings: db.getSettings(req.user.id), settingsOwn: db.getUserSettings(req.user.id), settingsGlobal: isAdmin(req) ? db.getSettings() : undefined, devices: withSuggestions(visDevices(req)), jobs: visJobs(req, 30), runner: runnerStatusFor(req), tracks: TRACKS, scanning: [...scanner.inProgress], checkProg: scanner.checkProgress(req.user.id), discovery: discoveryFor(req), admin: isAdmin(req), user: req.user });
+    // ?nodevices=1: jen joby/runner/nastavení (klient si to stahuje při každé události runneru; seznam zařízení se mění zvlášť přes události 'device')
+    const noDev = url.searchParams.get('nodevices') === '1';
+    const base = { latest: V.getLatest(), settings: db.getSettings(req.user.id), settingsOwn: db.getUserSettings(req.user.id), settingsGlobal: isAdmin(req) ? db.getSettings() : undefined, jobs: visJobs(req, 30), runner: runnerStatusFor(req), tracks: TRACKS, scanning: [...scanner.inProgress], checkProg: scanner.checkProgress(req.user.id), discovery: discoveryFor(req), admin: isAdmin(req), user: req.user };
+    if (noDev) return send(res, 200, base);
+    // seznam zařízení správce (2000+ kusů, ~4 MB) se skládá až sekundu — jednou za verzi dat a sdílí se mezi všemi správci; JSON se vkládá hotový
+    const devJson = adminDevicesJson(req);
+    const head = JSON.stringify(base);
+    return send(res, 200, head.slice(0, -1) + ',"devices":' + devJson + '}', { 'Content-Type': 'application/json; charset=utf-8' });
   }
   if (method === 'POST' && p === '/api/versions/refresh') { const l = await V.refreshLatest(true); bus.emit('event', { type: 'latest', latest: l }); return send(res, 200, l); }
   if (method === 'GET' && seg[0] === 'changelog' && seg[1]) return send(res, 200, await V.getChangelog(seg[1]));

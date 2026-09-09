@@ -901,7 +901,9 @@ async function loadPlan(id, mode) {
 let reloadT = null, renderT = null;
 /** překreslení seznamu nejvýš jednou za sekundu (při hromadné kontrole chodí událost za každé zařízení) */
 function renderSoon() { if (renderT) return; renderT = setTimeout(() => { renderT = null; if (!state.modal) renderLive(); }, 1000); }
-function scheduleReload() { if (reloadT) return; reloadT = setTimeout(async () => { reloadT = null; try { await loadState(); } catch {} renderLive(); }, 2500); }
+let reloadFull = false;
+/** full=false: jen joby/runner/nastavení (události runneru chodí pořád; seznam zařízení správce má 4 MB a skládá se sekundu, ten se stahuje jen když se zařízení změní) */
+function scheduleReload(full = true) { reloadFull = reloadFull || full; if (reloadT) return; reloadT = setTimeout(async () => { reloadT = null; const f = reloadFull; reloadFull = false; try { await loadState({ light: !f }); } catch {} renderLive(); }, 2500); }
 /** joby pro aktuální pohled: výběr uživatele nebo víc než 30 hotových → celá historie ze serveru, jinak stačí /state */
 async function loadJobsForView() {
   const lim = state.jobsLimit ?? 10;
@@ -909,12 +911,12 @@ async function loadJobsForView() {
   else if (!lim || lim > 30) state.jobs = await api(`/jobs?limit=${lim || 1000}`);
   else await loadState();
 }
-async function loadState() {
+async function loadState({ light = false } = {}) {
   try { const w = await api('/whoami'); if (w && w.serverStartedAt) { state.auth.serverStartedAt = w.serverStartedAt; state.auth.draining = !!w.draining; state.auth.drainJobs = w.drainJobs || []; if (w.sourceIp) state.auth.sourceIp = w.sourceIp; } } catch {}
-  const s = await api('/state');
+  const s = await api(light && state.devices.length ? '/state?nodevices=1' : '/state');
   if (state.jobsLimit === undefined) { try { const v = localStorage.getItem('mtu_joblimit'); state.jobsLimit = v === null ? 10 : +v; } catch { state.jobsLimit = 10; } }
   const lim = state.jobsLimit ?? 10; if ((state.admin && state.jobOwner) || !lim || lim > 30) { try { s.jobs = state.admin && state.jobOwner ? await api(`/jobs?owner=${state.jobOwner}&limit=${lim || 1000}`) : await api(`/jobs?limit=${lim || 1000}`); } catch {} }
-  Object.assign(state, { devices: s.devices, jobs: s.jobs, latest: s.latest, settings: s.settings, settingsOwn: s.settingsOwn || {}, settingsGlobal: s.settingsGlobal, runner: s.runner, tracks: s.tracks, scanning: s.scanning, checkProg: s.checkProg && !s.checkProg.finishedAt ? s.checkProg : (state.checkProg && !state.checkProg.finishedAt ? state.checkProg : s.checkProg), discovery: s.discovery, admin: s.admin, auth: { ...state.auth, user: s.user } });
+  Object.assign(state, { devices: s.devices || state.devices, jobs: s.jobs, latest: s.latest, settings: s.settings, settingsOwn: s.settingsOwn || {}, settingsGlobal: s.settingsGlobal, runner: s.runner, tracks: s.tracks, scanning: s.scanning, checkProg: s.checkProg && !s.checkProg.finishedAt ? s.checkProg : (state.checkProg && !state.checkProg.finishedAt ? state.checkProg : s.checkProg), discovery: s.discovery, admin: s.admin, auth: { ...state.auth, user: s.user } });
   if (s.admin) { try { state.users = await api('/users'); } catch { state.users = null; } try { state.jobCounts = await api('/jobs/counts'); } catch { state.jobCounts = null; } }
   // správce: výchozí pohled = vlastní zařízení; ruční přepnutí na jiného vlastníka si pamatuje prohlížeč
   if (s.admin && s.user && state.ownerInit !== s.user.id) { state.ownerInit = s.user.id; let saved = null; try { saved = localStorage.getItem('mtu_owner'); } catch {} state.owner = saved !== null && saved !== '' ? +saved : s.user.id; }
@@ -932,7 +934,7 @@ function connectSSE() {
     else if (ev.type === 'item' && state.job && ev.item.job_id === state.job.job.id) { const i = state.job.items.findIndex(x => x.id === ev.item.id); if (i >= 0) state.job.items[i] = { ...state.job.items[i], ...ev.item }; if (state.view === 'jobs') renderJobDetail(); }
     else if (ev.type === 'log' && state.job && ev.log.job_id === state.job.job.id) { state.jobLog.push(ev.log); const l = $('#joblog'); if (l) { const p = $('#joblogprog'); if (p) p.remove(); const atBottom = LOGFOLLOW; l.insertAdjacentHTML('beforeend', logLine(ev.log, logNames(state.job.items))); const d = +l.dataset.dev || 0; if (d && ev.log.device_id && ev.log.device_id !== d) l.lastElementChild.classList.add('od'); if (atBottom) window.scrollTo(0, document.documentElement.scrollHeight); } }
     else if (ev.type === 'progress' && state.job && ev.job_id === state.job.job.id) { const l = $('#joblog'); if (l) { let p = $('#joblogprog'); if (!p) { p = document.createElement('div'); p.id = 'joblogprog'; p.className = 'info'; l.appendChild(p); } p.textContent = `${new Date().toLocaleTimeString('cs-CZ')} ${ev.text}`; const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 200; if (atBottom) window.scrollTo(0, document.documentElement.scrollHeight); } }
-    else if (ev.type === 'runner') { scheduleReload(); }
+    else if (ev.type === 'runner') { scheduleReload(false); }
     else if (ev.type === 'discovery' || ev.type === 'discovery-done') { state.discovery = ev.state; const r = $('#discres'); if (r) r.innerHTML = discoveryHtml(ev.state); if (ev.type === 'discovery-done') { toast(`sken rozsahu hotov: ${ev.state.added} nových zařízení`); loadState().then(() => { if (state.modal && state.modal.type === 'discover') renderModal(); else render(); }); } }
     else if (ev.type === 'discovery-error') toast('sken rozsahu: ' + ev.error, true);
     else if (ev.type === 'scan-progress' && ev.tag === 'check') { state.checkProg = { done: ev.done, total: ev.total, startedAt: ev.startedAt || (state.checkProg && state.checkProg.startedAt) || Date.now(), finishedAt: 0 }; renderSoon(); }
