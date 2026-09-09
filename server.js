@@ -84,7 +84,8 @@ function networkStatsCompute() {
       st.unreachable++;
       // umřelo po upgradu: nedostupné od svého upgradu, nebo poslední položka jobu skončila „nevrátil se"
       const lastItem = db.db.prepare('SELECT status, error FROM job_items WHERE device_id=? ORDER BY id DESC LIMIT 1').get(d.id);
-      if ((d.last_upgrade_at && (!d.last_seen_at || d.last_seen_at <= d.last_upgrade_at + 60)) || (lastItem && lastItem.status === 'failed' && /nevrátil/.test(lastItem.error || ''))) st.dead++;
+      // „umřelo po upgradu“ = nedostupné a naposledy viděné do 30 min po svém upgradu (typicky ověření prošlo a regulace/rádio odřízlo kus až po chvíli), nebo poslední položka „nevrátil se“
+      if ((d.last_upgrade_at && (!d.last_seen_at || d.last_seen_at <= d.last_upgrade_at + 1800)) || (lastItem && lastItem.status === 'failed' && /nevrátil/.test(lastItem.error || ''))) st.dead++;
       continue;
     }
     const t = targetFor(eff, latest);
