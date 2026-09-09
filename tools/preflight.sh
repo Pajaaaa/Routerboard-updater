@@ -24,5 +24,6 @@ echo "3/4 vykreslení UI v opravdovém DOM (jsdom) proti serveru nanečisto"
 node tools/ui-real.js http://127.0.0.1:28999 preflight preflight-heslo || { echo "UI v opravdovém DOM selhalo"; exit 1; }
 kill $SP 2>/dev/null; SP=
 echo "4/4 vykreslení UI (náhrada DOM, všechna řazení a filtry)"
+node tools/test-ssh-retry.js || { echo "kontrola opakování SSH selhala"; exit 1; }
 node tools/ui-smoke.js
 echo "preflight OK"
