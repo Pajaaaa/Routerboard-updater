@@ -26,6 +26,8 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
 - **Verze:** x.y.0 až po 14 dnech, seznam verzí s doloženou regresí pro konkrétní hardware i obecně, hardware bez v7
   (MIPS-LE, < 64 MB RAM, smips, staré RB4xx, 32 MB kusy) cílí na poslední v6; jde povolit per zařízení.
   Podrobná rešerše rizik: `docs/reserse-bezpecny-upgrade.md`.
+- **Stanice vs sektor:** country a frequency-mode stanice musí odpovídat sektoru (čte se živě ze sektoru v seznamu), jinak se stanice
+  po upgradu k sektoru nenaladí a je zvenku mrtvá — nesoulad je blokátor.
 - **Kontroly před upgradem:** dostupnost a práva uživatele, místo ve flash a RAM (málo RAM → restart a nový pokus),
   cizí .npk/RouterBOOT soubory, vadné bloky flash a jejich trend, dynamický routing při 6→7, neovladatelný PoE prvek
   nad zařízením, druhý konec 60 GHz spoje, kvalita rádia (signál, CCQ, MCS, chybovost), vlastní restartovací skripty,
