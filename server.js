@@ -810,7 +810,12 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/whoami') {
       // při drainu (čeká se na restart kvůli aktualizaci) vypsat, na které joby se čeká — ať každý vidí, proč restart ještě neproběhl
       let drainJobs;
-      if (runner.draining && authed) drainJobs = runner.running().map(r => { const j = db.getJob(r.jobId); const u = j && db.getUser(j.owner_id); return { id: r.jobId, name: j ? j.name : '', owner: u ? u.name : '' }; });  // jen název a kdo spustil, bez podrobností o zařízení
+      // jen jméno správce a počet zařízení v jeho jobech (názvy jobů obsahují jména/IP zařízení → nezveřejňovat ostatním)
+      if (runner.draining && authed) {
+        const by = new Map();
+        for (const r of runner.running()) { const j = db.getJobSummary(r.jobId); if (!j) continue; const u = db.getUser(j.owner_id); const k = j.owner_id; const e = by.get(k) || { owner: u ? (u.userdb_nick || u.name) : '?', jobs: 0, devices: 0 }; e.jobs++; e.devices += j.total || 0; by.set(k, e); }
+        drainJobs = [...by.values()];
+      }
       return send(res, 200, { authed, user: req.user, admin: authed && isAdmin(req), userdb: userdbFor(req), serverStartedAt: SERVER_STARTED_AT, sourceIp: cfg.sourceIp, draining: runner.draining, drainJobs, sso: sso.enabled(), passwordLogin: pwLoginAllowed(req), registration: !!db.getSettings().allow_registration, netHint: cfg.netHint });
     }
 
