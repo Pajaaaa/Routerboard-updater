@@ -494,7 +494,7 @@ function renderHelp(m) {
   <p><b>Po restartu:</b> verze, balíčky, log, rozhraní a IP, bezdrátové spoje (stanice na stejném AP, sektoru se vrátí aspoň 80 % klientů, přičemž klienti přepojení na sousední sektor se stejným SSID se počítají jako vrácení; při kontrole radaru DFS se čeká déle; 60 GHz MCS ≥ 1 a kvalita/chybovost až po 90 s ustálení spoje z nejlepšího vzorku, CAP registrován), ping na bránu z routeru, sousedé, a počty položek v hlavních menu proti stavu před upgradem. Pokles je varování s odkazem na export v zálohách.</p></div>
 
   <div class="panel help"><h2>Časté otázky</h2>
-  <details><summary>Zařízení má stav „nedostupné“</summary><p>Server se na něj nedostal přes SSH. Zkontroluj, že žije a má SSH zapnuté (IP → Services → ssh). Pak <b>Zkontrolovat</b>. Pokud má router brute-force ochranu SSH (address-list), přidej IP serveru do výjimky: ta ochrana počítá nová spojení, ne špatná hesla.</p></details>
+  <details><summary>Zařízení má stav „nedostupné“</summary><p>Když v chybě stojí „poškozený host key routeru (KEY_EXCHANGE_FAILED)“, router má rozbitý SSH klíč (v jeho logu „Corrupt host's key, regenerating it! Reboot required!“, typicky staré kusy); oprava je <code>/ip ssh regenerate-host-key</code> a restart. Pokud na routeru jede telnet, udělá to tlačítko „Opravit SSH klíč přes telnet“ v detailu zařízení, uložený otisk klíče se smaže a za pár minut dej Zkontrolovat. Server se na něj nedostal přes SSH. Zkontroluj, že žije a má SSH zapnuté (IP → Services → ssh). Pak <b>Zkontrolovat</b>. Pokud má router brute-force ochranu SSH (address-list), přidej IP serveru do výjimky: ta ochrana počítá nová spojení, ne špatná hesla.</p></details>
   <details><summary>„Špatné přihlašovací údaje“</summary><p>Uživatel nebo heslo nesedí. Oprav v userdb a načti znovu, nebo v tužce ✎, a znovu <b>Zkontrolovat</b>.</p></details>
   <details><summary>„Změnil se SSH klíč, ověř zařízení“</summary><p>Router se hlásí jiným klíčem než minule. Buď byl přeinstalovaný (Netinstall, výměna kusu), nebo se na té IP ozývá něco jiného. Když víš, že je to v pořádku, dej v tužce ✎ <b>reset SSH host key</b>.</p></details>
   <details><summary>Ve výsledku načtení je „port 22 neodpovídá“</summary><p>Na té adrese neběží SSH: buď to není MikroTik, nebo má SSH vypnuté. Sken se k němu nedostane, takže ho nejde ověřit ani přidat. U MikroTiku zapni SSH a načti znovu.</p></details>
@@ -651,6 +651,7 @@ function renderSettings(m, adminMode = false) {
 
 // ---------- modaly ----------
 function openModal(mod) { state.modal = mod; renderModal(); }
+try { document.addEventListener('click', async (e) => { const b = e.target && e.target.closest && e.target.closest('#fixssh'); if (!b || !state.modal || state.modal.type !== 'detail') return; const d = state.modal.data.device; if (!confirm(`Přes telnet přegenerovat SSH klíč na ${devLabel(d)} (${d.host}) a router restartovat?`)) return; b.disabled = true; try { await api(`/devices/${d.id}/fix-sshkey`, { method: 'POST', body: {} }); toast('SSH klíč přegenerován, router se restartuje — za 2–3 minuty dej Zkontrolovat'); closeModal(); await loadState(); render(); } catch (e2) { toast(e2.message, true); b.disabled = false; } }); } catch {}
 function closeModal() { state.modal = null; renderModal(); }
 function renderModal() {
   let bg = $('#modalbg');
@@ -755,7 +756,9 @@ function renderModal() {
     const vs = verStatus(d);
     const fl = d.flags || {};
     const flagTxt = [fl.wireless ? `wireless ${fl.wireless}` : '', fl.wifi ? `wifi ${fl.wifi}` : '', fl.bgp ? `BGP ${fl.bgp}` : '', fl.ospf ? `OSPF ${fl.ospf}` : '', fl.routing_filter ? `filtry ${fl.routing_filter}` : '', fl.mpls ? 'MPLS' : '', fl.capsman ? 'CAPsMAN' : '', fl.caps_client ? 'CAP' : '', fl.flash_dir ? 'flash/ dir' : '', fl.platform ? fl.platform : ''].filter(Boolean).join(' · ');
+    const sshKeyBroken = /poškozený host key|KEY_EXCHANGE_FAILED/i.test(d.scan_error || '');
     bg.innerHTML = `<div class="modal"><h2>${esc(devLabel(d))} <span class="badge ${vs.cls}">${esc(vs.txt)}</span></h2>
+      ${sshKeyBroken ? `<div class="banner err">Router má poškozený SSH host key (v jeho logu „Corrupt host's key, regenerating it! Reboot required!“). Oprava = <code>/ip ssh regenerate-host-key</code> a restart. Když na routeru jede telnet, udělá to tlačítko: <button class="small" id="fixssh">🔧 Opravit SSH klíč přes telnet a restartovat</button></div>` : ''}
       <div class="grid2"><div>
         <table><tr><th>Host</th><td class="mono">${esc(d.host)}:${d.port} (${esc(d.username)})</td></tr><tr><th>Identita</th><td>${esc(d.identity)}</td></tr><tr><th>Model</th><td>${esc(d.board_name)} ${d.model && d.model !== d.board_name ? `(${esc(d.model)})` : ''} · ${esc(d.arch)} · SN ${esc(d.serial)}</td></tr>
         <tr><th>RouterOS</th><td class="mono">${esc(d.version)} ${esc(d.channel)} → cíl ${esc(targetOf(d) || 'hold')} (${esc(trackOf(d))}${trackOf(d) !== d.track ? `, nastaveno ${esc(d.track)} — hardware bez v7` : ''})</td></tr><tr><th>Firmware</th><td class="mono">${esc(d.fw_current)} ${d.fw_upgrade && d.fw_upgrade !== d.fw_current ? `→ ${esc(d.fw_upgrade)}` : '✓'}</td></tr>
