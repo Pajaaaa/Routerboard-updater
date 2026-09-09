@@ -95,6 +95,17 @@ const check = (name, ok, extra = '') => { console.log(`  ${name}: ${ok ? 'OK' : 
     } catch (e) { err = e && e.message || String(e); }
     check('Správa: dialog přidělení APček + seznam účtů hned po překreslení', !err && !errors.slice(before).length, [err, errors.slice(before).join('; ')].filter(Boolean).join(' | '));
   }
+  // Zařízení: „Zkontrolovat“ při filtru skupiny/AP musí mířit jen na zobrazená zařízení, ne na všechna (9.9.2026: správci se spustila kontrola 2000 kusů)
+  {
+    const before = errors.length; let err = '';
+    try {
+      await run("state.admin = true; state.view = 'devices'; state.selected.clear(); state.filter = ''; state.vf = ''; state.owner = 0; state.group = ''; render(); window.__p = 1"); await sleep(300);
+      await run("const b = document.querySelector('#scanall'); if (!b) throw new Error('chybí #scanall'); if (!/Zkontrolovat stav/.test(b.textContent)) throw new Error('bez filtru: ' + b.textContent); window.__p = 1");
+      await run("state.devices.push({ id: 999002, host: '10.0.0.98', port: 22, name: 'grptest', identity: 'grptest', version: '7.24.2', board_name: 'RB951', arch: 'mipsbe', scan_status: 'ok', enabled: true, managed: true, track: 'v7-stable', group_name: 'TestSkupina-ui', owner_id: (state.auth.user || {}).id || 1, parent_id: 0, no_v7: [], flags: {} }); state.group = 'TestSkupina-ui'; render(); window.__p = 1"); await sleep(300);
+      await run("const b = document.querySelector('#scanall'); state.devices = state.devices.filter(d => d.id !== 999002); state.group = ''; if (!/zobrazené \\(1\\)/.test(b.textContent)) throw new Error('s filtrem skupiny: ' + b.textContent); window.__p = 1");
+    } catch (e) { err = e && e.message || String(e); }
+    check('Zařízení: „Zkontrolovat“ při filtru jen zobrazená', !err && !errors.slice(before).length, [err, errors.slice(before).join('; ')].filter(Boolean).join(' | '));
+  }
   if (fail) { console.error(`UI real DOM: ${fail} chyb`); process.exit(1); }
   console.log('UI real DOM OK');
   process.exit(0);

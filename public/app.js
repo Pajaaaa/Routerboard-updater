@@ -228,6 +228,11 @@ function renderDevices(m) {
   const list = filteredDevices();
   const real = list.filter(d => !d._ctx); // bez kontextových řádků stromu
   const allSel = real.length && real.every(d => state.selected.has(d.id));
+  // kontrola stavu: vybraná zařízení → jen ta; jinak při aktivním filtru (text, stav, skupina/AP, vlastník) jen zobrazená; bez filtru všechna
+  const filterOn = !!(state.filter || state.vf || state.group || state.owner);
+  const checkIds = state.selected.size ? [...state.selected] : filterOn ? real.map(d => d.id) : null;
+  const checkLabel = state.selected.size ? `⟳ Zkontrolovat vybrané (${state.selected.size})` : filterOn ? `⟳ Zkontrolovat zobrazené (${real.length})` : `⟳ Zkontrolovat stav (${devs.length})`;
+  const checkTitle = state.selected.size ? 'znovu načte stav jen zaškrtnutých zařízení' : filterOn ? 'znovu načte stav jen zařízení, která jsou teď zobrazená podle filtru' : 'znovu načte stav všech zařízení v seznamu (při filtru nebo výběru jen těch)';
   const toUpgrade = devs.filter(d => needsUpgrade(d));
   const segs = [['ok', 'aktuální', 'var(--ok)'], ['old', 'čeká na upgrade', 'var(--warn)'], ['v6', 'v6, čeká na v7', 'var(--v6)'], ['unreachable', 'nedostupné', 'var(--err)'], ['hold', 'neupgradují se', 'var(--muted)'], ['unknown', 'nezkontrolované', 'var(--line2)']];
   const total = devs.length || 1;
@@ -240,9 +245,8 @@ function renderDevices(m) {
     <div class="legend">${segs.filter(([k]) => cnt[k]).map(([k, l, c]) => `<span><i class="sw" style="background:${c}"></i>${l} <b>${cnt[k]}</b></span>`).join('')}</div></div>
   <div class="panel"><div class="toolbar">
     <button id="discover">+ Přidat zařízení (sken)</button>
-    <button id="scanall">⟳ Zkontrolovat stav</button>
-    ${adv ? `<button id="scansel" ${state.selected.size ? '' : 'disabled'}>⟳ Zkontrolovat vybrané (${state.selected.size})</button>
-    <button id="acceptparents" title="u zařízení bez nadřazeného prvku nastaví toho, koho vidí jako souseda na uplinku">⇡ Přebrat detekované rodiče</button>` : ''}
+    <button id="scanall" title="${checkTitle}" ${checkIds && !checkIds.length ? 'disabled' : ''}>${checkLabel}</button>
+    ${adv ? `<button id="acceptparents" title="u zařízení bez nadřazeného prvku nastaví toho, koho vidí jako souseda na uplinku">⇡ Přebrat detekované rodiče</button>` : ''}
     <button class="ok" id="jobsel" ${state.selected.size ? '' : 'disabled'}>▶ Upgradovat vybrané (${state.selected.size})</button>
     ${checkProgHtml()}
     ${state.admin && state.users && state.users.length > 1 ? `<button id="movesel" ${state.selected.size ? '' : 'disabled'} title="předat vybraná zařízení jinému uživateli">⇄ Přesunout vybrané (${state.selected.size})</button>` : ''}
@@ -271,8 +275,7 @@ function renderDevices(m) {
   ${list.length ? '' : `<tr><td colspan="${adv ? 11 : 6}" class="empty">Zatím žádná zařízení. Přidej je skenem: zadáš IP adresy nebo rozsahy a loginy, nalezené routery se založí samy.</td></tr>`}
   </tbody></table></div></div>`;
   on('#discover', () => openModal({ type: 'discover' }));
-  on('#scanall', async () => { const r = await api('/scan', { method: 'POST', body: {} }); state.checkProg = { done: 0, total: r.total || 0, startedAt: Date.now(), finishedAt: 0 }; render(); });
-  on('#scansel', async () => { const r = await api('/scan', { method: 'POST', body: { ids: [...state.selected] } }); state.checkProg = { done: 0, total: r.total || 0, startedAt: Date.now(), finishedAt: 0 }; render(); });
+  on('#scanall', async () => { try { const r = await api('/scan', { method: 'POST', body: checkIds ? { ids: checkIds } : {} }); state.checkProg = { done: 0, total: r.total || 0, startedAt: Date.now(), finishedAt: 0 }; render(); } catch (e) { toast(e.message, true); } });
   on('#jobsel', () => openModal({ type: 'newjob', ids: [...state.selected] }));
   on('#acceptparents', async () => { try { const r = await api('/devices/accept-parents', { method: 'POST', body: {} }); toast(`nastaveno ${r.updated} nadřazených prvků`); await loadState(); render(); } catch (e) { toast(e.message, true); } });
   on('#delsel', async () => {
