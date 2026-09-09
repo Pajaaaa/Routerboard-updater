@@ -169,7 +169,7 @@ const runnerStatusFor = (req) => {
   return st;
 };
 /** import z userdb na pozadí (viz POST /api/userdb/import): stažení loginů, doplnění existujících, nové do fronty skenu */
-async function runUserdbImport({ acct, allMode, onlyAps, key, prog, byName, isAdm, ip }) {
+async function runUserdbImport({ acct, allMode, onlyAps, key, prog, byName, isAdm, ip, track }) {
   void isAdm; void ip;
   let r;
   if (allMode) { if (!onlyAps) throw new Error('vyber APčka'); prog.phase = `stahuji loginy pro ${onlyAps.size} APček`; r = await userdb.devicesForAps([...onlyAps]); r.admin = { nick: `správce ${acct.userdb_nick || acct.name} (celá síť)`, apCount: onlyAps.size }; }
@@ -221,7 +221,7 @@ async function runUserdbImport({ acct, allMode, onlyAps, key, prog, byName, isAd
     const CH = 2000;
     for (let i = 0; i < entries.length; i += CH) {
       const part = entries.slice(i, i + CH);
-      const o = { entries: part, creds: [], port: 22, track: db.getSettings(acct.id).default_track || 'v7-stable', parallel: 24, ownerId: acct.id, label: entries.length > CH ? `část ${i / CH + 1}/${Math.ceil(entries.length / CH)}` : '', foreign: i === 0 ? foreign : [], errors: i === 0 ? errors : [] };
+      const o = { entries: part, creds: [], port: 22, track: track || db.getSettings(acct.id).default_track || 'v7-stable', parallel: 24, ownerId: acct.id, label: entries.length > CH ? `část ${i / CH + 1}/${Math.ceil(entries.length / CH)}` : '', foreign: i === 0 ? foreign : [], errors: i === 0 ? errors : [] };
       discovery.prepare(o);
       discovery.run(o).catch(e => bus.emit('event', { type: 'discovery-error', error: e.message }));
     }
@@ -404,6 +404,7 @@ async function api(req, res, method, p, url) {
       const allMode = !!b.all && isAdmin(req);
       if (!allMode && !acct.userdb_uid) throw new Error('účet není navázaný na správce v userdb');
       const onlyAps = Array.isArray(b.aps) && b.aps.length ? new Set(b.aps.map(Number)) : null;
+      const track = ['v7-stable', 'v7-long-term'].includes(b.track) ? b.track : ''; // kanál pro nová zařízení z dialogu; prázdné = z nastavení uživatele
       const key = allMode ? -1 : acct.id;
       const prev = userdbImports.get(key);
       if (prev && prev.running) throw new Error('import z userdb ještě běží (' + (prev.phase || '') + ')');
@@ -411,7 +412,7 @@ async function api(req, res, method, p, url) {
       const prog = { at: Date.now(), by: req.user.name, running: true, phase: 'načítám seznam zařízení z userdb', progress: '' };
       userdbImports.set(key, prog);
       const byName = req.user.name, isAdm = isAdmin(req), ip = clientIp(req);
-      setImmediate(async () => { try { await runUserdbImport({ acct, allMode, onlyAps, key, prog, byName, isAdm, ip }); } catch (e) { userdbImports.set(key, { at: Date.now(), by: byName, error: e.message, running: false }); bus.emit('event', { type: 'discovery-error', error: 'import z userdb: ' + e.message }); } });
+      setImmediate(async () => { try { await runUserdbImport({ acct, allMode, onlyAps, key, prog, byName, isAdm, ip, track }); } catch (e) { userdbImports.set(key, { at: Date.now(), by: byName, error: e.message, running: false }); bus.emit('event', { type: 'discovery-error', error: 'import z userdb: ' + e.message }); } });
       return send(res, 200, { started: true });
     }
     if (method === 'GET' && p === '/api/userdb/import-status') {
