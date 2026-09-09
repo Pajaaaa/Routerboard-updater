@@ -344,10 +344,14 @@ function renderJobs(m) {
   const jc = state.jobCounts || {};
   const owners = state.admin ? [...new Map([...(state.users || []).map(u => [u.id, u.userdb_nick || u.name]), ...state.jobs.filter(j => j.owner_id).map(j => [j.owner_id, j.owner_name || ('#' + j.owner_id)])]).entries()].filter(([id]) => !state.jobCounts || jc[id]).sort((x, y) => x[1].localeCompare(y[1], 'cs')) : [];
   const jobsF = state.admin && state.jobOwner ? state.jobs.filter(j => j.owner_id === state.jobOwner) : state.jobs;
-  const active = jobsF.filter(j => ACTIVE_JOB.includes(j.status)).sort((a, b) => rank(a) - rank(b) || b.id - a.id);
-  const finished = jobsF.filter(j => !ACTIVE_JOB.includes(j.status));
-  const shown = [...active, ...(state.jobsAll ? finished : finished.slice(0, Math.max(0, 10 - active.length)))];
-  m.innerHTML = `<h1>Upgrady</h1><div class="stack"><div class="panel"><h2>Přehled <span class="muted" style="font-weight:400;font-size:12px">${state.jobsAll ? `všech ${jobsF.length}` : `posledních ${shown.length}`}</span>${owners.length ? ` <select id="jobowner" title="jen joby jednoho správce" style="margin-left:8px;font-weight:400;font-size:13px"><option value="0">všichni uživatelé</option>${owners.map(([id, nm]) => `<option value="${id}" ${state.jobOwner === id ? 'selected' : ''}>${esc(nm)}${state.jobCounts ? ` (${jc[id] || 0})` : ''}</option>`).join('')}</select>` : ''}${state.jobs.length > 10 || state.jobsAll ? ` <button class="small" id="jobsall" style="margin-left:8px">${state.jobsAll ? 'jen posledních 10' : `zobrazit všechny (${state.jobs.length}${state.jobs.length >= 30 ? '+' : ''})`}</button>` : ''}</h2><div class="tablewrap"><table><thead><tr>${adv ? '<th>#</th>' : ''}<th>Název</th><th>Stav</th><th>Průběh</th><th>Vytvořen</th><th></th></tr></thead><tbody>
+  // živé joby (běží, čekají, naplánované) vždy; pozastavené a hotové jen posledních N podle výběru (0 = vše)
+  const LIVE_JOB = ['running', 'waiting', 'waiting-window', 'queued', 'scheduled'];
+  const live = jobsF.filter(j => LIVE_JOB.includes(j.status)).sort((a, b) => rank(a) - rank(b) || b.id - a.id);
+  const rest = jobsF.filter(j => !LIVE_JOB.includes(j.status)).sort((a, b) => b.id - a.id);
+  const lim = state.jobsLimit ?? 10;
+  const shown = [...live, ...(lim ? rest.slice(0, lim) : rest)];
+  void ACTIVE_JOB;
+  m.innerHTML = `<h1>Upgrady</h1><div class="stack"><div class="panel"><h2>Přehled <span class="muted" style="font-weight:400;font-size:12px">${live.length ? `${live.length} živých + ` : ''}${lim ? `posledních ${Math.min(lim, rest.length)}` : `všech ${rest.length}`}</span>${owners.length ? ` <select id="jobowner" title="jen joby jednoho správce" style="margin-left:8px;font-weight:400;font-size:13px"><option value="0">všichni uživatelé</option>${owners.map(([id, nm]) => `<option value="${id}" ${state.jobOwner === id ? 'selected' : ''}>${esc(nm)}${state.jobCounts ? ` (${jc[id] || 0})` : ''}</option>`).join('')}</select>` : ''} <select id="joblimit" title="kolik pozastavených a hotových jobů zobrazit (běžící a naplánované jsou vždy)" style="margin-left:8px;font-weight:400;font-size:13px">${[10, 20, 30, 50, 0].map(n => `<option value="${n}" ${lim === n ? 'selected' : ''}>${n ? `zobrazit ${n}` : 'zobrazit vše'}</option>`).join('')}</select></h2><div class="tablewrap"><table><thead><tr>${adv ? '<th>#</th>' : ''}<th>Název</th><th>Stav</th><th>Průběh</th><th>Vytvořen</th><th></th></tr></thead><tbody>
     ${shown.map((j, i) => { const c = j.counts || {}; const done = (c.done || 0) + (c.failed || 0) + (c.blocked || 0) + (c.skipped || 0) + (c.unknown || 0);
       void i;
       return `<tr class="clickable ${cur && cur.job.id === j.id ? 'selected' : ''}" data-id="${j.id}">${adv ? `<td>${j.id}</td>` : ''}<td>${esc(j.name)}${state.admin && j.owner_name && j.owner_id !== (state.auth.user || {}).id ? ` <span class="muted" title="kdo job spustil">· ${esc(j.owner_name)}</span>` : ''}${j.options.dry_run ? ' <span class="badge b-info">jen kontrola</span>' : ''}${j.options.op ? ' <span class="badge b-muted">operace</span>' : ''}</td><td>${jobBadge(j)}${j.current ? `<div class="muted" style="font-size:11px;white-space:normal">${esc(j.current.dev)}${j.current.step ? ` — ${esc(j.current.step)}` : ''}</div>` : ''}${(c.blocked || 0) && j.status !== 'done' ? `<div class="muted" style="font-size:11px">${c.blocked} přeskočeno (blokováno)</div>` : ''}${adv && j.status_note && !j.current ? `<div class="muted" style="font-size:11px;white-space:normal">${esc(j.status_note)}</div>` : ''}</td>
@@ -356,9 +360,9 @@ function renderJobs(m) {
     ${state.jobs.length ? '' : '<tr><td colspan="6" class="empty">Zatím žádný upgrade. V seznamu zařízení klikni na „Upgradovat vše potřebné" nebo na „Upgradovat" u zařízení.</td></tr>'}</tbody></table></div></div>
   <div id="jobdetail">${cur ? '' : '<div class="panel empty">Klikni na upgrade v přehledu, zobrazí se průběh.</div>'}</div></div>`;
   m.querySelectorAll('tr[data-id]').forEach(r => r.onclick = (e) => { if (e.target.tagName === 'BUTTON') return; openJob(+r.dataset.id); });
-  // výběr uživatele: načíst jeho celou historii ze serveru (přehled má jinak jen posledních N jobů celé sítě, takže by starší chyběly)
-  const jo = $('#jobowner'); if (jo) jo.onchange = async (e) => { state.jobOwner = +e.target.value || 0; try { if (state.jobOwner) { state.jobs = await api(`/jobs?owner=${state.jobOwner}&limit=1000`); state.jobsAll = true; } else { state.jobsAll = false; await loadState(); } } catch (e2) { toast(e2.message, true); } render(); };
-    const ja = $('#jobsall'); if (ja) ja.onclick = async () => { if (state.jobsAll) { state.jobsAll = false; await loadState(); } else { try { state.jobs = await api(state.admin && state.jobOwner ? `/jobs?owner=${state.jobOwner}&limit=1000` : '/jobs?limit=1000'); state.jobsAll = true; } catch (e) { return toast(e.message, true); } } render(); };
+  // výběr uživatele / počtu: širší výběr se dotáhne ze serveru (stav má jen posledních 30 jobů + otevřené, starší by chyběly)
+  const jo = $('#jobowner'); if (jo) jo.onchange = async (e) => { state.jobOwner = +e.target.value || 0; try { await loadJobsForView(); } catch (e2) { toast(e2.message, true); } render(); };
+  const jl = $('#joblimit'); if (jl) jl.onchange = async (e) => { state.jobsLimit = +e.target.value; try { localStorage.setItem('mtu_joblimit', String(state.jobsLimit)); } catch {} try { await loadJobsForView(); } catch (e2) { toast(e2.message, true); } render(); };
   m.querySelectorAll('.jstart').forEach(b => b.onclick = () => jobAction(+b.dataset.id, 'start'));
   m.querySelectorAll('.jcont').forEach(b => b.onclick = () => jobAction(+b.dataset.id, 'continue'));
   m.querySelectorAll('.jdel').forEach(b => b.onclick = async () => { if (!confirm(`Smazat záznam „${(state.jobs.find(j => j.id === +b.dataset.id) || {}).name}" včetně logu?`)) return; try { await api(`/jobs/${b.dataset.id}`, { method: 'DELETE' }); if (cur && cur.job.id === +b.dataset.id) state.job = null; await loadState(); render(); } catch (e) { toast(e.message, true); } });
@@ -887,9 +891,18 @@ let reloadT = null, renderT = null;
 /** překreslení seznamu nejvýš jednou za sekundu (při hromadné kontrole chodí událost za každé zařízení) */
 function renderSoon() { if (renderT) return; renderT = setTimeout(() => { renderT = null; if (!state.modal) renderLive(); }, 1000); }
 function scheduleReload() { if (reloadT) return; reloadT = setTimeout(async () => { reloadT = null; try { await loadState(); } catch {} renderLive(); }, 2500); }
+/** joby pro aktuální pohled: výběr uživatele nebo víc než 30 hotových → celá historie ze serveru, jinak stačí /state */
+async function loadJobsForView() {
+  const lim = state.jobsLimit ?? 10;
+  if (state.admin && state.jobOwner) state.jobs = await api(`/jobs?owner=${state.jobOwner}&limit=${lim || 1000}`);
+  else if (!lim || lim > 30) state.jobs = await api(`/jobs?limit=${lim || 1000}`);
+  else await loadState();
+}
 async function loadState() {
   try { const w = await api('/whoami'); if (w && w.serverStartedAt) { state.auth.serverStartedAt = w.serverStartedAt; state.auth.draining = !!w.draining; state.auth.drainJobs = w.drainJobs || []; if (w.sourceIp) state.auth.sourceIp = w.sourceIp; } } catch {}
   const s = await api('/state');
+  if (state.jobsLimit === undefined) { try { const v = localStorage.getItem('mtu_joblimit'); state.jobsLimit = v === null ? 10 : +v; } catch { state.jobsLimit = 10; } }
+  const lim = state.jobsLimit ?? 10; if ((state.admin && state.jobOwner) || !lim || lim > 30) { try { s.jobs = state.admin && state.jobOwner ? await api(`/jobs?owner=${state.jobOwner}&limit=${lim || 1000}`) : await api(`/jobs?limit=${lim || 1000}`); } catch {} }
   Object.assign(state, { devices: s.devices, jobs: s.jobs, latest: s.latest, settings: s.settings, settingsOwn: s.settingsOwn || {}, settingsGlobal: s.settingsGlobal, runner: s.runner, tracks: s.tracks, scanning: s.scanning, discovery: s.discovery, admin: s.admin, auth: { ...state.auth, user: s.user } });
   if (s.admin) { try { state.users = await api('/users'); } catch { state.users = null; } try { state.jobCounts = await api('/jobs/counts'); } catch { state.jobCounts = null; } }
   // správce: výchozí pohled = vlastní zařízení; ruční přepnutí na jiného vlastníka si pamatuje prohlížeč
