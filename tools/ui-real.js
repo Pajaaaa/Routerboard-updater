@@ -60,6 +60,14 @@ const check = (name, ok, extra = '') => { console.log(`  ${name}: ${ok ? 'OK' : 
     check('detail zařízení (modal, 3 řádky logu)', !err && !!modal && !errors.slice(before).length, [err, errors.slice(before).join('; ')].filter(Boolean).join(' | '));
     await run('closeModal(); window.__p = 1');
   }
+  // Zařízení: řádek s eff_track v6-long-term bez důvodu HW (nastavení „zůstat na v6“) — 9.9.2026 shodil celý pohled (split na undefined)
+  {
+    const before = errors.length; let err = '';
+    try { await run("state.admin = true; state.owner = 0; state.devices.push({ id: 999001, host: '10.0.0.99', port: 22, name: 'v6test', identity: 'v6test', version: '6.49.10', board_name: 'RB951', arch: 'mipsbe', scan_status: 'ok', enabled: true, managed: true, track: 'v7-stable', eff_track: 'v6-long-term', no_v7: [], owner_id: 1, flags: {}, parent_id: 0 }); state.view = 'devices'; render(); window.__p = 1"); await sleep(400);
+      await run("const tr = document.querySelector('#main tr[data-id=\"999001\"]'); if (!tr) throw new Error('řádek v6test chybí'); if (!/zůstává na v6/.test(tr.textContent)) throw new Error('chybí štítek zůstává na v6'); state.devices = state.devices.filter(d => d.id !== 999001); window.__p = 1");
+    } catch (e) { err = e && e.message || String(e); }
+    check('Zařízení: řádek „zůstat na v6“ bez důvodu HW', !err && !errors.slice(before).length, [err, errors.slice(before).join('; ')].filter(Boolean).join(' | '));
+  }
   // Upgrady: výběr počtu (10/20/30/50/vše) musí reagovat na změnu — přenastavit stav, znovu vykreslit a dotáhnout širší seznam ze serveru (9.9.2026)
   {
     const before = errors.length; let err = '';
