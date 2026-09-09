@@ -60,6 +60,18 @@ const check = (name, ok, extra = '') => { console.log(`  ${name}: ${ok ? 'OK' : 
     check('detail zařízení (modal, 3 řádky logu)', !err && !!modal && !errors.slice(before).length, [err, errors.slice(before).join('; ')].filter(Boolean).join(' | '));
     await run('closeModal(); window.__p = 1');
   }
+  // Upgrady: výběr počtu (10/20/30/50/vše) musí reagovat na změnu — přenastavit stav, znovu vykreslit a dotáhnout širší seznam ze serveru (9.9.2026)
+  {
+    const before = errors.length; let err = '';
+    try { await run("state.admin = true; state.jobOwner = 0; state.view = 'jobs'; render(); window.__p = 1"); await sleep(300);
+      await run("const sel = document.querySelector('#joblimit'); if (!sel) throw new Error('chybí #joblimit'); sel.value = '50'; sel.dispatchEvent(new window.Event('change', { bubbles: true })); window.__p = 1"); await sleep(800);
+      await run("if (state.jobsLimit !== 50) throw new Error('jobsLimit=' + state.jobsLimit); const s2 = document.querySelector('#joblimit'); if (!s2 || s2.value !== '50') throw new Error('select po překreslení: ' + (s2 && s2.value)); window.__p = 1");
+      await run("const sel = document.querySelector('#joblimit'); sel.value = '0'; sel.dispatchEvent(new window.Event('change', { bubbles: true })); window.__p = 1"); await sleep(800);
+      await run("if (state.jobsLimit !== 0) throw new Error('jobsLimit=' + state.jobsLimit); if (!/všech/.test(document.querySelector('#main h2').textContent)) throw new Error('hlavička: ' + document.querySelector('#main h2').textContent.slice(0, 60)); window.__p = 1");
+    } catch (e) { err = e && e.message || String(e); }
+    check('Upgrady: výběr počtu reaguje (50, vše)', !err && !errors.slice(before).length, [err, errors.slice(before).join('; ')].filter(Boolean).join(' | '));
+    await run("state.jobsLimit = 10; window.__p = 1");
+  }
   // seznam účtů v Správě se musí naplnit (i bez přihlašování heslem)
   await run("state.auth.passwordLogin = false; state.admin = true; state.view = 'admin'; render(); window.__p = 1"); await sleep(800);
   const ul = w.document.querySelector('#userlist');
