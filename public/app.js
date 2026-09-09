@@ -587,7 +587,7 @@ function settingsFields(s) {
 function adminPanelsHtml(s) {
   return `<h1>Správa</h1>
   <div class="panel"><h2>Společné nastavení</h2><div class="hint" style="margin-bottom:8px">Výchozí hodnoty pro všechny; kdo si uložil „Moje nastavení“, používá svoje.</div><form id="setf" class="form">${settingsFields(state.settingsGlobal || s)}<div class="wide"><button class="primary">Uložit společné</button></div></form></div>
-  <div class="panel"><h2>Uživatelé</h2><div class="hint" style="margin-bottom:8px">Každý vidí a upgraduje jen zařízení, která sám přidal (nebo mu je správce přidělil v editaci zařízení). Správce vidí vše a spravuje účty i nastavení.</div>
+  <div class="panel"><h2>Uživatelé</h2><div class="hint" style="margin-bottom:8px">Každý vidí a upgraduje jen zařízení, která sám přidal (nebo mu je správce přidělil v editaci zařízení). Správce vidí vše a spravuje účty i nastavení. Tlačítkem <b>APčka</b> jde účtu přidělit APčka z userdb navíc k jeho oblastem — uvidí je v „Natáhnout z userdb“ a může si jejich zařízení natáhnout, převzít a spravovat.</div>
     ${state.auth.passwordLogin ? `<label class="check" style="margin-bottom:8px"><input type="checkbox" id="regtoggle" ${s.allow_registration ? 'checked' : ''}> povolit samoregistraci na přihlašovací stránce (nový účet = role uživatel)</label>` : ''}
     <div id="userlist">načítám…</div>
     ${state.auth.passwordLogin ? `<form id="useradd" class="form" style="margin-top:12px"><h2>Nový účet</h2><label>jméno<input name="name" required autocomplete="off"></label><label>heslo (aspoň 8 znaků)<input name="password" type="password" required minlength="8" autocomplete="new-password"></label><label>role<select name="role"><option value="user">uživatel</option><option value="admin">správce</option></select></label><label>&nbsp;<button class="primary">Založit</button></label></form>` : '<div class="hint" style="margin-bottom:8px">Účty vznikají samy při prvním přihlášení přes SSO (podle e-mailu) a navážou se na správce v userdb.</div>'}</div>
@@ -621,9 +621,9 @@ function renderSettings(m, adminMode = false) {
   const ul = $('#userlist');
   if (ul) {
     const renderUsers = async () => {
-      try { state.users = await api('/users'); } catch (e) { ul.textContent = e.message; return; }
+      const draw = () => {
       const me = state.auth.user;
-      ul.innerHTML = `<table><thead><tr><th>jméno</th><th>role</th>${state.auth.userdb && state.auth.userdb.enabled ? '<th>userdb</th>' : ''}<th>naposledy přihlášen</th><th>stav</th><th></th></tr></thead><tbody>${state.users.map(u => `<tr class="${u.disabled ? 'muted' : ''}"><td>${esc(u.name)}${me && u.id === me.id ? ' <span class="muted">(ty)</span>' : ''}</td><td>${u.role === 'admin' ? 'správce' : 'uživatel'}</td>${state.auth.userdb && state.auth.userdb.enabled ? `<td>${u.userdb_uid ? `${esc(u.userdb_nick)} <span class="muted">(${u.userdb_uid})</span> <button class="small" data-act="udbimp" data-id="${u.id}" title="načíst jeho zařízení z userdb">⇩ import</button>` : '<span class="muted">—</span>'} <button class="small" data-act="udb" data-id="${u.id}">vazba</button></td>` : ''}<td class="muted">${u.last_login_at ? fmtTs(Math.floor(u.last_login_at / 1000)) : '—'}</td><td>${u.disabled ? '<span class="badge b-err">vypnutý</span>' : '<span class="badge b-ok">aktivní</span>'}</td><td class="acts">
+      ul.innerHTML = `<table><thead><tr><th>jméno</th><th>role</th>${state.auth.userdb && state.auth.userdb.enabled ? '<th>userdb</th>' : ''}<th>naposledy přihlášen</th><th>stav</th><th></th></tr></thead><tbody>${state.users.map(u => `<tr class="${u.disabled ? 'muted' : ''}"><td>${esc(u.name)}${me && u.id === me.id ? ' <span class="muted">(ty)</span>' : ''}</td><td>${u.role === 'admin' ? 'správce' : 'uživatel'}</td>${state.auth.userdb && state.auth.userdb.enabled ? `<td>${u.userdb_uid ? `${esc(u.userdb_nick)} <span class="muted">(${u.userdb_uid})</span> <button class="small" data-act="udbimp" data-id="${u.id}" title="načíst jeho zařízení z userdb">⇩ import</button>` : (u.userdb_aps || []).length ? `<span class="muted">jen přidělená APčka</span> <button class="small" data-act="udbimp" data-id="${u.id}" title="načíst zařízení přidělených APček z userdb">⇩ import</button>` : '<span class="muted">—</span>'} <button class="small" data-act="udb" data-id="${u.id}">vazba</button> <button class="small" data-act="aps" data-id="${u.id}" title="APčka z userdb přidělená navíc: uživatel je uvidí v „Natáhnout z userdb“, může si natáhnout jejich zařízení, převzít je a spravovat">APčka${(u.userdb_aps || []).length ? ` (${u.userdb_aps.length})` : ''}</button></td>` : ''}<td class="muted">${u.last_login_at ? fmtTs(Math.floor(u.last_login_at / 1000)) : '—'}</td><td>${u.disabled ? '<span class="badge b-err">vypnutý</span>' : '<span class="badge b-ok">aktivní</span>'}</td><td class="acts">
         ${state.auth.passwordLogin ? `<button class="small" data-act="pw" data-id="${u.id}">nové heslo</button> ` : ''}<button class="small" data-act="role" data-id="${u.id}">${u.role === 'admin' ? 'odebrat správce' : 'udělat správcem'}</button> <button class="small" data-act="dis" data-id="${u.id}">${u.disabled ? 'zapnout' : 'vypnout'}</button> <button class="small danger" data-act="del" data-id="${u.id}">smazat</button></td></tr>`).join('')}</tbody></table>`;
       ul.querySelectorAll('button[data-act]').forEach(b => b.onclick = async () => {
         const id = +b.dataset.id, u = state.users.find(x => x.id === id);
@@ -631,6 +631,7 @@ function renderSettings(m, adminMode = false) {
           if (b.dataset.act === 'pw') { const pw = prompt(`Nové heslo pro ${u.name} (aspoň 8 znaků):`); if (!pw) return; await api(`/users/${id}`, { method: 'PUT', body: { password: pw } }); toast('heslo nastaveno'); }
           else if (b.dataset.act === 'udb') { const q = prompt(`Správce v userdb pro účet ${u.name} — uid, e-mail nebo přezdívka (prázdné = zrušit vazbu):`, u.userdb_nick || u.email || ''); if (q === null) return; await api(`/users/${id}`, { method: 'PUT', body: { userdb: q } }); toast(q ? 'účet navázán na userdb' : 'vazba zrušena'); }
           else if (b.dataset.act === 'udbimp') { openModal({ type: 'discover', user: id }); return; }
+          else if (b.dataset.act === 'aps') { openModal({ type: 'userAps', user: id }); return; }
           else if (b.dataset.act === 'role') { await api(`/users/${id}`, { method: 'PUT', body: { role: u.role === 'admin' ? 'user' : 'admin' } }); toast('role změněna'); }
           else if (b.dataset.act === 'dis') { await api(`/users/${id}`, { method: 'PUT', body: { disabled: !u.disabled } }); toast(u.disabled ? 'účet zapnut' : 'účet vypnut'); }
           else if (b.dataset.act === 'del') {
@@ -643,12 +644,20 @@ function renderSettings(m, adminMode = false) {
           await renderUsers();
         } catch (e) { toast(e.message, true); }
       });
+      };
+      if (state.users && state.users.length) draw();
+      try { const fresh = await api('/users'); const changed = JSON.stringify(fresh) !== JSON.stringify(state.users); state.users = fresh; if (changed || !ul.querySelector('table')) draw(); }
+      catch (e) { if (!ul.querySelector('table')) ul.textContent = e.message; }
     };
     renderUsers();
     if ($('#regtoggle')) $('#regtoggle').onchange = async (e) => { try { state.settings = await api('/settings', { method: 'PUT', body: { allow_registration: e.target.checked } }); toast(e.target.checked ? 'registrace povolena' : 'registrace vypnuta'); } catch (e2) { toast(e2.message, true); } };
     if ($('#useradd')) $('#useradd').onsubmit = async (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); try { await api('/users', { method: 'POST', body: b }); toast(`účet ${b.name} založen`); e.target.reset(); await renderUsers(); } catch (e2) { toast(e2.message, true); } };
   }
-  const ab = $('#auditbox'); if (ab) ab.ontoggle = async () => { if (!ab.open) return; try { const rows = await api('/audit'); $('#auditlist').innerHTML = rows.length ? `<table>${rows.map(r => `<tr><td class="muted">${fmtTs(Math.floor(r.ts / 1000))}</td><td>${esc(r.user)}</td><td class="mono">${esc(r.ip || '')}</td><td>${esc(r.action)}</td><td class="muted" style="white-space:normal">${esc(r.detail)}</td></tr>`).join('')}</table>` : 'zatím nic'; } catch (e) { $('#auditlist').textContent = e.message; } };
+  const ab = $('#auditbox'); if (ab) {
+    const drawAudit = (rows) => { const el = $('#auditlist'); if (el) el.innerHTML = rows.length ? `<table>${rows.map(r => `<tr><td class="muted">${fmtTs(Math.floor(r.ts / 1000))}</td><td>${esc(r.user)}</td><td class="mono">${esc(r.ip || '')}</td><td>${esc(r.action)}</td><td class="muted" style="white-space:normal">${esc(r.detail)}</td></tr>`).join('')}</table>` : 'zatím nic'; };
+    if (state.auditRows) drawAudit(state.auditRows); // při překreslení (otevřený box) hned z cache, ať stránka nezmění výšku a neposkočí
+    ab.ontoggle = async () => { if (!ab.open) return; try { state.auditRows = await api('/audit'); drawAudit(state.auditRows); } catch (e) { if (!state.auditRows) $('#auditlist').textContent = e.message; } };
+  }
   for (const [id, tr] of [['#tracksel-stable', 'v7-stable'], ['#tracksel-lt', 'v7-long-term']]) on(id, async () => { if (!confirm(`Přepnout všechna tvoje zařízení (kromě v6 a hold) na kanál ${tr}?`)) return; try { const r = await api('/devices/bulk-track', { method: 'POST', body: { track: tr } }); toast(`kanál změněn u ${r.changed} zařízení`); await loadState(); render(); } catch (e2) { toast(e2.message, true); } });
   const formBody = (form) => { const body = {}; for (const k of Object.keys(s)) { const el = form.elements[k]; if (!el) continue; body[k] = el.type === 'checkbox' ? el.checked : (el.type === 'text' || el.tagName === 'SELECT') ? el.value : parseFloat(el.value); } return body; };
   const sm = $('#setf-mine'); if (sm) sm.onsubmit = async (e) => { e.preventDefault(); try { const before = state.settings.default_track; const r = await api('/settings/mine', { method: 'PUT', body: formBody(e.target) }); state.settings = r.settings; state.settingsOwn = r.own; toast('moje nastavení uloženo');
@@ -686,7 +695,7 @@ function renderModal() {
     $('#pwf').onsubmit = async (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); if (b.password !== b.again) return toast('hesla se neshodují', true); try { await api('/me/password', { method: 'POST', body: { old: b.old, password: b.password } }); toast('heslo změněno'); closeModal(); } catch (e2) { toast(e2.message, true); } };
   } else if (md.type === 'discover') {
     const nh = esc(state.netHint || '192.0.2');
-    const udbOn = state.auth.userdb && state.auth.userdb.enabled && (state.auth.userdb.uid || md.user);
+    const udbOn = state.auth.userdb && state.auth.userdb.enabled && (state.auth.userdb.uid || state.auth.userdb.aps || md.user);
     bg.innerHTML = `<div class="modal"><h2>Přidat zařízení skenem</h2><form id="discf" class="form">
       <label class="wide">seznam zařízení, jedno na řádek: <code>ip uživatel heslo [název]</code> (prázdné heslo jako <code>""</code>, port jako <code>ip:port</code>)<textarea name="entries" rows="7" placeholder="${nh}.12.7 admin tajne sektor sever&#10;${nh}.12.8 admin tajne&#10;${nh}.12.9:2222 admin &quot;&quot;"></textarea></label>
       <label class="wide">a/nebo rozsahy k prohledání (CIDR, a.b.c.x-y; více oddělených mezerou/čárkou)<input name="ranges" placeholder="${nh}.12.0/24 ${nh}.13.10-50"></label>
@@ -710,8 +719,8 @@ function renderModal() {
         let r; try { r = await api('/userdb/me' + (allMode ? '?all=1' : forUser)); } catch (e) { box.innerHTML = `<p class="err">${esc(e.message)}</p>`; $('#udbload').disabled = false; return; }
         if (!r.linked) { box.innerHTML = `<p>Účet <b>${esc(r.user.name)}</b> není navázaný na správce v userdb${r.error ? ` (${esc(r.error)})` : ''}. Vazbu nastaví správce v Nastavení → Uživatelé (nebo se udělá sama při přihlášení přes SSO).</p>`; return; }
         const nAps = r.areas.reduce((n, a) => n + a.aps.length, 0);
-        box.innerHTML = `<p>${r.all ? `<b>Celá síť</b>: ${r.areas.length} oblastí, ${nAps} APček. Zařízení připadnou účtu správce oblasti (SO, jinak zástupce); kdo účet nemá, dostane ho založený dopředu a při přihlášení přes SSO do něj spadne. Oblast bez správce připadne tobě. Chceš-li je mít pod sebou, zaškrtni <b>přiřadit mně</b> pod tabulkou.` : `Správce <b>${esc(r.admin.nick)}</b> (uid ${r.admin.id}): ${r.areas.length} oblastí, ${nAps} APček.`}</p>
-          <div class="tablewrap"><table class="grid"><thead><tr><th><input type="checkbox" id="apall" checked title="vše / nic"></th><th>oblast</th><th>APčko</th>${r.all ? '<th>vlastníkem bude</th>' : ''}<th class="num">zařízení AP</th><th class="num">zařízení členů</th><th class="num">už v upgraderu</th></tr></thead><tbody>${r.areas.map(a => a.aps.map(ap => `<tr><td><input type="checkbox" class="apsel" value="${ap.id}" ${ap.active ? 'checked' : ''}></td><td>${esc(a.name)} ${r.all ? `<span class="muted" title="${esc(a.admins)}">${esc(a.admins ? a.admins.split(',')[0] : '')}</span>` : `<span class="muted">(${a.role === 'SO' ? 'správce' : 'zástupce'})</span>`}</td>${r.all ? `<td class="udbowner" data-owner="${esc(a.owner)}">${esc(a.owner)}</td>` : ''}<td>${esc(ap.name)}${ap.active ? '' : ' <span class="badge b-muted">neaktivní</span>'}</td><td class="num">${ap.total - ap.members}</td><td class="num">${ap.members}</td><td class="num">${ap.imported ? `<b>${ap.imported}</b>` : '<span class="muted">0</span>'}</td></tr>`).join('')).join('')}</tbody></table></div>
+        box.innerHTML = `<p>${r.all ? `<b>Celá síť</b>: ${r.areas.length} oblastí, ${nAps} APček. Zařízení připadnou účtu správce oblasti (SO, jinak zástupce); kdo účet nemá, dostane ho založený dopředu a při přihlášení přes SSO do něj spadne. Oblast bez správce připadne tobě. Chceš-li je mít pod sebou, zaškrtni <b>přiřadit mně</b> pod tabulkou.` : `Správce <b>${esc(r.admin.nick)}</b>${r.admin.id ? ` (uid ${r.admin.id})` : ''}: ${r.areas.length} oblastí, ${nAps} APček.`}</p>
+          <div class="tablewrap"><table class="grid"><thead><tr><th><input type="checkbox" id="apall" checked title="vše / nic"></th><th>oblast</th><th>APčko</th>${r.all ? '<th>vlastníkem bude</th>' : ''}<th class="num">zařízení AP</th><th class="num">zařízení členů</th><th class="num">už v upgraderu</th></tr></thead><tbody>${r.areas.map(a => a.aps.map(ap => `<tr><td><input type="checkbox" class="apsel" value="${ap.id}" ${ap.active ? 'checked' : ''}></td><td>${esc(a.name)} ${r.all ? `<span class="muted" title="${esc(a.admins)}">${esc(a.admins ? a.admins.split(',')[0] : '')}</span>` : `<span class="muted">(${a.role === 'SO' ? 'správce' : a.role === 'assigned' ? 'přiděleno správcem nástroje' : 'zástupce'})</span>`}</td>${r.all ? `<td class="udbowner" data-owner="${esc(a.owner)}">${esc(a.owner)}</td>` : ''}<td>${esc(ap.name)}${ap.active ? '' : ' <span class="badge b-muted">neaktivní</span>'}</td><td class="num">${ap.total - ap.members}</td><td class="num">${ap.members}</td><td class="num">${ap.imported ? `<b>${ap.imported}</b>` : '<span class="muted">0</span>'}</td></tr>`).join('')).join('')}</tbody></table></div>
           ${sumHtml(r.lastImport)}
           <div class="row" style="margin-top:8px"><button class="primary" id="udbgo" ${state.discovery && !state.discovery.finishedAt ? 'disabled' : ''}>⇩ Načíst vybraná APčka</button> <label class="check" title="kanál RouterOS, který dostanou nově přidaná zařízení (starý hardware bez v7 jde vždy na v6); výchozí je z tvého nastavení">kanál pro nová zařízení <select id="udbtrack"><option value="v7-stable" ${state.settings.default_track !== 'v7-long-term' ? 'selected' : ''}>v7 stable</option><option value="v7-long-term" ${state.settings.default_track === 'v7-long-term' ? 'selected' : ''}>v7 long-term</option></select></label> ${r.all ? ` <label class="check" title="zařízení vybraných APček dostaneš ty, ne správce oblasti z userdb; účty správců se nezakládají"><input type="checkbox" id="udbme"> přiřadit mně (ne správci oblasti)</label>` : ''} <span class="hint">loginy se ověří skenem na serveru, u větších oblastí to trvá pár minut</span></div>`;
         if ($('#udbme')) $('#udbme').onchange = (e) => box.querySelectorAll('td.udbowner').forEach(td => { td.textContent = e.target.checked ? 'já' : td.dataset.owner; });
@@ -742,6 +751,36 @@ function renderModal() {
       $('#udbload').onclick = load;
       if (md.user) load(); // správce otevřel import za jiného uživatele → rovnou načíst
     }
+  } else if (md.type === 'userAps') {
+    // správce: přidělení APček z userdb účtu (navíc k jeho oblastem ze SO/ZSO vazby)
+    const u = (state.users || []).find(x => x.id === md.user) || { id: md.user, name: '?', userdb_aps: [] };
+    bg.innerHTML = `<div class="modal" style="width:min(640px,96vw)"><h2>Přidělená APčka — ${esc(u.name)}</h2>
+      <div class="hint" style="margin-bottom:8px">Uživatel tato APčka uvidí v „Natáhnout z userdb“ vedle svých oblastí (pokud nějaké má), může si natáhnout jejich zařízení, převzít je od kolegy a spravovat je.${u.userdb_uid ? ` Vazba na správce ${esc(u.userdb_nick)} (uid ${u.userdb_uid}) zůstává.` : ''}</div>
+      <input type="text" id="uapsq" placeholder="hledat oblast / APčko…" style="width:100%;box-sizing:border-box;margin-bottom:8px" autocomplete="off">
+      <div id="uapslist" class="tablewrap" style="max-height:50vh;overflow:auto"><span class="muted">načítám oblasti a APčka z userdb…</span></div>
+      <div class="row" style="margin-top:10px"><button class="primary" id="uapssave">Uložit</button><button type="button" id="mclose">Zavřít</button> <span class="muted" id="uapscnt"></span></div></div>`;
+    const sel = new Set((u.userdb_aps || []).map(Number));
+    const cnt = () => { const c = $('#uapscnt'); if (c) c.textContent = sel.size ? `vybráno ${sel.size}` : 'nic nevybráno'; };
+    cnt();
+    (async () => {
+      let areas; try { areas = await api('/userdb/areas'); } catch (e) { const l = $('#uapslist'); if (l) l.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+      const draw = () => {
+        const l = $('#uapslist'), qEl = $('#uapsq'); if (!l) return;
+        const q = ((qEl && qEl.value) || '').trim().toLowerCase();
+        const rows = [];
+        for (const a of areas) {
+          const aps = a.aps.filter(ap => !q || a.name.toLowerCase().includes(q) || ap.name.toLowerCase().includes(q) || sel.has(ap.id));
+          if (!aps.length) continue;
+          rows.push(`<tr><td colspan="2" style="padding-top:8px"><b>${esc(a.name)}</b> <span class="muted">${esc(a.admins)}</span></td></tr>`);
+          for (const ap of aps) rows.push(`<tr><td><input type="checkbox" class="uapsel" value="${ap.id}" ${sel.has(ap.id) ? 'checked' : ''}></td><td>${esc(ap.name)}${ap.active ? '' : ' <span class="badge b-muted">neaktivní</span>'} <span class="muted">[${ap.id}]</span></td></tr>`);
+        }
+        l.innerHTML = `<table class="grid"><tbody>${rows.join('') || '<tr><td class="muted">nic nenalezeno</td></tr>'}</tbody></table>`;
+        l.querySelectorAll('.uapsel').forEach(c => c.onchange = () => { if (c.checked) sel.add(+c.value); else sel.delete(+c.value); cnt(); });
+      };
+      draw();
+      const qEl = $('#uapsq'); if (qEl) qEl.oninput = draw;
+    })();
+    on('#uapssave', async () => { try { await api(`/users/${u.id}`, { method: 'PUT', body: { userdb_aps: [...sel] } }); toast(sel.size ? `přiděleno ${sel.size} APček` : 'přidělená APčka zrušena'); closeModal(); state.users = await api('/users'); render(); } catch (e) { toast(e.message, true); } });
   } else if (md.type === 'edit') {
     const d = state.devices.find(x => x.id === md.id); if (!d) return closeModal();
     const adv = state.advanced;

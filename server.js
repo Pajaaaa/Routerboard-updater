@@ -177,12 +177,28 @@ const runnerStatusFor = (req) => {
   st.others = isAdmin(req) ? others : others.map(o => ({ ...o, jobId: 0 })); // všichni vidí kdo (uid + přezdívka) a kolik; detail jobu jen správce
   return st;
 };
+/** oblasti a APčka účtu: z userdb podle vazby na správce (SO/ZSO) + APčka přidělená správcem nástroje (users.userdb_aps, role 'assigned'); null = nic */
+async function userAreas(acct) {
+  const w = acct.userdb_uid ? await userdb.whoIs({ uid: acct.userdb_uid }) : null;
+  const areas = w ? w.areas.map(a => ({ ...a })) : [];
+  const extra = (acct.userdb_aps || []).map(Number).filter(Boolean);
+  if (extra.length) {
+    const have = new Set(areas.flatMap(a => a.aps.map(ap => Number(ap.id))));
+    for (const a of await userdb.areas()) {
+      const aps = a.aps.filter(ap => extra.includes(Number(ap.id)) && !have.has(Number(ap.id)));
+      if (aps.length) areas.push({ id: a.id, name: a.name, role: 'assigned', aps });
+    }
+  }
+  if (!areas.length) return null;
+  return { id: w ? w.id : (acct.userdb_uid || 0), nick: w ? w.nick : (acct.userdb_nick || acct.name), email: w ? w.email : (acct.email || ''), areas, apCount: areas.reduce((n, a) => n + a.aps.length, 0), linkedAdmin: !!w };
+}
+
 /** import z userdb na pozadí (viz POST /api/userdb/import): stažení loginů, doplnění existujících, nové do fronty skenu */
 async function runUserdbImport({ acct, allMode, ownerMe, onlyAps, key, prog, byName, isAdm, ip, track }) {
   void isAdm; void ip;
   let r;
   if (allMode) { if (!onlyAps) throw new Error('vyber APčka'); prog.phase = `stahuji loginy pro ${onlyAps.size} APček`; r = await userdb.devicesForAps([...onlyAps]); r.admin = { nick: `správce ${acct.userdb_nick || acct.name} (celá síť)`, apCount: onlyAps.size }; }
-  else { prog.phase = 'stahuji loginy'; r = await userdb.devicesFor({ uid: acct.userdb_uid }, { apIds: onlyAps ? [...onlyAps] : null }); if (!r.admin) throw new Error('správce v userdb nenalezen'); }
+  else { prog.phase = 'stahuji loginy'; const ua = await userAreas(acct); if (!ua) throw new Error('účet nemá v userdb žádnou oblast ani přidělené APčko'); r = await userdb.devicesFor(ua, { apIds: onlyAps ? [...onlyAps] : null }); if (!r.admin) throw new Error('správce v userdb nenalezen'); }
   prog.phase = 'zakládám';
   // vlastník: v běžném importu účet uživatele; při importu celé sítě účet správce oblasti (SO, jinak ZSO) podle vazby na userdb —
   // když účet ještě nemá, založí se dopředu (jméno = e-mail, při SSO přihlášení se napojí); oblast bez správce připadne importujícímu
@@ -260,7 +276,7 @@ async function linkUserdb(userId, who) {
   db.audit(u ? u.name : String(userId), 'účet navázán na userdb', `${w.nick} (uid ${w.id}), ${w.areas.length} oblastí`);
   return w;
 }
-const userdbFor = (req) => { if (!userdb.enabled()) return { enabled: false }; const u = req.user && db.getUser(req.user.id); return { enabled: true, uid: (u && u.userdb_uid) || 0, nick: (u && u.userdb_nick) || '' }; };
+const userdbFor = (req) => { if (!userdb.enabled()) return { enabled: false }; const u = req.user && db.getUser(req.user.id); return { enabled: true, uid: (u && u.userdb_uid) || 0, nick: (u && u.userdb_nick) || '', aps: (u && u.userdb_aps || []).length }; };
 const discoveryFor = (req) => discovery.status(req.user.id);
 /** SSE: událost projde jen tomu, kdo smí vidět dotčené zařízení / job */
 const jobOwnerCache = new Map(); // jobId -> { at, owner } (SSE: každý log řádek × každý klient by jinak dělal dotaz do DB)
@@ -356,6 +372,11 @@ async function api(req, res, method, p, url) {
         if (!q) { f.userdb_uid = 0; f.userdb_nick = ''; }
         else { const w = await userdb.whoIs(/^\d+$/.test(q) ? { uid: q } : q.includes('@') ? { email: q } : { nick: q }); if (!w) throw new Error(`správce „${q}“ v userdb není (nebo nemá žádnou oblast)`); const other = db.getUserByUserdbUid(w.id); if (other && other.id !== uid) throw new Error(`na ${w.nick} (uid ${w.id}) je už navázaný účet ${other.name}`); f.userdb_uid = w.id; f.userdb_nick = w.nick; if (w.email && !u.email) f.email = w.email; }
       }
+      if ('userdb_aps' in b) { // APčka z userdb přidělená správcem nástroje (id), prázdné pole = žádná
+        const ids = [...new Set((Array.isArray(b.userdb_aps) ? b.userdb_aps : []).map(Number).filter(x => Number.isInteger(x) && x > 0))];
+        if (ids.length) { if (!userdb.enabled()) throw new Error('napojení na userdb není nakonfigurováno'); const known = new Set((await userdb.areas()).flatMap(a => a.aps.map(ap => Number(ap.id)))); const bad = ids.filter(i => !known.has(i)); if (bad.length) throw new Error(`APčka ${bad.join(', ')} v userdb nejsou`); }
+        f.userdb_aps = JSON.stringify(ids);
+      }
       if ('disabled' in b) f.disabled = !!b.disabled;
       const losesAdmin = u.role === 'admin' && ((f.role && f.role !== 'admin') || f.disabled);
       if (losesAdmin && db.countAdmins() <= 1) throw new Error('nelze odebrat posledního správce');
@@ -405,10 +426,14 @@ async function api(req, res, method, p, url) {
       }
       return send(res, 200, { linked: true, all: true, user: { id: acct.id, name: acct.name }, admin: { id: acct.userdb_uid, nick: acct.userdb_nick || acct.name, email: acct.email }, areas: areasOut, lastImport: userdbImports.get(-1) || null });
     }
+    // správce: prostý seznam oblastí a APček (bez počítání zařízení) pro dialog přidělení APček uživateli
+    if (method === 'GET' && p === '/api/userdb/areas' && isAdmin(req)) {
+      const all = await userdb.areas();
+      return send(res, 200, all.map(a => ({ id: a.id, name: a.name, admins: a.admins.map(x => `${x.nick} (${x.role})`).join(', '), aps: a.aps.map(ap => ({ id: ap.id, name: ap.name, active: ap.active })) })));
+    }
     if (method === 'GET' && p === '/api/userdb/me') {
-      if (!acct.userdb_uid) return send(res, 200, { linked: false, user: { id: acct.id, name: acct.name } });
-      const w = await userdb.whoIs({ uid: acct.userdb_uid });
-      if (!w) return send(res, 200, { linked: false, user: { id: acct.id, name: acct.name }, error: `uid ${acct.userdb_uid} už v userdb není správcem žádné oblasti` });
+      const w = await userAreas(acct);
+      if (!w) return send(res, 200, { linked: false, user: { id: acct.id, name: acct.name }, error: acct.userdb_uid ? `uid ${acct.userdb_uid} už v userdb není správcem žádné oblasti` : '' });
       const mine = db.listDevices(acct.id);
       const areas = [];
       for (const a of w.areas) {
@@ -425,9 +450,8 @@ async function api(req, res, method, p, url) {
     // převzetí zařízení kolegou z téže oblasti: jen zařízení importovaná z userdb, jejichž AP je v oblasti, kde je žadatel SO/ZSO (ověřuje se živě v userdb)
     if (method === 'POST' && p === '/api/userdb/takeover') {
       const b = await readBody(req).catch(() => ({}));
-      if (!acct.userdb_uid) throw new Error('účet není navázaný na správce v userdb');
-      const w = await userdb.whoIs({ uid: acct.userdb_uid });
-      if (!w) throw new Error(`uid ${acct.userdb_uid} už v userdb není správcem žádné oblasti`);
+      const w = await userAreas(acct);
+      if (!w) throw new Error('účet není navázaný na správce v userdb ani nemá přidělená APčka');
       const myAps = new Set(); for (const a of w.areas) for (const ap of a.aps) myAps.add(Number(ap.id));
       const ids = Array.isArray(b.ids) ? b.ids.map(Number).filter(Boolean).slice(0, 2000) : [];
       let taken = 0; const skipped = [];
@@ -472,7 +496,7 @@ async function api(req, res, method, p, url) {
       const b = await readBody(req).catch(() => ({}));
       const allMode = !!b.all && isAdmin(req);
       const ownerMe = allMode && !!b.owner_me;
-      if (!allMode && !acct.userdb_uid) throw new Error('účet není navázaný na správce v userdb');
+      if (!allMode && !acct.userdb_uid && !(acct.userdb_aps || []).length) throw new Error('účet není navázaný na správce v userdb ani nemá přidělená APčka');
       const onlyAps = Array.isArray(b.aps) && b.aps.length ? new Set(b.aps.map(Number)) : null;
       const track = ['v7-stable', 'v7-long-term'].includes(b.track) ? b.track : ''; // kanál pro nová zařízení z dialogu; prázdné = z nastavení uživatele
       const key = allMode ? -1 : acct.id;

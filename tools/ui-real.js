@@ -84,6 +84,17 @@ const check = (name, ok, extra = '') => { console.log(`  ${name}: ${ok ? 'OK' : 
   await run("state.auth.passwordLogin = false; state.admin = true; state.view = 'admin'; render(); window.__p = 1"); await sleep(800);
   const ul = w.document.querySelector('#userlist');
   check('Správa: seznam účtů naplněný', !!(ul && ul.querySelector('table tbody tr')), ul ? ul.textContent.slice(0, 80) : 'chybí #userlist');
+  // Správa: dialog přidělení APček z userdb (tlačítko „APčka“ u účtu) se musí otevřít a mít uložení; a překreslení nesmí seznam účtů vyprázdnit (skákání stránky nahoru, 9.9.2026)
+  {
+    const before = errors.length; let err = '';
+    try {
+      await run("state.auth.userdb = { enabled: true, uid: 0, nick: '', aps: 0 }; render(); window.__p = 1"); await sleep(600);
+      await run("const b = document.querySelector('#userlist button[data-act=\"aps\"]'); if (!b) throw new Error('chybí tlačítko APčka'); b.click(); window.__p = 1"); await sleep(300);
+      await run("if (!state.modal || state.modal.type !== 'userAps') throw new Error('modal userAps se neotevřel'); if (!document.querySelector('#uapssave') || !document.querySelector('#uapsq')) throw new Error('chybí prvky dialogu'); closeModal(); window.__p = 1");
+      await run("render(); window.__p = 1"); await run("if (!document.querySelector('#userlist table tbody tr')) throw new Error('seznam účtů po překreslení prázdný'); window.__p = 1");
+    } catch (e) { err = e && e.message || String(e); }
+    check('Správa: dialog přidělení APček + seznam účtů hned po překreslení', !err && !errors.slice(before).length, [err, errors.slice(before).join('; ')].filter(Boolean).join(' | '));
+  }
   if (fail) { console.error(`UI real DOM: ${fail} chyb`); process.exit(1); }
   console.log('UI real DOM OK');
   process.exit(0);
