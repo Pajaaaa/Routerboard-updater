@@ -288,7 +288,7 @@ async function api(req, res, method, p, url) {
   if (method === 'GET' && p === '/api/state') {
     const latest = V.getLatest();
     if (!latest.fetchedAt) await V.refreshLatest().catch(() => {});
-    return send(res, 200, { latest: V.getLatest(), settings: db.getSettings(req.user.id), settingsOwn: db.getUserSettings(req.user.id), settingsGlobal: isAdmin(req) ? db.getSettings() : undefined, devices: withSuggestions(visDevices(req)), jobs: visJobs(req, 30), runner: runnerStatusFor(req), tracks: TRACKS, scanning: [...scanner.inProgress], discovery: discoveryFor(req), admin: isAdmin(req), user: req.user });
+    return send(res, 200, { latest: V.getLatest(), settings: db.getSettings(req.user.id), settingsOwn: db.getUserSettings(req.user.id), settingsGlobal: isAdmin(req) ? db.getSettings() : undefined, devices: withSuggestions(visDevices(req)), jobs: visJobs(req, 30), runner: runnerStatusFor(req), tracks: TRACKS, scanning: [...scanner.inProgress], checkProg: scanner.checkProgress(req.user.id), discovery: discoveryFor(req), admin: isAdmin(req), user: req.user });
   }
   if (method === 'POST' && p === '/api/versions/refresh') { const l = await V.refreshLatest(true); bus.emit('event', { type: 'latest', latest: l }); return send(res, 200, l); }
   if (method === 'GET' && seg[0] === 'changelog' && seg[1]) return send(res, 200, await V.getChangelog(seg[1]));
@@ -559,8 +559,8 @@ async function api(req, res, method, p, url) {
     const b = await readBody(req).catch(() => ({}));
     const mine = new Set(visDevices(req).map(d => d.id));
     const ids = (b.ids ? b.ids.map(Number) : [...mine]).filter(i => mine.has(i));
-    scanner.scanAll(ids).catch(() => {});
-    return send(res, 200, { started: true });
+    scanner.scanAll(ids, { ownerId: req.user.id, tag: 'check' }).catch(() => {});
+    return send(res, 200, { started: true, total: ids.length });
   }
   if (seg[0] === 'devices' && seg[1]) {
     const id = parseInt(seg[1], 10);

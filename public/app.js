@@ -9,7 +9,7 @@ const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
 let VF = ''; try { VF = localStorage.getItem('mtu_vf') || ''; } catch {}
 // řazení se nepamatuje: po každém načtení stránky je výchozí strom topologie (jiné řazení platí jen do obnovení stránky)
 let SORT = 'tree', SORTDIR = 'asc'; try { localStorage.removeItem('mtu_sort'); } catch {}
-const state = { vf: VF, scanProg: null, sortDir: SORTDIR, owner: 0, authed: false, auth: { sso: false, passwordLogin: true, user: null }, view: 'devices', advanced: ADV, devices: [], jobs: [], latest: { versions: {} }, settings: {}, runner: {}, tracks: [], selected: new Set(), filter: '', group: '', sort: SORT, modal: null, job: null, jobLog: [], detail: null, scanning: [] };
+const state = { vf: VF, scanProg: null, checkProg: null, sortDir: SORTDIR, owner: 0, authed: false, auth: { sso: false, passwordLogin: true, user: null }, view: 'devices', advanced: ADV, devices: [], jobs: [], latest: { versions: {} }, settings: {}, runner: {}, tracks: [], selected: new Set(), filter: '', group: '', sort: SORT, modal: null, job: null, jobLog: [], detail: null, scanning: [] };
 
 async function api(path, opts = {}) {
   const r = await fetch(BASE + '/api' + path, { headers: { 'Content-Type': 'application/json' }, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
@@ -244,6 +244,7 @@ function renderDevices(m) {
     ${adv ? `<button id="scansel" ${state.selected.size ? '' : 'disabled'}>⟳ Zkontrolovat vybrané (${state.selected.size})</button>
     <button id="acceptparents" title="u zařízení bez nadřazeného prvku nastaví toho, koho vidí jako souseda na uplinku">⇡ Přebrat detekované rodiče</button>` : ''}
     <button class="ok" id="jobsel" ${state.selected.size ? '' : 'disabled'}>▶ Upgradovat vybrané (${state.selected.size})</button>
+    ${checkProgHtml()}
     ${state.admin && state.users && state.users.length > 1 ? `<button id="movesel" ${state.selected.size ? '' : 'disabled'} title="předat vybraná zařízení jinému uživateli">⇄ Přesunout vybrané (${state.selected.size})</button>` : ''}
     <button class="danger" id="delsel" ${state.selected.size ? '' : 'disabled'} title="smaže vybraná zařízení z evidence včetně historie a záloh (vlastní; správce jakákoli)">✕ Smazat vybrané (${state.selected.size})</button>
     <span class="spacer"></span>
@@ -270,8 +271,8 @@ function renderDevices(m) {
   ${list.length ? '' : `<tr><td colspan="${adv ? 11 : 6}" class="empty">Zatím žádná zařízení. Přidej je skenem: zadáš IP adresy nebo rozsahy a loginy, nalezené routery se založí samy.</td></tr>`}
   </tbody></table></div></div>`;
   on('#discover', () => openModal({ type: 'discover' }));
-  on('#scanall', async () => { await api('/scan', { method: 'POST', body: {} }); toast('kontrola všech zařízení spuštěna'); });
-  on('#scansel', async () => { await api('/scan', { method: 'POST', body: { ids: [...state.selected] } }); toast('kontrola spuštěna'); });
+  on('#scanall', async () => { const r = await api('/scan', { method: 'POST', body: {} }); state.checkProg = { done: 0, total: r.total || 0, startedAt: Date.now(), finishedAt: 0 }; render(); });
+  on('#scansel', async () => { const r = await api('/scan', { method: 'POST', body: { ids: [...state.selected] } }); state.checkProg = { done: 0, total: r.total || 0, startedAt: Date.now(), finishedAt: 0 }; render(); });
   on('#jobsel', () => openModal({ type: 'newjob', ids: [...state.selected] }));
   on('#upall', () => openModal({ type: 'newjob', ids: toUpgrade.map(d => d.id) }));
   on('#acceptparents', async () => { try { const r = await api('/devices/accept-parents', { method: 'POST', body: {} }); toast(`nastaveno ${r.updated} nadřazených prvků`); await loadState(); render(); } catch (e) { toast(e.message, true); } });
@@ -847,6 +848,15 @@ function parentOptions(sel, selfId = 0) {
   const foreign = sel && !cur && self && self.parent_foreign ? `<option value="${sel}" selected>${esc(self.parent_foreign.name)} — zařízení jiného uživatele${self.parent_foreign.user ? ` (${esc(self.parent_foreign.user)})` : ''}</option>` : '';
   return `<option value="0" ${!sel ? 'selected' : ''}>— žádný —</option>` + foreign + list.map(d => `<option value="${d.id}" ${d.id === sel ? 'selected' : ''}>${esc(devName(d))} (${esc(d.host)})${d.managed ? '' : ' [neřízený]'}</option>`).join('');
 }
+/** progress bar hromadné kontroly (⟳ Zkontrolovat stav / vybrané): hotovo/celkem, uplynulý čas a odhad dokončení z průměru na zařízení */
+function checkProgHtml() {
+  const p = state.checkProg; if (!p || !p.total) return '';
+  const now = Date.now(), el = Math.max(0, ((p.finishedAt || now) - (p.startedAt || now)) / 1000);
+  const fmt = (s) => s < 60 ? `${Math.round(s)} s` : `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`;
+  if (p.finishedAt) { if (now - p.finishedAt > 60000) return ''; return `<div class="wide" id="checkprog" style="flex-basis:100%"><span class="muted">✔ kontrola ${p.total} zařízení hotová za ${fmt(el)}</span><div class="progress big"><div style="width:100%"></div></div></div>`; }
+  const eta = p.done ? (el / p.done) * (p.total - p.done) : 0;
+  return `<div class="wide" id="checkprog" style="flex-basis:100%"><span class="muted">⟳ kontroluji zařízení: <b>${p.done}/${p.total}</b> · ${fmt(el)}${p.done ? ` · zbývá ~${fmt(eta)}` : ' · odhad po prvních výsledcích'}</span><div class="progress big"><div style="width:${Math.round(p.done / p.total * 100)}%"></div></div></div>`;
+}
 function scanProgHtml() {
   const p = state.scanProg; if (!p) return '';
   if (p.done < p.total) return `<div style="margin:8px 0"><b>⏳ Kontrola zařízení a topologie:</b> ${p.done}/${p.total} <span class="muted">(verze, model, sousedé, rodič — po dokončení se seznam seřadí jako strom)</span><div class="progress" style="margin:6px 0"><div style="width:${p.total ? p.done / p.total * 100 : 0}%"></div></div></div>`;
@@ -904,7 +914,7 @@ async function loadState() {
   const s = await api('/state');
   if (state.jobsLimit === undefined) { try { const v = localStorage.getItem('mtu_joblimit'); state.jobsLimit = v === null ? 10 : +v; } catch { state.jobsLimit = 10; } }
   const lim = state.jobsLimit ?? 10; if ((state.admin && state.jobOwner) || !lim || lim > 30) { try { s.jobs = state.admin && state.jobOwner ? await api(`/jobs?owner=${state.jobOwner}&limit=${lim || 1000}`) : await api(`/jobs?limit=${lim || 1000}`); } catch {} }
-  Object.assign(state, { devices: s.devices, jobs: s.jobs, latest: s.latest, settings: s.settings, settingsOwn: s.settingsOwn || {}, settingsGlobal: s.settingsGlobal, runner: s.runner, tracks: s.tracks, scanning: s.scanning, discovery: s.discovery, admin: s.admin, auth: { ...state.auth, user: s.user } });
+  Object.assign(state, { devices: s.devices, jobs: s.jobs, latest: s.latest, settings: s.settings, settingsOwn: s.settingsOwn || {}, settingsGlobal: s.settingsGlobal, runner: s.runner, tracks: s.tracks, scanning: s.scanning, checkProg: s.checkProg && !s.checkProg.finishedAt ? s.checkProg : (state.checkProg && !state.checkProg.finishedAt ? state.checkProg : s.checkProg), discovery: s.discovery, admin: s.admin, auth: { ...state.auth, user: s.user } });
   if (s.admin) { try { state.users = await api('/users'); } catch { state.users = null; } try { state.jobCounts = await api('/jobs/counts'); } catch { state.jobCounts = null; } }
   // správce: výchozí pohled = vlastní zařízení; ruční přepnutí na jiného vlastníka si pamatuje prohlížeč
   if (s.admin && s.user && state.ownerInit !== s.user.id) { state.ownerInit = s.user.id; let saved = null; try { saved = localStorage.getItem('mtu_owner'); } catch {} state.owner = saved !== null && saved !== '' ? +saved : s.user.id; }
@@ -925,6 +935,8 @@ function connectSSE() {
     else if (ev.type === 'runner') { scheduleReload(); }
     else if (ev.type === 'discovery' || ev.type === 'discovery-done') { state.discovery = ev.state; const r = $('#discres'); if (r) r.innerHTML = discoveryHtml(ev.state); if (ev.type === 'discovery-done') { toast(`sken rozsahu hotov: ${ev.state.added} nových zařízení`); loadState().then(() => { if (state.modal && state.modal.type === 'discover') renderModal(); else render(); }); } }
     else if (ev.type === 'discovery-error') toast('sken rozsahu: ' + ev.error, true);
+    else if (ev.type === 'scan-progress' && ev.tag === 'check') { state.checkProg = { done: ev.done, total: ev.total, startedAt: ev.startedAt || (state.checkProg && state.checkProg.startedAt) || Date.now(), finishedAt: 0 }; renderSoon(); }
+    else if (ev.type === 'scan-done' && ev.tag === 'check') { if (state.checkProg) state.checkProg = { ...state.checkProg, done: state.checkProg.total, finishedAt: Date.now() }; toast(`kontrola hotová (${ev.count} zařízení)`); scheduleReload(); }
     else if (ev.type === 'scan-progress' && ev.tag === 'discovery') { state.scanProg = { done: ev.done, total: ev.total, ids: ev.ids }; const r = $('#discres'); if (r && state.discovery) r.innerHTML = discoveryHtml(state.discovery); }
     else if (ev.type === 'scan-done' && ev.tag === 'discovery' && state.scanProg) { state.scanProg = { ...state.scanProg, done: state.scanProg.total, ids: ev.ids || state.scanProg.ids }; loadState().then(() => { render(); const r = $('#discres'); if (r && state.discovery) r.innerHTML = discoveryHtml(state.discovery); }); }
     else if (ev.type === 'devices-changed') scheduleReload();
@@ -938,5 +950,7 @@ function connectSSE() {
   if (state.authed) { await loadState(); connectSSE(); }
   render();
   setInterval(() => { if (state.authed && state.view === 'devices' && !state.modal) renderLive(); }, 60000);
+  // běžící hromadná kontrola: každou sekundu jen přepsat progress bar (uplynulý čas, odhad), ne celý seznam
+  setInterval(() => { const p = state.checkProg; if (!p || p.finishedAt || state.view !== 'devices') return; const el = $('#checkprog'); if (el) el.outerHTML = checkProgHtml(); }, 1000);
   setInterval(async () => { if (!state.authed) return; try { state.stats = await api('/stats'); const el = document.querySelector('.stats'); if (el) el.outerHTML = statsStrip(); } catch {} }, 30000);
 })();
