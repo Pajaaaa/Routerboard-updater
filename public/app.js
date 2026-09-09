@@ -838,7 +838,7 @@ function scanProgHtml() {
 }
 function discoveryHtml(st) {
   if (!st || st.total === undefined) return '<span class="muted">Zatím žádný sken. Zadej adresy nebo rozsah a aspoň jeden login.</span>';
-  st = { found: [], authFailed: [], errors: [], foreign: [], notRouterOS: [], ...st };
+  st = { found: [], authFailed: [], errors: [], foreign: [], notRouterOS: [], winboxOnly: [], ...st };
   if (st.queued) return `<div>⏳ <b>Ve frontě</b>${st.position > 1 ? ` (pořadí ${st.position})` : ''}: právě běží sken jiného uživatele, tenhle se spustí hned po něm (${st.total} adres${st.label ? `, ${esc(st.label)}` : ''}).</div>`;
   const running = !st.finishedAt;
   return `<div>${running ? '⏳ běží' : '✔ hotovo'}${st.label ? ` (${esc(st.label)})` : ''}: ${st.done}/${st.total} adres, ${st.open} s otevřeným SSH, <b>${st.added} nových založeno</b>, ${st.existing} už v seznamu, ${st.foreign.length ? `<b style="color:var(--err)">${st.foreign.length} u jiného uživatele</b>, ` : ''}${st.authFailed.length} bez platného loginu, ${st.notRouterOS.length ? `${st.notRouterOS.length} není RouterOS, ` : ''}${st.errors.length} chyb</div>
@@ -846,6 +846,7 @@ function discoveryHtml(st) {
     ${st.finishedAt && st.added ? scanProgHtml() : ''}
     ${st.found.length ? `<details open><summary>nalezené (${st.found.length})</summary><div class="mono" >${st.found.map(f => `<div>${esc(f.host)} ${esc(f.identity || '')} ${esc(f.board || '')} ${esc(f.version || '')}${f.existing ? ' <span class="muted">(už v seznamu)</span>' : ''}</div>`).join('')}</div></details>` : ''}
     ${st.foreign.length ? `<details open><summary>už má u sebe jiný uživatel (${st.foreign.length})</summary><div class="mono" >${st.foreign.map(esc).join('<br>')}</div></details>` : ''}
+    ${st.winboxOnly.length ? `<details open class="warnbox"><summary><b style="color:var(--err)">⚠ RouterOS jen s Winboxem, bez SSH (${st.winboxOnly.length})</b> — nástroj je nemůže kontrolovat ani upgradovat; zapni na nich <code>/ip service enable ssh</code> (a povol IP serveru), pak sken zopakuj</summary><div class="mono" style="color:var(--err)">${st.winboxOnly.map(esc).join('<br>')}</div></details>` : ''}
     ${st.notRouterOS.length ? `<details open><summary>SSH otevřené, ale není to RouterOS (${st.notRouterOS.length})</summary><div class="mono" >${st.notRouterOS.map(esc).join('<br>')}</div></details>` : ''}
     ${st.authFailed.length ? `<details open><summary>SSH otevřené, login neprošel (${st.authFailed.length})</summary><div class="mono" >${st.authFailed.map(esc).join('<br>')}</div></details>` : ''}
     ${st.errors.length ? `<details open><summary>chyby / nedostupné (${st.errors.length}) — „port 22 neodpovídá“ bývá zařízení bez SSH nebo jiná značka než MikroTik</summary><div class="mono" >${st.errors.map(esc).join('<br>')}</div></details>` : ''}`;

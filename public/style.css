@@ -189,3 +189,5 @@ th.sorth:hover{color:var(--ink,#111)}
   .stats .stat{flex:1 1 90px;max-width:none}
   .tablewrap{margin:0;padding:0}
 }
+
+details.warnbox{border:1px solid var(--err);border-radius:var(--r);padding:6px 10px;margin:6px 0;background:#d23f3f10}
