@@ -564,6 +564,7 @@ async function api(req, res, method, p, url) {
   }
 
   // joby
+  if (method === 'GET' && p === '/api/jobs/counts') { if (!adminOnly(req, res)) return; return send(res, 200, db.jobCountsByOwner()); }
   if (method === 'GET' && p === '/api/jobs') {
     // správce může chtít celou historii jednoho uživatele (přehled jinak nese jen posledních N jobů celé sítě)
     const owner = parseInt(q.get('owner') || '0', 10), limit = Math.min(2000, parseInt(q.get('limit') || '100', 10) || 100);
