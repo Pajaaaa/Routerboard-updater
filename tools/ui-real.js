@@ -106,6 +106,17 @@ const check = (name, ok, extra = '') => { console.log(`  ${name}: ${ok ? 'OK' : 
     } catch (e) { err = e && e.message || String(e); }
     check('Zařízení: „Zkontrolovat“ při filtru jen zobrazená', !err && !errors.slice(before).length, [err, errors.slice(before).join('; ')].filter(Boolean).join(' | '));
   }
+  // Zařízení: u kusu čekajícího v naplánovaném jobu se kreslí ikonka hodin (9.9.2026)
+  {
+    const before = errors.length; let err = '';
+    try {
+      await run("state.admin = true; state.view = 'devices'; state.selected.clear(); state.filter = ''; state.vf = ''; state.owner = 0; state.group = ''; state.devices.push({ id: 999003, host: '10.0.0.97', port: 22, name: 'schedtest', identity: 'schedtest', version: '6.49.10', board_name: 'RB951', arch: 'mipsbe', scan_status: 'ok', enabled: true, managed: true, track: 'v7-stable', owner_id: (state.auth.user || {}).id || 1, parent_id: 0, no_v7: [], flags: {} }); state.runner.sched = { 999003: { at: Math.floor(Date.now()/1000) + 3600, job: 42, js: 'scheduled' } }; render(); window.__p = 1"); await sleep(300);
+      await run("const tr = document.querySelector('#main tr[data-id=\"999003\"]'); if (!tr) throw new Error('řádek schedtest chybí'); const ic = tr.querySelector('.schedmark'); if (!ic) throw new Error('chybí ikonka hodin'); if (!/naplánováno na/.test(ic.getAttribute('title') || '')) throw new Error('popisek: ' + ic.getAttribute('title')); window.__p = 1");
+      await run("state.runner.sched = {}; render(); window.__p = 1"); await sleep(200);
+      await run("const tr = document.querySelector('#main tr[data-id=\"999003\"]'); if (tr && tr.querySelector('.schedmark')) throw new Error('ikonka zůstala i bez naplánovaného jobu'); state.devices = state.devices.filter(d => d.id !== 999003); window.__p = 1");
+    } catch (e) { err = e && e.message || String(e); }
+    check('Zařízení: ikonka hodin u naplánovaného upgradu', !err && !errors.slice(before).length, [err, errors.slice(before).join('; ')].filter(Boolean).join(' | '));
+  }
   if (fail) { console.error(`UI real DOM: ${fail} chyb`); process.exit(1); }
   console.log('UI real DOM OK');
   process.exit(0);

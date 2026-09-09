@@ -164,6 +164,13 @@ const visJobs = (req, n) => isAdmin(req) ? db.listJobs(n) : db.listJobs(n, req.u
 const runnerStatusFor = (req) => {
   const st = runner.status(req.user.id);
   st.busy = runner.running().map(x => x.deviceId).filter(Boolean); // zařízení právě v jobu (kohokoli) — jen id
+  // zařízení čekající na upgrade v otevřeném jobu (jen vlastní, správce vidí vše) → v seznamu zařízení se u nich kreslí hodiny
+  st.sched = {};
+  for (const r of db.pendingUpgrades()) {
+    if (!isAdmin(req) && r.owner_id !== req.user.id) continue;
+    const cur = st.sched[r.device_id];
+    if (!cur || (r.at && (!cur.at || r.at < cur.at))) st.sched[r.device_id] = { at: r.at, job: r.job_id, js: r.jstatus };
+  }
   // cizí běžící joby jen informačně: kdo (userdb uid + přezdívka), kolik zařízení, kolik hotovo; otevřít je smí jen správce
   const byUser = new Map();
   for (const x of runner.running().filter(x => x.ownerId !== req.user.id)) {

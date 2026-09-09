@@ -191,3 +191,5 @@ th.sorth:hover{color:var(--ink,#111)}
 }
 
 details.warnbox{border:1px solid var(--err);border-radius:var(--r);padding:6px 10px;margin:6px 0;background:#d23f3f10}
+
+.schedmark{color:var(--info);opacity:.85;vertical-align:-2px;display:inline-block;line-height:0}
