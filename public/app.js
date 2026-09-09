@@ -769,7 +769,7 @@ function renderModal() {
         </div><div>
         <h3 style="font-size:14px;margin-top:0">Historie verzí</h3><table>${history.map(h => `<tr><td>${fmtTs(h.seen_at)}</td><td class="mono"><b>${esc(h.version)}</b> fw ${esc(h.firmware)}</td><td class="muted">${esc(h.source)}</td></tr>`).join('') || '<tr><td class="muted">—</td></tr>'}</table>
         <h3 style="font-size:14px">Zálohy</h3><table>${backups.map(b => `<tr><td>${fmtTs(b.created_at)}</td><td>${esc(b.kind)} <span class="muted">${esc(b.version)}</span></td><td>${(b.size / 1024).toFixed(1)} kB</td><td><a href="${BASE}/api/backups/${b.id}">stáhnout</a></td></tr>`).join('') || '<tr><td class="muted">zatím žádné</td></tr>'}</table>
-        <h3 style="font-size:14px">Log z jobů</h3><div class="log" style="height:220px">${log.map(logLine).join('') || '<span class="muted">—</span>'}</div>
+        <h3 style="font-size:14px">Log z jobů</h3><div class="log" style="height:220px">${log.map(l => logLine(l)).join('') || '<span class="muted">—</span>'}</div>
         </div></div>
       <div class="row" style="margin-top:10px"><button id="mscan">⟳ Skenovat</button><button id="medit">✎ Upravit</button><button id="mjob" class="ok">▶ Job jen pro toto zařízení</button>${canRepartition(d) && state.admin ? `<button id="mrepart" title="rozdělí flash na 2 oddíly = automatický fallback při nenabootování po upgradu">⛁ Rozdělit flash na 2 oddíly</button>` : ''}<span style="flex:1"></span><button id="mclose">Zavřít</button></div></div>`;
     $('#mscan').onclick = async () => { toast('skenuji…'); try { const r = await api(`/devices/${d.id}/scan`, { method: 'POST' }); if (!r.ok) toast(r.error || r.skipped, true); await openDetail(d.id); } catch (e) { toast(e.message, true); } };

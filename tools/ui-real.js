@@ -51,6 +51,15 @@ const check = (name, ok, extra = '') => { console.log(`  ${name}: ${ok ? 'OK' : 
       }
     }
   }
+  // detail zařízení (modální okno) s několika řádky logu — logLine má 2. parametr, map(logLine) by podstrčil index (9.9.2026)
+  {
+    const before = errors.length; let err = '';
+    try { await run("state.modal = { type: 'detail', data: { device: { id: 1, host: '10.0.0.1', port: 22, name: 'd1', identity: 'd1', version: '7.24.2', channel: 'stable', board_name: 'RB', model: 'RB', arch: 'arm', scan_status: 'ok', enabled: true, managed: true, track: 'v7-stable', eff_track: 'v7-stable', owner_id: 1, fw_current: '7.24.2', fw_upgrade: '7.24.2', total_hdd: 16e6, free_hdd: 3e6, total_mem: 256e6, free_mem: 100e6, uptime_sec: 1000, packages: [], flags: { wireless: 1, links: { stations: [], aps: [], w60g: [] }, device_mode: { mode: 'enterprise', flagged: false }, ip_addresses: ['10.0.0.1'] }, last_scan_at: 1, last_seen_at: 1, no_v7: [], parent_id: 0 }, history: [{ version: '7.24.2', seen_at: 1, source: 'scan' }], backups: [], log: [1, 2, 3].map(i => ({ id: i, job_id: 1, item_id: 1, device_id: 1, ts: Date.now(), level: 'info', msg: 'řádek ' + i })), plan: null } }; renderModal(); window.__p = 1"); } catch (e) { err = e && e.message || String(e); }
+    await sleep(200);
+    const modal = w.document.querySelector('#modalbg .modal');
+    check('detail zařízení (modal, 3 řádky logu)', !err && !!modal && !errors.slice(before).length, [err, errors.slice(before).join('; ')].filter(Boolean).join(' | '));
+    await run('closeModal(); window.__p = 1');
+  }
   // seznam účtů v Správě se musí naplnit (i bez přihlašování heslem)
   await run("state.auth.passwordLogin = false; state.admin = true; state.view = 'admin'; render(); window.__p = 1"); await sleep(800);
   const ul = w.document.querySelector('#userlist');
