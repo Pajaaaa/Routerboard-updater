@@ -32,7 +32,7 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
   60 GHz MCS ≥ 1, CAP registrován), ping na bránu z routeru, sousedé, počty položek konfigurace proti stavu před upgradem.
 - **Nastavení per uživatel:** společné hodnoty nastavuje správce, každý si je může přepsat pro své joby, kontroly a plány.
 - **Volitelná hardening:** `/ip service` (vypnutí nepotřebných služeb, povolené adresy; ssh se nikdy nevypne a adresy
-  se použijí jen když obsahují IP serveru) a vzdálené logování na syslog. Mění se jen odchylky.
+  se použijí jen když obsahují IP serveru), vzdálené logování na syslog, NTP klient a časová zóna. Mění se jen odchylky.
 - **Účty:** přihlášení přes OpenID Connect (SSO). Každý vidí jen svá zařízení, správce vše. Účet se při prvním
   přihlášení naváže podle e-mailu na správce oblasti v userdb.
 - **Import z userdb:** v dialogu „Přidat zařízení (sken)“ tlačítko „Natáhnout z userdb“ → tabulka oblastí a APček

@@ -466,7 +466,7 @@ function renderHelp(m) {
   <ul class="plain">
     <li><b>Přihlášení</b> je přes hkfree SSO, stejným účtem jako do userdb. Účet v upgraderu vznikne sám při prvním přihlášení a podle e-mailu se naváže na tvoje oblasti v userdb. Odhlásit se dá tlačítkem vlevo dole. Přihlášení vydrží 30 dní.</li>
     <li><b>Co vidíš:</b> jen svoje zařízení, upgrady, zálohy a logy. Každé zařízení má jednoho vlastníka; adresu, kterou už má někdo jiný, ti sken nepřidá a napíše, kdo ji má. Předat zařízení může jen správce (tužka ✎ → vlastník, nebo ⇄ Přesunout vybrané).</li>
-    <li><b>Nastavení:</b> každý má „Moje nastavení“ (kanál RouterOS pro nová zařízení: v7 stable nebo long-term, limity kontrol, čekání po restartu, prahy rádia, hardening služeb, syslog…), které platí pro jeho upgrady, kontroly a plány. Předvyplněné jsou společné hodnoty; po uložení se používají vlastní, „Vrátit na společné“ je zahodí.</li>
+    <li><b>Nastavení:</b> každý má „Moje nastavení“ (kanál RouterOS pro nová zařízení: v7 stable nebo long-term, limity kontrol, čekání po restartu, prahy rádia, hardening služeb, syslog, NTP a časová zóna…), které platí pro jeho upgrady, kontroly a plány. Předvyplněné jsou společné hodnoty; po uložení se používají vlastní, „Vrátit na společné“ je zahodí.</li>
     <li><b>Správce</b> vidí všechno. Seznam má nahoře výběr vlastníka, výchozí je jeho vlastní pohled. V záložce Správa spravuje účty (vazba na userdb, role, vypnutí, smazání), společné nastavení výchozí pro všechny a vidí audit „kdo co dělal“.</li>
   </ul></div>
 
@@ -555,6 +555,10 @@ function settingsFields(s) {
     ${c('harden_services', 'při ostrém běhu vypnout služby mimo seznam a všem nastavit povolené adresy (ssh se nikdy nevypne, adresy jen když obsahují IP tohoto serveru)')}
     <label>zapnuté služby (čárkou)<input name="services_keep" type="text" value="${esc(s.services_keep)}" placeholder="ssh,winbox"></label>
     <label class="wide">povolené adresy / CIDR (čárkou; prázdné = adresy neměnit)<input name="services_address" type="text" value="${esc(s.services_address)}" placeholder="10.0.0.0/8,192.168.0.0/16,2001:db8::/32"></label>
+    <h2>Čas (NTP a časová zóna)</h2>
+    ${c('ntp_enable', 'při ostrém běhu nastavit NTP klienta a časovou zónu (mění se jen to, co neodpovídá)')}
+    <label>NTP servery (čárkou; IP nebo jména)<input name="ntp_servers" type="text" value="${esc(s.ntp_servers)}" placeholder="192.0.2.1"></label>
+    <label>časová zóna<input name="timezone_name" type="text" value="${esc(s.timezone_name)}" placeholder="Europe/Prague"></label>
     <h2>Vzdálené logování (syslog)</h2>
     ${c('remote_log_enable', 'při ostrém běhu zajistit logging action target=remote a pravidla pro témata (přidá se jen, co chybí)')}
     <label>IP syslog serveru<input name="remote_log_host" type="text" value="${esc(s.remote_log_host)}" placeholder="192.0.2.10"></label>
