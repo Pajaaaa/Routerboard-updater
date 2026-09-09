@@ -21,6 +21,8 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
   se čeká na cizí job na sousedícím zařízení. PoE watchdog na napájecím rodiči se na dobu položky vypne.
 - **Předběžná kontrola naplánovaného jobu:** hned po naplánování se zařízení zkontrolují a v detailu jobu je vidět, co
   by v době startu bránilo upgradu; kontrola se dá zopakovat a před startem proběhne znovu.
+- **Cesty po krocích:** 60 GHz kusy (nRAY, Cube, wAP/LHG 60G) z 7.12–7.17 na 7.20+ přes 7.14.2 → 7.16.2 → 7.18.2; CCR2004/RB450Gx4 přes
+  7.16.2 → 7.18.2; 16 MB flash z v6 na v7 přes 7.12.x; volitelně 16 MB kusy pod 6.45 samostatnými v6 balíčky (z all_packages zipu) místo bundle.
 - **Verze:** x.y.0 až po 14 dnech, seznam verzí s doloženou regresí pro konkrétní hardware i obecně, hardware bez v7
   (MIPS-LE, < 64 MB RAM, smips, staré RB4xx, 32 MB kusy) cílí na poslední v6; jde povolit per zařízení.
   Podrobná rešerše rizik: `docs/reserse-bezpecny-upgrade.md`.
