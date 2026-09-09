@@ -8,7 +8,8 @@ const READ = ['/system resource print without-paging', ':put [:len [/system scri
   '/system logging action print detail without-paging', '/interface ethernet poe monitor ether1 once'];
 const WRITE = ['/system reboot', '/ip service set ssh disabled=no', '/file remove [find name="x.npk"]', '/system package update install',
   '/tool fetch url="http://x/y" dst-path="y"', '/system backup save name=x', '/export file=x', '/system ntp client set servers=1.2.3.4',
-  '/interface ethernet poe power-cycle ether1', '/system scheduler add name=x on-event=y'];
+  '/interface ethernet poe power-cycle ether1', '/system scheduler add name=x on-event=y',
+  '/system device-mode update partitions=yes activation-timeout=10m', ':put [:execute script={/system device-mode update partitions=yes}]'];
 const LOST = ['SSH: Keepalive timeout', 'Not connected', 'SSH: spojení uzavřeno routerem (nebo sítí) uprostřed operace', 'read ECONNRESET', 'SFTP: SSH: Keepalive timeout'];
 const KEEP = ['RouterOS: no such item', 'SSH: timeout příkazu (30 s): /system resource print', 'RouterOS: not enough space'];
 let bad = 0;
