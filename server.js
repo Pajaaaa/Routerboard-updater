@@ -178,7 +178,7 @@ const runnerStatusFor = (req) => {
   return st;
 };
 /** import z userdb na pozadí (viz POST /api/userdb/import): stažení loginů, doplnění existujících, nové do fronty skenu */
-async function runUserdbImport({ acct, allMode, onlyAps, key, prog, byName, isAdm, ip, track }) {
+async function runUserdbImport({ acct, allMode, ownerMe, onlyAps, key, prog, byName, isAdm, ip, track }) {
   void isAdm; void ip;
   let r;
   if (allMode) { if (!onlyAps) throw new Error('vyber APčka'); prog.phase = `stahuji loginy pro ${onlyAps.size} APček`; r = await userdb.devicesForAps([...onlyAps]); r.admin = { nick: `správce ${acct.userdb_nick || acct.name} (celá síť)`, apCount: onlyAps.size }; }
@@ -188,7 +188,7 @@ async function runUserdbImport({ acct, allMode, onlyAps, key, prog, byName, isAd
   // když účet ještě nemá, založí se dopředu (jméno = e-mail, při SSO přihlášení se napojí); oblast bez správce připadne importujícímu
   const ownerCache = new Map();
   const ownerFor = (d) => {
-    if (!allMode) return acct.id;
+    if (!allMode || ownerMe) return acct.id; // ownerMe: správce chce zařízení celé sítě přiřadit sobě, ne správci oblasti z userdb
     const so = (d.areaAdmins || []).find(x => x.role === 'SO') || (d.areaAdmins || [])[0];
     if (!so) return acct.id;
     if (ownerCache.has(so.id)) return ownerCache.get(so.id);
@@ -227,7 +227,7 @@ async function runUserdbImport({ acct, allMode, onlyAps, key, prog, byName, isAd
   }
   sum.aps = onlyAps ? onlyAps.size : r.admin.apCount; sum.entries = entries.length;
   userdbImports.set(key, sum);
-  db.audit(byName, allMode ? 'import celé sítě z userdb' : 'import z userdb', `${r.admin.nick}: ${sum.total} zařízení z userdb, ${entries.length} nových ke skenu, ${sum.updated} aktualizováno, ${sum.foreign.length} u jiného uživatele${allMode ? `; vlastníci: ${Object.entries(sum.owners).map(([k, v]) => `${k} ${v}`).join(', ')}` : ''}`);
+  db.audit(byName, allMode ? (ownerMe ? 'import celé sítě z userdb (pod sebe)' : 'import celé sítě z userdb') : 'import z userdb', `${r.admin.nick}: ${sum.total} zařízení z userdb, ${entries.length} nových ke skenu, ${sum.updated} aktualizováno, ${sum.foreign.length} u jiného uživatele${allMode ? `; vlastníci: ${Object.entries(sum.owners).map(([k, v]) => `${k} ${v}`).join(', ')}` : ''}`);
   // do výsledku skenu se přidá i to, co se skenovat nebude: zařízení jiného uživatele a IP bez loginu v userdb
   const foreign = sum.foreign.map(x => `${x} — každé zařízení může mít jen jednoho vlastníka; když je pod APčkem tvé oblasti, můžeš si ho převzít tlačítkem níže`);
   const takeover = sum.takeover;
@@ -471,6 +471,7 @@ async function api(req, res, method, p, url) {
     if (method === 'POST' && p === '/api/userdb/import') {
       const b = await readBody(req).catch(() => ({}));
       const allMode = !!b.all && isAdmin(req);
+      const ownerMe = allMode && !!b.owner_me;
       if (!allMode && !acct.userdb_uid) throw new Error('účet není navázaný na správce v userdb');
       const onlyAps = Array.isArray(b.aps) && b.aps.length ? new Set(b.aps.map(Number)) : null;
       const track = ['v7-stable', 'v7-long-term'].includes(b.track) ? b.track : ''; // kanál pro nová zařízení z dialogu; prázdné = z nastavení uživatele
@@ -481,7 +482,7 @@ async function api(req, res, method, p, url) {
       const prog = { at: Date.now(), by: req.user.name, running: true, phase: 'načítám seznam zařízení z userdb', progress: '' };
       userdbImports.set(key, prog);
       const byName = req.user.name, isAdm = isAdmin(req), ip = clientIp(req);
-      setImmediate(async () => { try { await runUserdbImport({ acct, allMode, onlyAps, key, prog, byName, isAdm, ip, track }); } catch (e) { userdbImports.set(key, { at: Date.now(), by: byName, error: e.message, running: false }); bus.emit('event', { type: 'discovery-error', error: 'import z userdb: ' + e.message }); } });
+      setImmediate(async () => { try { await runUserdbImport({ acct, allMode, ownerMe, onlyAps, key, prog, byName, isAdm, ip, track }); } catch (e) { userdbImports.set(key, { at: Date.now(), by: byName, error: e.message, running: false }); bus.emit('event', { type: 'discovery-error', error: 'import z userdb: ' + e.message }); } });
       return send(res, 200, { started: true });
     }
     if (method === 'GET' && p === '/api/userdb/import-status') {
