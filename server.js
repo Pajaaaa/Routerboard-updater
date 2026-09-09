@@ -807,7 +807,12 @@ const server = http.createServer(async (req, res) => {
       if (on != null) { runner.setDraining(on === '1'); console.log(`drain ${on === '1' ? 'zapnut' : 'vypnut'} (deploy)`); }
       return send(res, 200, { draining: runner.draining, jobs: runner.running().length });
     }
-    if (p === '/api/whoami') return send(res, 200, { authed, user: req.user, admin: authed && isAdmin(req), userdb: userdbFor(req), serverStartedAt: SERVER_STARTED_AT, sourceIp: cfg.sourceIp, draining: runner.draining, sso: sso.enabled(), passwordLogin: pwLoginAllowed(req), registration: !!db.getSettings().allow_registration, netHint: cfg.netHint });
+    if (p === '/api/whoami') {
+      // při drainu (čeká se na restart kvůli aktualizaci) vypsat, na které joby se čeká — ať každý vidí, proč restart ještě neproběhl
+      let drainJobs;
+      if (runner.draining && authed) drainJobs = runner.running().map(r => { const j = db.getJob(r.jobId); const u = j && db.getUser(j.owner_id); const d = r.deviceId && db.getDevice(r.deviceId); return { id: r.jobId, name: j ? j.name : '', owner: u ? u.name : '', device: d ? devLabel(d) : '' }; });
+      return send(res, 200, { authed, user: req.user, admin: authed && isAdmin(req), userdb: userdbFor(req), serverStartedAt: SERVER_STARTED_AT, sourceIp: cfg.sourceIp, draining: runner.draining, drainJobs, sso: sso.enabled(), passwordLogin: pwLoginAllowed(req), registration: !!db.getSettings().allow_registration, netHint: cfg.netHint });
+    }
 
     if (p.startsWith('/api/')) {
       if (!authed) return send(res, 401, { error: 'nepřihlášen' });
