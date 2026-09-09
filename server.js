@@ -190,7 +190,7 @@ async function runUserdbImport({ acct, allMode, onlyAps, key, prog, byName, isAd
     ownerCache.set(so.id, u ? u.id : acct.id);
     return u ? u.id : acct.id;
   };
-  const sum = { at: Date.now(), by: byName, running: false, aps: 0, total: 0, updated: 0, foreign: [], missingLogin: r.missing.filter(d => !onlyAps || onlyAps.has(d.apId)).map(d => `${d.ip} (${d.name || d.ap})`), entries: 0, owners: {} };
+  const sum = { at: Date.now(), by: byName, running: false, aps: 0, total: 0, updated: 0, foreign: [], takeover: [], missingLogin: r.missing.filter(d => !onlyAps || onlyAps.has(d.apId)).map(d => `${d.ip} (${d.name || d.ap})`), entries: 0, owners: {} };
   const entries = [];
   for (const d of r.devices) {
     if (onlyAps && !onlyAps.has(d.apId)) continue;
@@ -199,7 +199,13 @@ async function runUserdbImport({ acct, allMode, onlyAps, key, prog, byName, isAd
     const extra = { userdb_ap_id: d.apId, userdb_ap: d.ap, userdb_member: d.member ? d.userId : 0 };
     const ex = db.findDeviceByHost(d.ip, 22);
     if (ex) {
-      if (ex.owner_id && ex.owner_id !== ownerId) { const o = db.getUser(ex.owner_id); sum.foreign.push(`${d.ip} (${d.name || d.ap}) má u sebe ${o ? (o.userdb_nick || o.name) : 'jiný uživatel'}`); continue; }
+      if (ex.owner_id && ex.owner_id !== ownerId) {
+        const o = db.getUser(ex.owner_id); const on = o ? (o.userdb_nick || o.name) : 'jiný uživatel';
+        sum.foreign.push(`${d.ip} (${d.name || d.ap}) má u sebe ${on}`);
+        // převzetí: zařízení pod APčkem z MÉ oblasti (r.devices jsou jen z oblastí, kde jsem SO/ZSO) si můžu vzít k sobě — víc správců jednoho AP
+        if (!allMode) sum.takeover.push({ id: ex.id, ip: d.ip, name: d.name || d.note || '', ap: d.ap, apId: d.apId, owner: on });
+        continue;
+      }
       const f = { ...extra };
       if (!ex.owner_id) f.owner_id = ownerId;
       if (ex.username !== d.login || decrypt(ex.password_enc || '') !== d.password) { f.username = d.login; f.password_enc = encrypt(d.password); }
@@ -215,19 +221,20 @@ async function runUserdbImport({ acct, allMode, onlyAps, key, prog, byName, isAd
   userdbImports.set(key, sum);
   db.audit(byName, allMode ? 'import celé sítě z userdb' : 'import z userdb', `${r.admin.nick}: ${sum.total} zařízení z userdb, ${entries.length} nových ke skenu, ${sum.updated} aktualizováno, ${sum.foreign.length} u jiného uživatele${allMode ? `; vlastníci: ${Object.entries(sum.owners).map(([k, v]) => `${k} ${v}`).join(', ')}` : ''}`);
   // do výsledku skenu se přidá i to, co se skenovat nebude: zařízení jiného uživatele a IP bez loginu v userdb
-  const foreign = sum.foreign.map(x => `${x} — každé zařízení může mít jen jednoho vlastníka, o předání požádej jeho nebo správce`);
+  const foreign = sum.foreign.map(x => `${x} — každé zařízení může mít jen jednoho vlastníka; když je pod APčkem tvé oblasti, můžeš si ho převzít tlačítkem níže`);
+  const takeover = sum.takeover;
   const errors = sum.missingLogin.map(x => `${x}: v userdb chybí login/heslo — doplň je v userdb a načti znovu`);
   if (entries.length) {
     // sken bere max. 4096 adres na běh → větší import se rozdělí do víc běhů ve frontě
     const CH = 2000;
     for (let i = 0; i < entries.length; i += CH) {
       const part = entries.slice(i, i + CH);
-      const o = { entries: part, creds: [], port: 22, track: track || db.getSettings(acct.id).default_track || 'v7-stable', parallel: 24, ownerId: acct.id, label: entries.length > CH ? `část ${i / CH + 1}/${Math.ceil(entries.length / CH)}` : '', foreign: i === 0 ? foreign : [], errors: i === 0 ? errors : [] };
+      const o = { entries: part, creds: [], port: 22, track: track || db.getSettings(acct.id).default_track || 'v7-stable', parallel: 24, ownerId: acct.id, takeover: i === 0 ? takeover : [], label: entries.length > CH ? `část ${i / CH + 1}/${Math.ceil(entries.length / CH)}` : '', foreign: i === 0 ? foreign : [], errors: i === 0 ? errors : [] };
       discovery.prepare(o);
       discovery.run(o).catch(e => bus.emit('event', { type: 'discovery-error', error: e.message }));
     }
     await new Promise(res2 => setTimeout(res2, 50));
-  } else { discovery.setResult({ ownerId: acct.id, foreign, errors }); bus.emit('event', { type: 'devices-changed' }); }
+  } else { discovery.setResult({ ownerId: acct.id, foreign, errors, takeover }); bus.emit('event', { type: 'devices-changed' }); }
   return sum;
 }
 const SERVER_STARTED_AT = Date.now(); // pro UI: kdy se služba naposledy (re)startovala
@@ -399,6 +406,29 @@ async function api(req, res, method, p, url) {
         areas.push({ id: a.id, name: a.name, role: a.role, aps });
       }
       return send(res, 200, { linked: true, user: { id: acct.id, name: acct.name }, admin: { id: w.id, nick: w.nick, email: w.email }, areas, lastImport: userdbImports.get(acct.id) || null });
+    }
+    // převzetí zařízení kolegou z téže oblasti: jen zařízení importovaná z userdb, jejichž AP je v oblasti, kde je žadatel SO/ZSO (ověřuje se živě v userdb)
+    if (method === 'POST' && p === '/api/userdb/takeover') {
+      const b = await readBody(req).catch(() => ({}));
+      if (!acct.userdb_uid) throw new Error('účet není navázaný na správce v userdb');
+      const w = await userdb.whoIs({ uid: acct.userdb_uid });
+      if (!w) throw new Error(`uid ${acct.userdb_uid} už v userdb není správcem žádné oblasti`);
+      const myAps = new Set(); for (const a of w.areas) for (const ap of a.aps) myAps.add(Number(ap.id));
+      const ids = Array.isArray(b.ids) ? b.ids.map(Number).filter(Boolean).slice(0, 2000) : [];
+      let taken = 0; const skipped = [];
+      for (const id of ids) {
+        const d = db.getDeviceRaw(id);
+        if (!d) { skipped.push(`#${id}: neexistuje`); continue; }
+        if (!d.userdb_ap_id || !myAps.has(Number(d.userdb_ap_id))) { skipped.push(`${d.host}: není pod APčkem tvé oblasti`); continue; }
+        if (d.owner_id === acct.id) continue;
+        if (runner.isDeviceBusy(id)) { skipped.push(`${d.host}: právě v jobu`); continue; }
+        const prev = db.getUser(d.owner_id);
+        db.updateDevice(id, { owner_id: acct.id });
+        audit(req, 'zařízení převzato', `${d.host} ${devLabel(d)} od ${prev ? (prev.userdb_nick || prev.name) : d.owner_id} (AP ${d.userdb_ap || d.userdb_ap_id})`);
+        taken++;
+      }
+      if (taken) bus.emit('event', { type: 'devices-changed' });
+      return send(res, 200, { taken, skipped });
     }
     if (method === 'POST' && p === '/api/userdb/import') {
       const b = await readBody(req).catch(() => ({}));
