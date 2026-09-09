@@ -40,7 +40,7 @@ const slimDevice = (d) => d && d.flags ? { ...d, flags: slimFlags(d.flags), pack
 // nastavení podle vlastníka zařízení (per uživatel), načtené jednou za volání — ne dotaz do DB na každé zařízení
 function settingsByOwner() { const m = new Map(); return (uid) => { const k = uid || 0; if (!m.has(k)) m.set(k, db.getSettings(k || undefined)); return m.get(k); }; }
 let adminDevCache = null; // { ver, at, json }
-/** JSON seznamu zařízení pro odpověď /api/state: správce dostane společnou keš (platí do změny zařízení/nastavení, max 5 s), uživatel svůj seznam rovnou */
+/** JSON seznamu zařízení pro odpověď /api/state: správce dostane společnou keš — přestaví se hned po uživatelské úpravě zařízení či nastavení, jinak nejvýš jednou za 5 s (výsledky skenů chodí i klientům průběžně přes události 'device'); uživatel svůj seznam rovnou */
 function adminDevicesJson(req) {
   if (!isAdmin(req)) return JSON.stringify(withSuggestions(visDevices(req)));
   const ver = db.dataVersion();
