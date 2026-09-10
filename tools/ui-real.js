@@ -117,6 +117,18 @@ const check = (name, ok, extra = '') => { console.log(`  ${name}: ${ok ? 'OK' : 
     } catch (e) { err = e && e.message || String(e); }
     check('Zařízení: ikonka hodin u naplánovaného upgradu', !err && !errors.slice(before).length, [err, errors.slice(before).join('; ')].filter(Boolean).join(' | '));
   }
+  // Mobil: široké tabulky musí mít třídu „cards" a buňky popisky (data-l), jinak se z nich na úzkém displeji
+  // stane vodorovně rolovaná tabulka, kde nejsou vidět stav, průběh ani tlačítka (10.9.2026).
+  {
+    const before = errors.length; let err = '';
+    try {
+      await run("state.admin = true; state.view = 'devices'; state.advanced = true; state.filter = ''; state.vf = ''; state.owner = 0; state.group = ''; state.devices.push({ id: 999004, host: '10.0.0.96', port: 22, name: 'karta', identity: 'karta', version: '7.24.2', board_name: 'RB951', arch: 'mipsbe', scan_status: 'ok', enabled: true, managed: true, track: 'v7-stable', owner_id: (state.auth.user || {}).id || 1, parent_id: 0, no_v7: [], flags: {} }); render(); window.__p = 1"); await sleep(300);
+      await run("const t = document.querySelector('#main table'); if (!t) throw new Error('tabulka zařízení chybí'); if (!t.classList.contains('cards')) throw new Error('tabulka zařízení nemá třídu cards'); const row = document.querySelector('#main tr[data-id=\"999004\"]'); if (!row) throw new Error('zkušební řádek chybí'); for (const n of ['stav','RouterOS','model','kanál']) if (!row.querySelector('td[data-l=\"' + n + '\"]')) throw new Error('v řádku zařízení chybí popisek ' + n); if (!row.querySelector('td.cardhead')) throw new Error('řádek zařízení nemá hlavičku karty'); state.devices = state.devices.filter(d => d.id !== 999004); window.__p = 1");
+      await run("state.view = 'jobs'; state.jobOwner = 0; state.jobs.unshift({ id: 999005, name: 'Zkušební upgrade', status: 'done', total: 2, counts: { done: 2 }, created_at: Math.floor(Date.now()/1000), options: {}, owner_id: (state.auth.user || {}).id || 1 }); render(); window.__p = 1"); await sleep(300);
+      await run("const t = document.querySelector('#main table'); if (!t.classList.contains('cards')) throw new Error('tabulka upgradů nemá třídu cards'); const row = document.querySelector('#main tr[data-id=\"999005\"]'); if (!row) throw new Error('zkušební job v seznamu chybí'); for (const n of ['stav','průběh','vytvořen']) if (!row.querySelector('td[data-l=\"' + n + '\"]')) throw new Error('v řádku upgradu chybí popisek ' + n); if (!row.querySelector('td.cardhead')) throw new Error('řádek upgradu nemá hlavičku karty'); state.jobs = state.jobs.filter(j => j.id !== 999005); window.__p = 1");
+    } catch (e) { err = e && e.message || String(e); }
+    check('Mobil: tabulky zařízení a upgradů jsou karty s popisky', !err && !errors.slice(before).length, [err, errors.slice(before).join('; ')].filter(Boolean).join(' | '));
+  }
   if (fail) { console.error(`UI real DOM: ${fail} chyb`); process.exit(1); }
   console.log('UI real DOM OK');
   process.exit(0);
