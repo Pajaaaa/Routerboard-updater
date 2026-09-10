@@ -80,7 +80,8 @@ function networkStatsCompute() {
   const latest = V.getLatest();
   const devs = db.listDevices().filter(d => d.managed);
   const busy = new Set(runner.running().map(x => x.deviceId).filter(Boolean));
-  const st = { total: devs.length, upToDate: 0, needs: 0, stayV6: 0, unreachable: 0, upgrading: busy.size, hold: 0, never: 0, dead: 0 };
+  const st = { total: devs.length, upToDate: 0, needs: 0, stayV6: 0, unreachable: 0, upgrading: busy.size, hold: 0, never: 0, dead: 0, deadToday: 0 };
+  const day0 = Math.floor(new Date(new Date().setHours(0, 0, 0, 0)).getTime() / 1000);
   const sc = settingsByOwner();
   for (const d of devs) {
     const eff = effectiveTrack(d, sc(d.owner_id));
@@ -91,9 +92,16 @@ function networkStatsCompute() {
     if (d.scan_status !== 'ok') {
       st.unreachable++;
       // umřelo po upgradu: nedostupné od svého upgradu, nebo poslední položka jobu skončila „nevrátil se"
-      const lastItem = db.db.prepare('SELECT status, error FROM job_items WHERE device_id=? ORDER BY id DESC LIMIT 1').get(d.id);
+      const lastItem = db.db.prepare('SELECT status, error, finished_at FROM job_items WHERE device_id=? ORDER BY id DESC LIMIT 1').get(d.id);
       // „umřelo po upgradu“ = nedostupné a naposledy viděné do 30 min po svém upgradu (typicky ověření prošlo a regulace/rádio odřízlo kus až po chvíli), nebo poslední položka „nevrátil se“
-      if ((d.last_upgrade_at && (!d.last_seen_at || d.last_seen_at <= d.last_upgrade_at + 1800)) || (lastItem && lastItem.status === 'failed' && /nevrátil/.test(lastItem.error || ''))) st.dead++;
+      const deadByUpgrade = !!(d.last_upgrade_at && (!d.last_seen_at || d.last_seen_at <= d.last_upgrade_at + 1800));
+      const deadByItem = !!(lastItem && lastItem.status === 'failed' && /nevrátil/.test(lastItem.error || ''));
+      if (deadByUpgrade || deadByItem) {
+        st.dead++;
+        // „dnes" = kus umřel při dnešním upgradu (podle času upgradu, u položky „nevrátil se" podle jejího konce)
+        const when = Math.max(deadByUpgrade ? (d.last_upgrade_at || 0) : 0, deadByItem ? (lastItem.finished_at || 0) : 0);
+        if (when >= day0) st.deadToday++;
+      }
       continue;
     }
     const t = targetFor(eff, latest);
@@ -101,7 +109,6 @@ function networkStatsCompute() {
     const c = V.cmpVersion(d.version, t);
     if (Number.isFinite(c) && c < 0) st.needs++; else st.upToDate++;
   }
-  const day0 = Math.floor(new Date(new Date().setHours(0, 0, 0, 0)).getTime() / 1000);
   const q = (sql, ...a) => db.db.prepare(sql).get(...a).n;
   st.upgradedToday = q("SELECT COUNT(DISTINCT device_id) n FROM version_history WHERE source='upgrade' AND seen_at>=?", day0);
   st.upgradedTotal = q("SELECT COUNT(DISTINCT device_id) n FROM version_history WHERE source='upgrade'");
