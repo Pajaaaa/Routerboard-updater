@@ -129,6 +129,15 @@ const check = (name, ok, extra = '') => { console.log(`  ${name}: ${ok ? 'OK' : 
     } catch (e) { err = e && e.message || String(e); }
     check('Mobil: tabulky zařízení a upgradů jsou karty s popisky', !err && !errors.slice(before).length, [err, errors.slice(before).join('; ')].filter(Boolean).join(' | '));
   }
+  // Editace zařízení: volba kanálu (na jakou verzi upgradovat) musí být i v základním zobrazení (10.9.2026 byla jen v pokročilém)
+  {
+    const before = errors.length; let err = '';
+    try {
+      await run("state.admin = true; state.view = 'devices'; state.advanced = false; state.devices.push({ id: 999006, host: '10.0.0.95', port: 22, name: 'edittest', identity: 'edittest', version: '7.24.2', board_name: 'RB951', arch: 'mipsbe', scan_status: 'ok', enabled: true, managed: true, track: 'v7-stable', owner_id: (state.auth.user || {}).id || 1, parent_id: 0, no_v7: [], notes: '', priority: 100, username: 'admin', flags: {} }); render(); openModal({ type: 'edit', id: 999006 }); window.__p = 1"); await sleep(400);
+      await run("const sel = document.querySelector('#modalbg select[name=\"track\"]'); if (!sel) throw new Error('v editaci chybí volba kanálu'); const opts = [...sel.options].map(o => o.value); for (const t of ['v7-stable','v7-long-term','v6-long-term','hold']) if (!opts.includes(t)) throw new Error('chybí kanál ' + t); if (!/stable/.test(sel.options[0].textContent)) throw new Error('popisek kanálu: ' + sel.options[0].textContent); closeModal(); state.devices = state.devices.filter(d => d.id !== 999006); window.__p = 1");
+    } catch (e) { err = e && e.message || String(e); }
+    check('Editace zařízení: volba kanálu i v základním zobrazení', !err && !errors.slice(before).length, [err, errors.slice(before).join('; ')].filter(Boolean).join(' | '));
+  }
   if (fail) { console.error(`UI real DOM: ${fail} chyb`); process.exit(1); }
   console.log('UI real DOM OK');
   process.exit(0);

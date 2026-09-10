@@ -59,6 +59,12 @@ function schedIcon(d) {
   const when = s.at ? `naplánováno na ${fmtTs(s.at)}` : s.js === 'running' ? 'čeká na řadu v běžícím jobu' : 'čeká ve frontě na upgrade';
   return ` <span class="schedmark" title="${esc(when)} — job #${s.job}">${CLOCK_SVG}</span>`;
 }
+const TRACK_LABEL = {
+  'v7-stable': 'v7 stable — nejnovější stabilní',
+  'v7-long-term': 'v7 long-term — dlouhodobá podpora',
+  'v6-long-term': 'v6 long-term — zůstat na šestce',
+  hold: 'hold — nikdy neupgradovat',
+};
 function plainStatus(d) {
   if (!d.managed) return { cls: 'b-muted', txt: 'jen v topologii', act: null };
   if (d.scan_status === 'never') return { cls: 'b-muted', txt: 'zatím nezkontrolováno', act: 'scan' };
@@ -800,7 +806,7 @@ function renderModal() {
     bg.innerHTML = `<div class="modal"><h2>Upravit ${esc(devLabel(d))}</h2><form id="editf" class="form">
       <label>IP adresa<input name="host" value="${esc(d.host)}" required></label>${adv ? `<label>port<input name="port" type="number" value="${d.port}"></label>` : `<input type="hidden" name="port" value="${d.port}">`}<label>uživatel<input name="username" value="${esc(d.username)}" required></label><label>nové heslo (prázdné = ponechat)<input name="password" type="password"></label>
       <label>název<input name="name" value="${esc(d.name)}"></label>${adv ? `<label>priorita<input name="priority" type="number" value="${d.priority}"></label>` : `<input type="hidden" name="priority" value="${d.priority}">`}
-      ${adv ? `<label>track<select name="track">${state.tracks.map(t => `<option value="${t}" ${t === d.track ? 'selected' : ''}>${t === 'v6-long-term' ? 'v6-long-term (zůstat na v6)' : t === 'hold' ? 'hold (nikdy neupgradovat)' : t}</option>`).join('')}</select></label>` : `<input type="hidden" name="track" value="${esc(d.track)}">`}
+      <label>kanál — na jakou verzi upgradovat<select name="track">${state.tracks.map(t => `<option value="${t}" ${t === d.track ? 'selected' : ''}>${TRACK_LABEL[t] || t}</option>`).join('')}</select></label>
       <input type="hidden" name="stay_v6_init" value="${d.track === 'v6-long-term' ? '1' : '0'}"><label class="check"><input type="checkbox" name="stay_v6" ${d.track === 'v6-long-term' ? 'checked' : ''}> zůstat na v6 (neupgradovat na sedmičku, jen poslední 6.49.x)</label>
       <label>nadřazený prvek (napájí / připojuje toto zařízení)<select name="parent_id">${parentOptions(d.parent_id, d.id)}</select></label>
       ${state.admin && state.users ? `<label>vlastník (kdo zařízení vidí)<select name="owner_id">${state.users.map(u => `<option value="${u.id}" ${u.id === d.owner_id ? 'selected' : ''}>${esc(u.name)}${u.role === 'admin' ? ' (správce)' : ''}</option>`).join('')}</select></label>` : ''}
