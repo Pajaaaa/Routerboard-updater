@@ -1,4 +1,9 @@
 'use strict';
+/*
+ * MikroTik upgrader — hromadný bezpečný upgrade RouterOS (sken, plán, zálohy, kanárci, hlídání spojů a PoE).
+ * Autor: Pavel Vlček, hkfree.org, 2026.
+ */
+const build = require('./lib/build');
 const { devLabel } = require('./lib/label');
 const { hostAllowed } = require('./lib/netaddr');
 const http = require('http');
@@ -128,7 +133,8 @@ const TRACKS = ['v7-stable', 'v7-long-term', 'v6-long-term', 'hold'];
 function send(res, code, body, headers = {}) {
   const isObj = body !== null && typeof body === 'object' && !Buffer.isBuffer(body);
   const data = isObj ? JSON.stringify(body) : body;
-  res.writeHead(code, { 'Content-Type': isObj ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', ...headers });
+  // hlavička s původem: zůstane i v kopii, která si přemaluje UI
+  res.writeHead(code, { 'Content-Type': isObj ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Powered-By': build.header, ...headers });
   res.end(data);
 }
 function readBody(req, limit = 2 * 1024 * 1024) {
@@ -780,7 +786,10 @@ const server = http.createServer(async (req, res) => {
     else if (cfg.basePath && p === cfg.basePath) p = '/';
     const method = req.method;
 
-    // balíčky pro /tool fetch z routeru (token místo session)
+    // původ a verze systému (bez přihlášení)
+    if (method === 'GET' && p === '/api/about') return send(res, 200, { ...build, note: `Původní systém pro síť ${build.org}, autor ${build.author}.` });
+
+    // balíčky pro /tool fetch ze zařízení (token místo session)
     if (method === 'GET' && p.startsWith('/pkg/')) {
       const [, , tk, file] = p.split('/');
       const pk = runner.getPkg(tk);
@@ -873,7 +882,7 @@ const server = http.createServer(async (req, res) => {
         for (const r of runner.running()) { const j = db.getJobSummary(r.jobId); if (!j) continue; const u = db.getUser(j.owner_id); const k = j.owner_id; const e = by.get(k) || { owner: u ? (u.userdb_nick || u.name) : '?', jobs: 0, devices: 0 }; e.jobs++; e.devices += j.total || 0; by.set(k, e); }
         drainJobs = [...by.values()];
       }
-      return send(res, 200, { authed, user: req.user, admin: authed && isAdmin(req), userdb: userdbFor(req), serverStartedAt: SERVER_STARTED_AT, sourceIp: cfg.sourceIp, draining: runner.draining, drainJobs, sso: sso.enabled(), passwordLogin: pwLoginAllowed(req), registration: !!db.getSettings().allow_registration, netHint: cfg.netHint });
+      return send(res, 200, { build, authed, user: req.user, admin: authed && isAdmin(req), userdb: userdbFor(req), serverStartedAt: SERVER_STARTED_AT, sourceIp: cfg.sourceIp, draining: runner.draining, drainJobs, sso: sso.enabled(), passwordLogin: pwLoginAllowed(req), registration: !!db.getSettings().allow_registration, netHint: cfg.netHint });
     }
 
     if (p.startsWith('/api/')) {
@@ -897,6 +906,7 @@ if (cfg.password) { const id = db.bootstrapAdmin(cfg.adminUser, hashPassword(cfg
 else if (!db.listUsers().length) { console.error('žádný uživatel a MTU_PASSWORD není nastaveno — nastav MTU_ADMIN_USER + MTU_PASSWORD pro založení správce'); }
 
 server.listen(cfg.port, cfg.host, () => {
+  console.log(build.full);
   console.log(`mikrotik-upgrader běží na http://${cfg.host}:${cfg.port}${cfg.basePath}/ (data v ${cfg.dataDir})`);
   V.refreshLatest().then(l => console.log('nejnovější verze:', JSON.stringify(Object.fromEntries(Object.entries(l.versions).map(([k, v]) => [k, v.version]))))).catch(e => console.error('verze:', e.message));
   // předehřát keš seznamu zařízení pro správce hned po startu (skládá se ~1 s a blokuje smyčku) — dřív než se rozjedou joby a SSH spojení

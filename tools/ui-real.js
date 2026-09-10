@@ -138,6 +138,17 @@ const check = (name, ok, extra = '') => { console.log(`  ${name}: ${ok ? 'OK' : 
     } catch (e) { err = e && e.message || String(e); }
     check('Editace zařízení: volba kanálu i v základním zobrazení', !err && !errors.slice(before).length, [err, errors.slice(before).join('; ')].filter(Boolean).join(' | '));
   }
+  // Patička s autorem a verzí sestavení musí být vlevo dole ve všech pohledech (doklad původu systému)
+  {
+    const before = errors.length; let err = '';
+    try {
+      await run("state.view = 'devices'; render(); window.__p = 1"); await sleep(300);
+      await run("const b = document.querySelector('.side .byline'); if (!b) throw new Error('patička chybí'); const t = b.textContent || ''; if (!/Pavel Vlček/.test(t)) throw new Error('bez autora: ' + t); if (!/hkfree\\.org/.test(t)) throw new Error('bez hkfree.org: ' + t); window.__p = 1");
+      await run("state.auth.build = { version: '1.999', commit: 'abc1234', author: 'Pavel Vlček', org: 'hkfree.org', year: 2026, full: 'x', origin: 'X' }; render(); window.__p = 1"); await sleep(300);
+      await run("const b = document.querySelector('.side .byline'); if (!/v1\\.999/.test(b.textContent || '')) throw new Error('chybí číslo verze: ' + b.textContent); window.__p = 1");
+    } catch (e) { err = e && e.message || String(e); }
+    check('Patička: autor a verze sestavení', !err && !errors.slice(before).length, [err, errors.slice(before).join('; ')].filter(Boolean).join(' | '));
+  }
   if (fail) { console.error(`UI real DOM: ${fail} chyb`); process.exit(1); }
   console.log('UI real DOM OK');
   process.exit(0);

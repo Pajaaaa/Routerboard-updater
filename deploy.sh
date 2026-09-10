@@ -9,12 +9,15 @@ cd "$(dirname "$0")"
 DEPLOY_USER=${DEPLOY_USER:-$USER}; DEPLOY_SERVICE=${DEPLOY_SERVICE:-mikrotik-upgrader}
 # před každým nasazením kontrola: syntaxe, start serveru nanečisto + API, vykreslení všech pohledů UI — při chybě se nic nenasadí
 bash tools/preflight.sh || { echo "PREFLIGHT SELHAL — nenasazuji"; exit 1; }
+# otisk sestavení: verze = pořadí commitu v gitu; nasazený strom .git nemá, tak se to zapíše sem a server to čte z BUILD
+printf '{"commits":%s,"commit":"%s","builtAt":"%s","stamp":"%s"}\n' "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)" "$(date -Is)" "${BUILD_STAMP:-}" > BUILD
+echo "sestavení: v1.$(git rev-list --count HEAD) ($(git rev-parse --short HEAD))"
 SRC=$(basename "$PWD")
 # režim static: jen webové soubory (public/), bez restartu služby — server je čte z disku, uživatelům stačí obnovit stránku.
 # Použij jen pro změny UI, které nepotřebují nové API na serveru.
 if [ "${1:-}" = static ]; then
   # když čeká drain/quiet deploy s připraveným stromem .staged, dohrát public/ i tam — jinak by ho výměna při restartu vrátila na starou verzi
-  tar czf - public | ssh "$DEPLOY_HOST" "tar xzf - -C '$DEPLOY_DIR' && chown -R '$DEPLOY_USER:$DEPLOY_USER' '$DEPLOY_DIR/public' && if [ -d '$DEPLOY_DIR.staged' ]; then rm -rf '$DEPLOY_DIR.staged/public' && cp -a '$DEPLOY_DIR/public' '$DEPLOY_DIR.staged/public' && echo 'public/ dohrán i do čekajícího .staged'; fi" && echo "webové soubory nasazeny bez restartu"
+  tar czf - public BUILD | ssh "$DEPLOY_HOST" "tar xzf - -C '$DEPLOY_DIR' && chown -R '$DEPLOY_USER:$DEPLOY_USER' '$DEPLOY_DIR/public' && if [ -d '$DEPLOY_DIR.staged' ]; then rm -rf '$DEPLOY_DIR.staged/public' && cp -a '$DEPLOY_DIR/public' '$DEPLOY_DIR.staged/public' && echo 'public/ dohrán i do čekajícího .staged'; fi" && echo "webové soubory nasazeny bez restartu"
   exit $?
 fi
 cd ..

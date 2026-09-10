@@ -1,3 +1,6 @@
+// MikroTik upgrader — správa a hromadný upgrade RouterOS v síti hkfree.org.
+// Autor: Pavel Vlček, hkfree.org, 2026. .
+// Kód je původní dílo; při přebírání ponech tento blok i patičku s autorem.
 'use strict';
 const BASE = location.pathname.replace(/\/[^/]*$/, '');
 const $ = (s, el = document) => el.querySelector(s);
@@ -58,6 +61,14 @@ function schedIcon(d) {
   if (!s) return '';
   const when = s.at ? `naplánováno na ${fmtTs(s.at)}` : s.js === 'running' ? 'čeká na řadu v běžícím jobu' : 'čeká ve frontě na upgrade';
   return ` <span class="schedmark" title="${esc(when)} — job #${s.job}">${CLOCK_SVG}</span>`;
+}
+// podpis do konzole prohlížeče
+try { console.log('%cMikroTik upgrader%c © 2026 Pavel Vlček · hkfree.org', 'font-weight:600', 'color:#666'); } catch {}
+/** patička vlevo dole: autor a verze sestavení (číslo = pořadí commitu v gitu) */
+function byline() {
+  const b = (state.auth && state.auth.build) || {};
+  const ver = b.version ? `v${b.version}${b.commit ? ` · ${b.commit}` : ''}` : '';
+  return `<div class="byline" title="${esc(b.full || '')}${b.origin ? ` · ${esc(b.origin)}` : ''}">© ${b.year || 2026} ${esc(b.author || 'Pavel Vlček')} · <a href="https://hkfree.org" target="_blank" rel="noopener">${esc(b.org || 'hkfree.org')}</a>${ver ? `<span class="bver">${esc(ver)}</span>` : ''}</div>`;
 }
 const TRACK_LABEL = {
   'v7-stable': 'v7 stable — nejnovější stabilní',
@@ -120,6 +131,7 @@ function render() {
     ${state.auth.serverStartedAt ? `<div class="hint" style="padding:0 10px 4px" title="${new Date(state.auth.serverStartedAt).toLocaleString('cs-CZ')}">⟳ server od ${new Date(state.auth.serverStartedAt).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}${state.auth.draining ? ' · <b>aktualizuje se</b>' : ''}</div>${state.auth.draining ? `<div class="hint" id="drainpill" style="padding:0 10px 6px;line-height:1.4">${(state.auth.drainJobs || []).length ? `restart proběhne, až dokončí rozdělané zařízení: ${(state.auth.drainJobs || []).map(j => `<b>${esc(j.owner)}</b> (${j.jobs > 1 ? `${j.jobs} joby, ` : ''}${j.devices} zařízení)`).join(', ')}` : 'restart proběhne za chvíli (nic neběží)'}</div>` : ''}` : ''}
     ${state.auth.sourceIp ? `<div class="hint" style="padding:0 10px 4px" title="Z této adresy se server připojuje na zařízení přes SSH. Povol ji ve firewallu zařízení a v IP → Services → ssh (Available From), případně ve výjimce brute-force ochrany SSH."><span class="copyip clickable" data-ip="${esc(state.auth.sourceIp)}">🔑 SSH z ${esc(state.auth.sourceIp)}</span></div>` : ''}
     <div class="foot"><button class="small" id="refreshver" title="obnovit verze z upgrade.mikrotik.com">↻ verze</button><button class="small" id="logout">Odhlásit</button></div>
+    ${byline()}
   </aside><main id="main"></main></div>
   <div class="pagenav" id="pagenav" hidden><button type="button" id="gotop" title="na začátek stránky">↑</button><button type="button" id="gobottom" title="na konec stránky">↓</button></div>`;
   on('#gotop', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
