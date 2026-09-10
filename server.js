@@ -80,7 +80,7 @@ function networkStatsCompute() {
   const latest = V.getLatest();
   const devs = db.listDevices().filter(d => d.managed);
   const busy = new Set(runner.running().map(x => x.deviceId).filter(Boolean));
-  const st = { total: devs.length, upToDate: 0, needs: 0, stayV6: 0, unreachable: 0, upgrading: busy.size, hold: 0, never: 0, dead: 0, deadToday: 0 };
+  const st = { total: devs.length, upToDate: 0, needs: 0, stayV6: 0, unreachable: 0, unreachableToday: 0, upgrading: busy.size, hold: 0, never: 0, dead: 0, deadToday: 0 };
   const day0 = Math.floor(new Date(new Date().setHours(0, 0, 0, 0)).getTime() / 1000);
   const sc = settingsByOwner();
   for (const d of devs) {
@@ -91,6 +91,8 @@ function networkStatsCompute() {
     if (d.scan_status === 'never' || !d.version) { st.never++; continue; }
     if (d.scan_status !== 'ok') {
       st.unreachable++;
+      // „dnes" = kus se dnes ještě ozval a teprve potom vypadl (dlouhodobě nedostupné mají poslední spojení starší)
+      if (d.last_seen_at && d.last_seen_at >= day0) st.unreachableToday++;
       // umřelo po upgradu: nedostupné od svého upgradu, nebo poslední položka jobu skončila „nevrátil se"
       const lastItem = db.db.prepare('SELECT status, error, finished_at FROM job_items WHERE device_id=? ORDER BY id DESC LIMIT 1').get(d.id);
       // „umřelo po upgradu“ = nedostupné a naposledy viděné do 30 min po svém upgradu (typicky ověření prošlo a regulace/rádio odřízlo kus až po chvíli), nebo poslední položka „nevrátil se“

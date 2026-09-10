@@ -225,7 +225,7 @@ function filteredDevices() {
 function statsStrip() {
   const s = state.stats; if (!s) return '';
   const tile = (n, label, cls = '') => `<div class="stat ${cls}"><b>${n}</b><span>${label}</span></div>`;
-  return `<div class="stats" title="celá síť, všichni uživatelé">${tile(s.total, 'zařízení celkem')}${tile(s.upToDate, 'aktuální', 'ok')}${tile(s.needs, 'čeká na upgrade', s.needs ? 'warn' : '')}${tile(s.stayV6, 'zůstává na v6')}${tile(s.upgrading, 'právě se upgraduje', s.upgrading ? 'info' : '')}${tile(`${s.upgradedToday} / ${s.upgradedTotal}`, 'upgradováno dnes / celkem', 'ok')}${tile(s.unreachable, 'nedostupné', s.unreachable ? 'warn' : '')}${tile(`${s.deadToday ?? 0} / ${s.dead}`, 'umřelo po upgradu dnes / celkem', s.dead ? 'err' : '')}${tile(`${s.failedToday} / ${s.failedTotal}`, 'chyb dnes / celkem', s.failedToday ? 'err' : '')}${tile(s.jobsRunning, 'běžících jobů')}${tile(s.users, 'uživatelů')}</div>`;
+  return `<div class="stats" title="celá síť, všichni uživatelé">${tile(s.total, 'zařízení celkem')}${tile(s.upToDate, 'aktuální', 'ok')}${tile(s.needs, 'čeká na upgrade', s.needs ? 'warn' : '')}${tile(s.stayV6, 'zůstává na v6')}${tile(s.upgrading, 'právě se upgraduje', s.upgrading ? 'info' : '')}${tile(`${s.upgradedToday} / ${s.upgradedTotal}`, 'upgradováno dnes / celkem', 'ok')}${tile(`${s.unreachableToday ?? 0} / ${s.unreachable}`, 'nedostupné dnes / celkem', s.unreachable ? 'warn' : '')}${tile(`${s.deadToday ?? 0} / ${s.dead}`, 'umřelo po upgradu dnes / celkem', s.dead ? 'err' : '')}${tile(`${s.failedToday} / ${s.failedTotal}`, 'chyb dnes / celkem', s.failedToday ? 'err' : '')}${tile(s.jobsRunning, 'běžících jobů')}${tile(s.users, 'uživatelů')}</div>`;
 }
 function renderDevices(m) {
   const devs = state.devices;
