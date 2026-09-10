@@ -647,7 +647,7 @@ async function api(req, res, method, p, url) {
       const raw = db.getDeviceRaw(id);
       const { telnetRun } = require('./lib/telnet');
       const tr = await telnetRun({ host: raw.host, username: raw.username, password: decrypt(raw.password_enc), timeoutMs: 30000 }, ['/ip ssh regenerate-host-key', '/system reboot']);
-      db.updateDevice(id, { host_key: '', scan_status: 'unreachable', scan_error: 'SSH klíč přegenerován přes telnet, router se restartuje — za 2–3 min „Zkontrolovat“' });
+      db.updateDevice(id, { host_key: '', scan_status: 'unreachable', scan_error: 'SSH klíč přegenerován přes telnet, zařízení se restartuje — za 2–3 min „Zkontrolovat“' });
       audit(req, 'SSH klíč přegenerován (telnet)', `${raw.host} ${devLabel(raw)}`);
       bus.emit('event', { type: 'devices-changed' });
       return send(res, 200, { ok: true, transcript: tr.slice(-1500) });

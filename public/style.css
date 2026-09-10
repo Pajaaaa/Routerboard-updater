@@ -244,3 +244,20 @@ details.warnbox{border:1px solid var(--err);border-radius:var(--r);padding:6px 1
 }
 /* plovoucí šipky nahoru/dolů nesmí ležet na obsahu otevřeného okna */
 body:has(#modalbg) .pagenav{display:none}
+
+/* Desktop: tabulka zařízení má hodně sloupců a na běžných šířkách se nevešla — volba kanálu, sken a tlačítka končily
+   za pravým okrajem a nikdo je nenašel. Text se proto zalomí a nejméně důležité sloupce se s ubývající šířkou schovají
+   (vše zůstává v detailu zařízení pod tužkou). */
+@media (min-width:821px){
+  table.devs th,table.devs td{padding:6px 5px}
+  table.devs td[data-l="model"],table.devs td[data-l="nadřazený"],table.devs td[data-l="vlastník"],table.devs td[data-l="stav"]{white-space:normal}
+  table.devs td.parent,table.devs td[data-l="model"]{max-width:150px}
+  table.devs td.name{max-width:250px}
+}
+/* na hodně širokých displejích se obsah smí roztáhnout, ať se vejdou všechny sloupce včetně firmwaru */
+@media (min-width:1951px){main{max-width:1900px}}
+@media (min-width:821px) and (max-width:2000px){table.devs th[data-sort="firmware"],table.devs td[data-l="firmware"]{display:none}}
+@media (min-width:821px) and (max-width:1700px){table.devs th.c-flash,table.devs td[data-l="flash / RAM"]{display:none}}
+@media (min-width:821px) and (max-width:1650px){table.devs th[data-sort="owner"],table.devs td[data-l="vlastník"]{display:none}}
+@media (min-width:821px) and (max-width:1450px){table.devs th.c-parent,table.devs td[data-l="nadřazený"]{display:none}}
+@media (min-width:821px) and (max-width:1400px){table.devs th.c-scan,table.devs td[data-l="sken"]{display:none}}
