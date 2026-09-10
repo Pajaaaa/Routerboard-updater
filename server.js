@@ -27,7 +27,7 @@ bus.on('event', (ev) => { if (ev.type === 'discovery-done' && ev.state) { const 
 const { suggestParent } = require('./lib/topology');
 const userdb = require('./lib/userdb');
 /** do seznamu zařízení jdou jen příznaky, které UI používá; velké struktury (sousedé, rádia, balíčky) zůstávají v detailu zařízení */
-const SLIM_FLAG_KEYS = ['bgp', 'caps_client', 'capsman', 'device_mode', 'flash_dir', 'mpls', 'ospf', 'platform', 'poe_ports', 'routing_filter', 'wifi', 'wireless', 'partitions', 'partitions_list', 'routerboard', 'w60g', 'wifiwave2', 'protected_routerboot', 'voltage', 'temperature', 'user_policy_missing', 'log_symptoms'];
+const SLIM_FLAG_KEYS = ['bgp', 'caps_client', 'capsman', 'device_mode', 'vlan_mgmt', 'flash_dir', 'mpls', 'ospf', 'platform', 'poe_ports', 'routing_filter', 'wifi', 'wireless', 'partitions', 'partitions_list', 'routerboard', 'w60g', 'wifiwave2', 'protected_routerboot', 'voltage', 'temperature', 'user_policy_missing', 'log_symptoms'];
 function slimFlags(f) {
   if (!f || typeof f !== 'object') return f;
   const o = {};
