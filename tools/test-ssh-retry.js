@@ -18,5 +18,10 @@ for (const c of READ) chk(RosClient.isReadOnly(c), `čtecí příkaz brán jako 
 for (const c of WRITE) chk(!RosClient.isReadOnly(c), `zápisový příkaz brán jako čtení (opakoval by se!): ${c}`);
 for (const m of LOST) chk(RosClient.isConnLost(m), `nerozpoznaný pád spojení: ${m}`);
 for (const m of KEEP) chk(!RosClient.isConnLost(m), `mylně brané jako pád spojení: ${m}`);
+// RouterOS na keepalive@openssh.com nikdy neodpoví — ssh2 by po keepaliveCountMax neodpovězených dotazech spojení sám zabil
+// (23× „Keepalive timeout“ u dlouhých uploadů 8.–13.9.2026), takže musí zůstat vypnutý natrvalo
+const src = require('fs').readFileSync(require('path').join(__dirname, '../lib/ros.js'), 'utf8');
+chk(/keepaliveInterval:\s*0\b/.test(src) && !/keepaliveCountMax/.test(src), 'ssh2 keepalive musí být vypnutý (RouterOS na něj neodpovídá)');
+chk(typeof RosClient.prototype._ping === 'function', 'chybí _ping pro rozlišení pomalého a mrtvého spojení');
 if (bad) { console.error(`SSH retry: ${bad} chyb`); process.exit(1); }
 console.log('SSH retry OK');
