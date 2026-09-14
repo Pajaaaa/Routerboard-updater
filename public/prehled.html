@@ -23,6 +23,7 @@
   .legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--muted);margin:6px 0 14px}.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:4px}
   table{background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
   th.num,td.num{text-align:right;width:1%}
+  th.sortable{cursor:pointer;user-select:none}th.sortable:hover{color:var(--ink)}th.sorted{color:var(--ink);font-weight:600}
   tr.area td{background:var(--panel2);font-weight:600;cursor:pointer}tr.area td .arrow{display:inline-block;width:14px;color:var(--muted);font-weight:400}
   tr.ap td{padding-left:26px}tr.ap.done td{opacity:.6}
   td.pct{width:170px}
@@ -117,10 +118,14 @@ function render() {
     h += `<h2>Upgradovaná zařízení za posledních 30 dní</h2><div class="daily">${data.daily.map(d => `<div style="height:${Math.max(3, d.n * 100 / max)}%" title="${d.d}: ${d.n}"><span>${d.n}</span></div>`).join('')}</div><div class="dlab"><span>${data.daily[0].d}</span><span>${data.daily[data.daily.length - 1].d}</span></div>`;
   }
   h += `<h2>Oblasti a APčka</h2><div class="ctl"><input type="search" id="q" placeholder="hledat oblast / AP…" value="${esc(q)}"><label><input type="checkbox" id="onlyrem" ${onlyRem ? 'checked' : ''}> jen kde něco zbývá nebo chybí</label><button type="button" id="expand">rozbalit vše</button><button type="button" id="collapse">sbalit vše</button></div>`;
-  h += `<table><thead><tr><th>oblast / AP</th><th>stav</th><th class="num">celkem</th><th class="num">hotovo</th><th class="num">zbývá</th><th class="num">čeká</th><th class="num">nezkontr.</th><th class="num">nedost.</th><th class="num">pozast.</th><th class="num">hotovo</th></tr></thead><tbody>`;
+  // řazení kliknutím na hlavičku: oblasti i APčka uvnitř podle stejného sloupce; druhé kliknutí obrátí směr
+  const th = (key, label, num) => `<th class="${num ? 'num' : ''} sortable ${sort.key === key ? 'sorted' : ''}" data-sort="${key}">${label}${sort.key === key ? (sort.dir < 0 ? ' ▾' : ' ▴') : ''}</th>`;
+  h += `<table><thead><tr>${th('name', 'oblast / AP')}${th('pct', 'stav')}${th('total', 'celkem', 1)}${th('ok', 'hotovo', 1)}${th('remaining', 'zbývá', 1)}${th('needs', 'čeká', 1)}${th('never', 'nezkontr.', 1)}${th('unreachable', 'nedost.', 1)}${th('paused', 'pozast.', 1)}${th('pct', 'hotovo', 1)}</tr></thead><tbody>`;
+  const val = (x) => sort.key === 'name' ? (x.area ?? x.ap) : sort.key === 'paused' ? x.hold + x.off : sort.key === 'pct' ? pct(x.ok, x.total) : x[sort.key] || 0;
+  const cmp = (x, y) => { const a = val(x), b = val(y); const r = typeof a === 'string' ? a.localeCompare(b, 'cs') : a - b; return r * sort.dir || String(x.area ?? x.ap).localeCompare(String(y.area ?? y.ap), 'cs'); };
   const qq = q.trim().toLowerCase();
-  for (const ar of data.areas) {
-    const aps = ar.aps.filter(a => (!onlyRem || a.remaining || a.missing) && (!qq || ar.area.toLowerCase().includes(qq) || a.ap.toLowerCase().includes(qq)));
+  for (const ar of [...data.areas].sort(cmp)) {
+    const aps = ar.aps.filter(a => (!onlyRem || a.remaining || a.missing) && (!qq || ar.area.toLowerCase().includes(qq) || a.ap.toLowerCase().includes(qq))).sort(cmp);
     if (!aps.length) continue;
     if (onlyRem && !ar.remaining && !ar.apsMissing) continue;
     const key = String(ar.areaId || ar.area), open = openAreas.has(key) || !!qq;
@@ -134,9 +139,11 @@ function render() {
   $('#onlyrem').onchange = (e) => { onlyRem = e.target.checked; try { localStorage.setItem('prehled_onlyrem', onlyRem ? '1' : ''); } catch {} render(); };
   $('#expand').onclick = () => { openAreas = new Set(data.areas.map(a => String(a.areaId || a.area))); save(); render(); };
   $('#collapse').onclick = () => { openAreas = new Set(); save(); render(); };
+  for (const t of document.querySelectorAll('th.sortable')) t.onclick = () => { const k = t.dataset.sort; sort = sort.key === k ? { key: k, dir: -sort.dir } : { key: k, dir: k === 'name' ? 1 : -1 }; try { localStorage.setItem('prehled_sort', JSON.stringify(sort)); } catch {} render(); };
   for (const tr of document.querySelectorAll('tr.area')) tr.onclick = () => { const k = tr.dataset.k; openAreas.has(k) ? openAreas.delete(k) : openAreas.add(k); save(); render(); };
 }
 let onlyRem = false; try { onlyRem = !!localStorage.getItem('prehled_onlyrem'); } catch {}
+let sort = { key: 'remaining', dir: -1 }; try { const x = JSON.parse(localStorage.getItem('prehled_sort') || 'null'); if (x && x.key) sort = x; } catch {}
 const save = () => { try { localStorage.setItem('prehled_open', JSON.stringify([...openAreas])); } catch {} };
 load();
 setInterval(load, 60000);
