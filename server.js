@@ -661,7 +661,7 @@ async function api(req, res, method, p, url) {
     if (method === 'POST' && seg[2] === 'reset-hostkey') { db.updateDevice(id, { host_key: '', scan_status: 'never', scan_error: '' }); scanner.scanOne(id).catch(() => {}); return send(res, 200, { ok: true }); }
     if (method === 'GET' && seg[2] === 'plan') {
       await V.refreshLatest().catch(() => {});
-      const opts = { mode: q.get('mode') || 'upload', allow_routing_migration: q.get('allow_routing') === '1', allow_small_flash: q.get('allow_small_flash') === '1', allow_v7: !!dev.allow_v7 };
+      const opts = { mode: q.get('mode') || 'upload', allow_routing_migration: q.get('allow_routing') === '1', allow_small_flash: q.get('allow_small_flash') === '1', allow_v7: !!dev.allow_v7, ignore_flagged: !!dev.ignore_flagged, skip_link_check: !!dev.skip_link_check };
       const pl = await plan(dev, { track: q.get('track') || dev.track, settings: db.getSettings(dev.owner_id), latest: V.getLatest(), options: opts });
       return send(res, 200, pl);
     }
