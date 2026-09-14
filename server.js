@@ -160,6 +160,8 @@ async function networkProgress() {
     if (st === 'ok' && /^6\./.test(d.version || '')) a.v6++;
     if (d.version) a.versions[d.version] = (a.versions[d.version] || 0) + 1;
   }
+  // APčka z userdb, ze kterých v upgraderu není ani jedno zařízení → „nepřidáno“ (správce je ještě nenačetl z userdb)
+  for (const [apId, meta] of apArea) if (!aps.has(`ap:${apId}`)) aps.set(`ap:${apId}`, { apId, ap: meta.ap, area: meta.area, areaId: meta.areaId, total: 0, ...blank(), v6: 0, versions: {}, missing: true, inactive: !meta.active });
   const areas = new Map();
   for (const a of aps.values()) {
     const k = a.areaId || a.area;
@@ -167,12 +169,12 @@ async function networkProgress() {
     const ar = areas.get(k);
     a.done = a.total > 0 && a.needs === 0 && a.never === 0; // hotovo = nic nečeká na upgrade (nedostupné/hold se nepočítají jako zbývající)
     a.remaining = a.needs + a.never;
-    ar.aps.push(a); ar.total += a.total; for (const key of KEYS) ar[key] += a[key]; ar.v6 += a.v6; if (a.done) ar.apsDone++;
+    ar.aps.push(a); ar.total += a.total; for (const key of KEYS) ar[key] += a[key]; ar.v6 += a.v6; if (a.done) ar.apsDone++; if (a.missing) ar.apsMissing = (ar.apsMissing || 0) + 1;
   }
   const list = [...areas.values()].map(ar => ({ ...ar, remaining: ar.needs + ar.never, aps: ar.aps.sort((x, y) => (y.remaining - x.remaining) || x.ap.localeCompare(y.ap, 'cs')) }))
     .sort((x, y) => (x.areaId && !y.areaId ? -1 : !x.areaId && y.areaId ? 1 : 0) || x.area.localeCompare(y.area, 'cs'));
-  const sum = { total: 0, ...blank(), v6: 0, aps: 0, apsDone: 0, areas: list.length, areasDone: 0 };
-  for (const ar of list) { sum.total += ar.total; for (const k of KEYS) sum[k] += ar[k]; sum.v6 += ar.v6; sum.aps += ar.aps.length; sum.apsDone += ar.apsDone; if (ar.remaining === 0 && ar.total) sum.areasDone++; }
+  const sum = { total: 0, ...blank(), v6: 0, aps: 0, apsDone: 0, apsMissing: 0, areas: list.length, areasDone: 0 };
+  for (const ar of list) { sum.total += ar.total; for (const k of KEYS) sum[k] += ar[k]; sum.v6 += ar.v6; sum.aps += ar.aps.length; sum.apsDone += ar.apsDone; sum.apsMissing += ar.apsMissing || 0; if (ar.remaining === 0 && ar.total && !ar.apsMissing) sum.areasDone++; }
   sum.remaining = sum.needs + sum.never;
   const day0 = Math.floor(new Date(new Date().setHours(0, 0, 0, 0)).getTime() / 1000);
   sum.upgradedToday = db.db.prepare("SELECT COUNT(DISTINCT device_id) n FROM version_history WHERE source IN ('upgrade','late') AND seen_at>=?").get(day0).n;

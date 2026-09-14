@@ -27,6 +27,10 @@
   tr.ap td{padding-left:26px}tr.ap.done td{opacity:.6}
   td.pct{width:170px}
   .done{color:var(--ok)}.rem{color:var(--warn);font-weight:600}.zero{color:var(--muted)}
+  .lists{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:8px 0 4px}@media (max-width:800px){.lists{grid-template-columns:1fr}}
+  .list{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:10px 14px}.list h2{margin:0 0 6px}.list ul{margin:0;padding:0 0 0 18px;max-height:340px;overflow:auto}.list li{margin:2px 0}
+  .list.warn{border-color:#b8740a44}.list.miss{border-color:#d23f3f44}
+  tr.ap.missing td{color:var(--err)}
   .daily{display:flex;align-items:flex-end;gap:3px;height:70px;padding:6px 0 0}.daily div{flex:1;background:var(--accent);border-radius:2px 2px 0 0;min-width:4px;position:relative}
   .daily div span{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);font-size:10px;color:var(--muted);white-space:nowrap}
   .dlab{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
@@ -76,6 +80,7 @@ function bar(x) {
 }
 const num = (n, cls) => `<td class="num ${n ? cls || '' : 'zero'}">${n || '–'}</td>`;
 function rowCells(x) {
+  if (x.missing) return `<td colspan="9" class="muted" style="white-space:normal">v upgraderu není ani jedno zařízení tohoto APčka${x.inactive ? ' (v userdb neaktivní)' : ''} — načti je z userdb</td>`;
   const done = x.ok; // hotovo = aktuální verze (nedostupné a pozastavené se nepočítají ani jako hotové, ani jako zbývající)
   return `<td class="pct">${bar(x)}</td>${num(x.total)}${num(done, 'done')}${num(x.remaining, 'rem')}${num(x.needs)}${num(x.never)}${num(x.unreachable)}${num(x.hold + x.off)}<td class="num">${pct(done, x.total)} %</td>`;
 }
@@ -91,25 +96,36 @@ function render() {
     ${stat(s.unreachable, 'nedostupné', 'err')}
     ${stat(s.v6, 'zůstává na v6', 'v6')}
     ${stat(`${s.apsDone} / ${s.aps}`, 'APček hotovo', 'info')}
+    ${stat(s.aps - s.apsDone - s.apsMissing, 'APček rozděláno', 'warn')}
+    ${stat(s.apsMissing, 'APček nepřidáno do upgraderu', 'err')}
     ${stat(`${s.areasDone} / ${s.areas}`, 'oblastí hotovo', 'info')}
     ${stat(s.upgradedToday, 'upgradováno dnes', 'ok')}
     ${stat(s.upgradedTotal, 'upgradováno nástrojem celkem', 'ok')}
   </div>
   <div class="legend"><span><i style="background:var(--ok)"></i>aktuální (v7 ${esc(data.latest['v7-stable'] || '')})</span><span><i style="background:var(--v6)"></i>aktuální na v6 (${esc(data.latest['v6-long-term'] || '')}, zůstává)</span><span><i style="background:var(--warn)"></i>čeká na upgrade</span><span><i style="background:#d9b25c"></i>ještě nezkontrolováno</span><span><i style="background:var(--err)"></i>nedostupné</span><span><i style="background:#9aa4b2"></i>pozastavené / vypnuté</span></div>`;
+  // dva jasné seznamy: kde ještě něco zbývá (podle počtu) a která APčka z userdb v upgraderu vůbec nejsou
+  const allAps = data.areas.flatMap(ar => ar.aps.map(a => ({ ...a, areaName: ar.area })));
+  const todo = allAps.filter(a => !a.missing && a.remaining > 0).sort((x, y) => y.remaining - x.remaining || x.ap.localeCompare(y.ap, 'cs'));
+  const miss = allAps.filter(a => a.missing && !a.inactive).sort((x, y) => x.areaName.localeCompare(y.areaName, 'cs') || x.ap.localeCompare(y.ap, 'cs'));
+  const missInactive = allAps.filter(a => a.missing && a.inactive).length;
+  h += `<div class="lists">
+    <div class="list warn"><h2>APčka, kde ještě není hotovo (${todo.length})</h2>${todo.length ? `<ul>${todo.map(a => `<li><b>${esc(a.ap)}</b> <span class="muted">(${esc(a.areaName)})</span> — zbývá <b class="rem">${a.remaining}</b> z ${a.total}${a.unreachable ? `, nedostupné ${a.unreachable}` : ''}</li>`).join('')}</ul>` : '<p class="muted">všechna přidaná APčka jsou hotová</p>'}</div>
+    <div class="list miss"><h2>APčka zatím nepřidaná do upgraderu (${miss.length})</h2>${miss.length ? `<ul>${miss.map(a => `<li><b>${esc(a.ap)}</b> <span class="muted">(${esc(a.areaName)})</span></li>`).join('')}</ul>` : '<p class="muted">všechna aktivní APčka z userdb mají v upgraderu zařízení</p>'}${missInactive ? `<p class="muted">+ ${missInactive} v userdb neaktivních (v tabulce níže)</p>` : ''}</div>
+  </div>`;
   if (data.daily && data.daily.length) {
     const max = Math.max(...data.daily.map(d => d.n));
     h += `<h2>Upgradovaná zařízení za posledních 30 dní</h2><div class="daily">${data.daily.map(d => `<div style="height:${Math.max(3, d.n * 100 / max)}%" title="${d.d}: ${d.n}"><span>${d.n}</span></div>`).join('')}</div><div class="dlab"><span>${data.daily[0].d}</span><span>${data.daily[data.daily.length - 1].d}</span></div>`;
   }
-  h += `<h2>Oblasti a APčka</h2><div class="ctl"><input type="search" id="q" placeholder="hledat oblast / AP…" value="${esc(q)}"><label><input type="checkbox" id="onlyrem" ${onlyRem ? 'checked' : ''}> jen kde něco zbývá</label><button type="button" id="expand">rozbalit vše</button><button type="button" id="collapse">sbalit vše</button></div>`;
+  h += `<h2>Oblasti a APčka</h2><div class="ctl"><input type="search" id="q" placeholder="hledat oblast / AP…" value="${esc(q)}"><label><input type="checkbox" id="onlyrem" ${onlyRem ? 'checked' : ''}> jen kde něco zbývá nebo chybí</label><button type="button" id="expand">rozbalit vše</button><button type="button" id="collapse">sbalit vše</button></div>`;
   h += `<table><thead><tr><th>oblast / AP</th><th>stav</th><th class="num">celkem</th><th class="num">hotovo</th><th class="num">zbývá</th><th class="num">čeká</th><th class="num">nezkontr.</th><th class="num">nedost.</th><th class="num">pozast.</th><th class="num">hotovo</th></tr></thead><tbody>`;
   const qq = q.trim().toLowerCase();
   for (const ar of data.areas) {
-    const aps = ar.aps.filter(a => (!onlyRem || a.remaining) && (!qq || ar.area.toLowerCase().includes(qq) || a.ap.toLowerCase().includes(qq)));
+    const aps = ar.aps.filter(a => (!onlyRem || a.remaining || a.missing) && (!qq || ar.area.toLowerCase().includes(qq) || a.ap.toLowerCase().includes(qq)));
     if (!aps.length) continue;
-    if (onlyRem && !ar.remaining) continue;
+    if (onlyRem && !ar.remaining && !ar.apsMissing) continue;
     const key = String(ar.areaId || ar.area), open = openAreas.has(key) || !!qq;
-    h += `<tr class="area" data-k="${esc(key)}"><td><span class="arrow">${open ? '▾' : '▸'}</span>${esc(ar.area)} <span class="muted">(${ar.apsDone}/${ar.aps.length} AP hotovo)</span></td>${rowCells(ar)}</tr>`;
-    if (open) for (const a of aps) h += `<tr class="ap ${a.done ? 'done' : ''}"><td>${a.done ? '✓ ' : ''}${esc(a.ap)}</td>${rowCells(a)}</tr>`;
+    h += `<tr class="area" data-k="${esc(key)}"><td><span class="arrow">${open ? '▾' : '▸'}</span>${esc(ar.area)} <span class="muted">(${ar.apsDone}/${ar.aps.length} AP hotovo${ar.apsMissing ? `, ${ar.apsMissing} nepřidáno` : ''})</span></td>${rowCells(ar)}</tr>`;
+    if (open) for (const a of aps) h += `<tr class="ap ${a.done ? 'done' : ''} ${a.missing ? 'missing' : ''}"><td>${a.done ? '✓ ' : a.missing ? '✗ ' : ''}${esc(a.ap)}</td>${rowCells(a)}</tr>`;
   }
   h += '</tbody></table>';
   if (!data.userdb) h += '<p class="muted">Napojení na userdb není zapnuté — zařízení nejdou rozdělit do oblastí a APček.</p>';
