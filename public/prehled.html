@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<!--
+  MikroTik upgrader — přehled postupu upgradu po oblastech a APčkách.
+  Autor: Pavel Vlček, hkfree.org, 2026.
+-->
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="author" content="Pavel Vlček (hkfree.org)">
+<title>Postup upgradu — MikroTik upgrader</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .wrap{max-width:1100px;margin:0 auto;padding:18px 16px 40px}
+  h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:22px 0 8px}
+  .top{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px}
+  .sum{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}
+  .sum .stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:8px 14px;min-width:120px}
+  .sum .stat b{display:block;font-size:22px;line-height:1.1}.sum .stat span{color:var(--muted);font-size:12px}
+  .sum .stat.ok b{color:var(--ok)}.sum .stat.warn b{color:var(--warn)}.sum .stat.err b{color:var(--err)}.sum .stat.v6 b{color:var(--v6)}.sum .stat.info b{color:var(--info)}
+  .bar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--panel2);min-width:120px}
+  .bar i{display:block;height:100%}.bar .ok{background:var(--ok)}.bar .v6{background:var(--v6)}.bar .needs{background:var(--warn)}.bar .never{background:#d9b25c}.bar .unr{background:var(--err)}.bar .hold{background:#9aa4b2}
+  .legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--muted);margin:6px 0 14px}.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:4px}
+  table{background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
+  th.num,td.num{text-align:right;width:1%}
+  tr.area td{background:var(--panel2);font-weight:600;cursor:pointer}tr.area td .arrow{display:inline-block;width:14px;color:var(--muted);font-weight:400}
+  tr.ap td{padding-left:26px}tr.ap.done td{opacity:.6}
+  td.pct{width:170px}
+  .done{color:var(--ok)}.rem{color:var(--warn);font-weight:600}.zero{color:var(--muted)}
+  .daily{display:flex;align-items:flex-end;gap:3px;height:70px;padding:6px 0 0}.daily div{flex:1;background:var(--accent);border-radius:2px 2px 0 0;min-width:4px;position:relative}
+  .daily div span{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);font-size:10px;color:var(--muted);white-space:nowrap}
+  .dlab{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+  .ctl{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0}
+  .ctl input[type=search]{padding:5px 8px;border:1px solid var(--line2);border-radius:var(--r);background:var(--panel)}
+  #login{display:none;margin:30px auto;max-width:360px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px}
+  #login input{width:100%;padding:6px 8px;margin:4px 0 10px;border:1px solid var(--line2);border-radius:var(--r);background:var(--panel)}
+  #login button{padding:6px 14px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);border-radius:var(--r);cursor:pointer}
+  @media (max-width:700px){td.pct{width:100px}.sum .stat{min-width:90px;padding:6px 10px}.sum .stat b{font-size:18px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><h1>Postup upgradu RouterOS po oblastech a APčkách</h1><span class="muted"><a href="./">← MikroTik upgrader</a> · <span id="stamp"></span></span></div>
+  <div id="login"><b>Přihlášení</b><p class="muted">Přehled je pro přihlášené správce (stejný účet jako v upgraderu).</p><form id="lf"><input name="username" placeholder="jméno" autocomplete="username"><input name="password" type="password" placeholder="heslo" autocomplete="current-password"><button>Přihlásit</button> <span id="lerr" class="muted"></span></form></div>
+  <div id="main"></div>
+</div>
+<script>
+'use strict';
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const pct = (n, t) => t ? Math.round(n * 100 / t) : 0;
+let data = null, openAreas = new Set(), q = '';
+try { openAreas = new Set(JSON.parse(localStorage.getItem('prehled_open') || '[]')); } catch {}
+
+async function load() {
+  const r = await fetch('api/progress', { credentials: 'same-origin' });
+  if (r.status === 401) { $('#login').style.display = 'block'; $('#main').innerHTML = ''; return; }
+  if (!r.ok) { $('#main').innerHTML = `<p class="muted">chyba ${r.status}</p>`; return; }
+  $('#login').style.display = 'none';
+  data = await r.json();
+  render();
+}
+$('#lf').onsubmit = async (e) => {
+  e.preventDefault();
+  const b = Object.fromEntries(new FormData(e.target));
+  const r = await fetch('api/login', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) });
+  if (!r.ok) { $('#lerr').textContent = 'špatné jméno nebo heslo'; return; }
+  load();
+};
+
+function bar(x) {
+  // hotové (v7 / v6 cíl), čeká na upgrade, nezkontrolované, nedostupné, hold
+  const t = x.total || 1, okv7 = x.ok - x.v6;
+  const seg = [['ok', okv7, 'aktuální (v7)'], ['v6', x.v6, 'aktuální na v6 (zůstává)'], ['needs', x.needs, 'čeká na upgrade'], ['never', x.never, 'nezkontrolováno'], ['unr', x.unreachable, 'nedostupné'], ['hold', x.hold + x.off, 'pozastavené / vypnuté']];
+  return `<div class="bar" title="${seg.filter(s => s[1]).map(s => `${s[2]}: ${s[1]}`).join(', ')}">${seg.map(s => s[1] ? `<i class="${s[0]}" style="width:${s[1] * 100 / t}%"></i>` : '').join('')}</div>`;
+}
+const num = (n, cls) => `<td class="num ${n ? cls || '' : 'zero'}">${n || '–'}</td>`;
+function rowCells(x) {
+  const done = x.ok; // hotovo = aktuální verze (nedostupné a pozastavené se nepočítají ani jako hotové, ani jako zbývající)
+  return `<td class="pct">${bar(x)}</td>${num(x.total)}${num(done, 'done')}${num(x.remaining, 'rem')}${num(x.needs)}${num(x.never)}${num(x.unreachable)}${num(x.hold + x.off)}<td class="num">${pct(done, x.total)} %</td>`;
+}
+function render() {
+  if (!data) return;
+  const s = data.sum;
+  $('#stamp').textContent = `stav k ${new Date(data.at).toLocaleString('cs-CZ')}`;
+  const stat = (v, l, c) => `<div class="stat ${c || ''}"><b>${v}</b><span>${l}</span></div>`;
+  let h = `<div class="sum">
+    ${stat(s.total, 'zařízení celkem')}
+    ${stat(s.ok, `hotovo (${pct(s.ok, s.total)} %)`, 'ok')}
+    ${stat(s.remaining, 'zbývá upgradovat', 'warn')}
+    ${stat(s.unreachable, 'nedostupné', 'err')}
+    ${stat(s.v6, 'zůstává na v6', 'v6')}
+    ${stat(`${s.apsDone} / ${s.aps}`, 'APček hotovo', 'info')}
+    ${stat(`${s.areasDone} / ${s.areas}`, 'oblastí hotovo', 'info')}
+    ${stat(s.upgradedToday, 'upgradováno dnes', 'ok')}
+    ${stat(s.upgradedTotal, 'upgradováno nástrojem celkem', 'ok')}
+  </div>
+  <div class="legend"><span><i style="background:var(--ok)"></i>aktuální (v7 ${esc(data.latest['v7-stable'] || '')})</span><span><i style="background:var(--v6)"></i>aktuální na v6 (${esc(data.latest['v6-long-term'] || '')}, zůstává)</span><span><i style="background:var(--warn)"></i>čeká na upgrade</span><span><i style="background:#d9b25c"></i>ještě nezkontrolováno</span><span><i style="background:var(--err)"></i>nedostupné</span><span><i style="background:#9aa4b2"></i>pozastavené / vypnuté</span></div>`;
+  if (data.daily && data.daily.length) {
+    const max = Math.max(...data.daily.map(d => d.n));
+    h += `<h2>Upgradovaná zařízení za posledních 30 dní</h2><div class="daily">${data.daily.map(d => `<div style="height:${Math.max(3, d.n * 100 / max)}%" title="${d.d}: ${d.n}"><span>${d.n}</span></div>`).join('')}</div><div class="dlab"><span>${data.daily[0].d}</span><span>${data.daily[data.daily.length - 1].d}</span></div>`;
+  }
+  h += `<h2>Oblasti a APčka</h2><div class="ctl"><input type="search" id="q" placeholder="hledat oblast / AP…" value="${esc(q)}"><label><input type="checkbox" id="onlyrem" ${onlyRem ? 'checked' : ''}> jen kde něco zbývá</label><button type="button" id="expand">rozbalit vše</button><button type="button" id="collapse">sbalit vše</button></div>`;
+  h += `<table><thead><tr><th>oblast / AP</th><th>stav</th><th class="num">celkem</th><th class="num">hotovo</th><th class="num">zbývá</th><th class="num">čeká</th><th class="num">nezkontr.</th><th class="num">nedost.</th><th class="num">pozast.</th><th class="num">hotovo</th></tr></thead><tbody>`;
+  const qq = q.trim().toLowerCase();
+  for (const ar of data.areas) {
+    const aps = ar.aps.filter(a => (!onlyRem || a.remaining) && (!qq || ar.area.toLowerCase().includes(qq) || a.ap.toLowerCase().includes(qq)));
+    if (!aps.length) continue;
+    if (onlyRem && !ar.remaining) continue;
+    const key = String(ar.areaId || ar.area), open = openAreas.has(key) || !!qq;
+    h += `<tr class="area" data-k="${esc(key)}"><td><span class="arrow">${open ? '▾' : '▸'}</span>${esc(ar.area)} <span class="muted">(${ar.apsDone}/${ar.aps.length} AP hotovo)</span></td>${rowCells(ar)}</tr>`;
+    if (open) for (const a of aps) h += `<tr class="ap ${a.done ? 'done' : ''}"><td>${a.done ? '✓ ' : ''}${esc(a.ap)}</td>${rowCells(a)}</tr>`;
+  }
+  h += '</tbody></table>';
+  if (!data.userdb) h += '<p class="muted">Napojení na userdb není zapnuté — zařízení nejdou rozdělit do oblastí a APček.</p>';
+  $('#main').innerHTML = h;
+  $('#q').oninput = (e) => { q = e.target.value; render(); const i = $('#q'); i.focus(); i.setSelectionRange(q.length, q.length); };
+  $('#onlyrem').onchange = (e) => { onlyRem = e.target.checked; try { localStorage.setItem('prehled_onlyrem', onlyRem ? '1' : ''); } catch {} render(); };
+  $('#expand').onclick = () => { openAreas = new Set(data.areas.map(a => String(a.areaId || a.area))); save(); render(); };
+  $('#collapse').onclick = () => { openAreas = new Set(); save(); render(); };
+  for (const tr of document.querySelectorAll('tr.area')) tr.onclick = () => { const k = tr.dataset.k; openAreas.has(k) ? openAreas.delete(k) : openAreas.add(k); save(); render(); };
+}
+let onlyRem = false; try { onlyRem = !!localStorage.getItem('prehled_onlyrem'); } catch {}
+const save = () => { try { localStorage.setItem('prehled_open', JSON.stringify([...openAreas])); } catch {} };
+load();
+setInterval(load, 60000);
+</script>
+</body>
+</html>

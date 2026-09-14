@@ -122,7 +122,7 @@ function render() {
   const navBtn = (v, ico, label) => `<button class="${state.view === v ? 'active' : ''}" data-view="${v}"><span class="ico">${ico}</span>${label}</button>`;
   app.innerHTML = `<div class="shell"><aside class="side">
     <div class="brand"><div class="mark">ROS</div><div><b>MikroTik upgrader</b><small>správa RouterOS</small></div></div>
-    <nav>${navBtn('devices', '▤', 'Zařízení')}${navBtn('jobs', '▶', 'Upgrady')}${navBtn('help', '?', 'Nápověda')}${navBtn('settings', '⚙', 'Nastavení')}${state.admin ? navBtn('admin', '🛠', 'Správa') : ''}</nav>
+    <nav>${navBtn('devices', '▤', 'Zařízení')}${navBtn('jobs', '▶', 'Upgrady')}<a class="navlink" href="prehled.html" target="_blank" title="postup upgradu po oblastech a APčkách (otevře se vedle)"><span class="ico">▦</span>Postup</a>${navBtn('help', '?', 'Nápověda')}${navBtn('settings', '⚙', 'Nastavení')}${state.admin ? navBtn('admin', '🛠', 'Správa') : ''}</nav>
     <div class="versions">${latestBar()}</div>
     <div class="spacer"></div>
     <div class="runner-pill ${running ? 'live' : ''}" id="runnerpill">${running ? ownRuns.map(({ r, job, dev }) => `<div class="clickable" data-job="${r.jobId}"><span class="pulse"></span><b>job #${r.jobId}</b>${job ? ` ${esc(job.name).slice(0, 40)}` : ''}${dev ? `<br><span class="hint">${esc(devName(dev))}</span>` : ''}</div>`).join('') : 'žádný tvůj job neběží'}${(state.runner.others || []).length ? `<div class="hint" style="margin-top:6px;line-height:1.4">${state.runner.others.map(o => `<b>${esc(o.user || 'jiný uživatel')}</b>: ${o.jobs > 1 ? `${o.jobs} joby, ` : ''}upgrade ${o.total} zařízení${o.done ? `, hotovo ${o.done}` : ''}`).join('<br>')}</div>` : ''}</div>

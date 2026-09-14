@@ -126,6 +126,64 @@ function networkStatsCompute() {
   return st;
 }
 
+/** postup upgradu po oblastech a APčkách (stránka prehled.html): stav každého zařízení stejnou logikou jako proužek statistik,
+ * seskupeno podle userdb APčka (devices.userdb_ap_id) → oblast z userdb; zařízení bez vazby na userdb jsou ve skupině „mimo userdb“ */
+let progressCache = { at: 0, value: null };
+async function networkProgress() {
+  if (progressCache.value && Date.now() - progressCache.at < 30000) return progressCache.value;
+  const latest = V.getLatest();
+  const sc = settingsByOwner();
+  const apArea = new Map(); // apId → { ap, area, areaId, active }
+  if (userdb.enabled()) { try { for (const a of await userdb.areas()) for (const ap of a.aps) apArea.set(ap.id, { ap: ap.name, area: a.name, areaId: a.id, active: ap.active }); } catch {} }
+  const stateOf = (d) => {
+    if (!d.enabled) return 'off';
+    const eff = effectiveTrack(d, sc(d.owner_id));
+    if (eff === 'hold') return 'hold';
+    if (d.scan_status === 'never' || !d.version) return 'never';
+    if (d.scan_status !== 'ok') return 'unreachable';
+    const t = targetFor(eff, latest); if (!t) return 'ok';
+    const c = V.cmpVersion(d.version, t);
+    return Number.isFinite(c) && c < 0 ? 'needs' : 'ok';
+  };
+  const KEYS = ['ok', 'needs', 'unreachable', 'never', 'hold', 'off'];
+  const blank = () => Object.fromEntries(KEYS.map(k => [k, 0]));
+  const aps = new Map();
+  for (const d of db.listDevices()) {
+    if (!d.managed || d.dup_of) continue;
+    const apId = Number(d.userdb_ap_id || 0);
+    const meta = apArea.get(apId);
+    const key = apId ? `ap:${apId}` : 'none';
+    if (!aps.has(key)) aps.set(key, { apId, ap: meta ? meta.ap : (d.userdb_ap || d.group_name || (apId ? `AP ${apId}` : 'mimo userdb')), area: meta ? meta.area : (apId ? 'oblast neznámá (userdb neodpovídá)' : 'mimo userdb'), areaId: meta ? meta.areaId : 0, total: 0, ...blank(), v6: 0, versions: {} });
+    const a = aps.get(key);
+    const st = stateOf(d);
+    a.total++; a[st]++;
+    if (st === 'ok' && /^6\./.test(d.version || '')) a.v6++;
+    if (d.version) a.versions[d.version] = (a.versions[d.version] || 0) + 1;
+  }
+  const areas = new Map();
+  for (const a of aps.values()) {
+    const k = a.areaId || a.area;
+    if (!areas.has(k)) areas.set(k, { area: a.area, areaId: a.areaId, aps: [], total: 0, ...blank(), v6: 0, apsDone: 0 });
+    const ar = areas.get(k);
+    a.done = a.total > 0 && a.needs === 0 && a.never === 0; // hotovo = nic nečeká na upgrade (nedostupné/hold se nepočítají jako zbývající)
+    a.remaining = a.needs + a.never;
+    ar.aps.push(a); ar.total += a.total; for (const key of KEYS) ar[key] += a[key]; ar.v6 += a.v6; if (a.done) ar.apsDone++;
+  }
+  const list = [...areas.values()].map(ar => ({ ...ar, remaining: ar.needs + ar.never, aps: ar.aps.sort((x, y) => (y.remaining - x.remaining) || x.ap.localeCompare(y.ap, 'cs')) }))
+    .sort((x, y) => (x.areaId && !y.areaId ? -1 : !x.areaId && y.areaId ? 1 : 0) || x.area.localeCompare(y.area, 'cs'));
+  const sum = { total: 0, ...blank(), v6: 0, aps: 0, apsDone: 0, areas: list.length, areasDone: 0 };
+  for (const ar of list) { sum.total += ar.total; for (const k of KEYS) sum[k] += ar[k]; sum.v6 += ar.v6; sum.aps += ar.aps.length; sum.apsDone += ar.apsDone; if (ar.remaining === 0 && ar.total) sum.areasDone++; }
+  sum.remaining = sum.needs + sum.never;
+  const day0 = Math.floor(new Date(new Date().setHours(0, 0, 0, 0)).getTime() / 1000);
+  sum.upgradedToday = db.db.prepare("SELECT COUNT(DISTINCT device_id) n FROM version_history WHERE source IN ('upgrade','late') AND seen_at>=?").get(day0).n;
+  sum.upgradedTotal = db.db.prepare("SELECT COUNT(DISTINCT device_id) n FROM version_history WHERE source IN ('upgrade','late')").get().n;
+  // denní průběh za posledních 30 dní: kolik zařízení bylo který den upgradováno
+  const daily = db.db.prepare("SELECT date(seen_at,'unixepoch','localtime') d, COUNT(DISTINCT device_id) n FROM version_history WHERE source IN ('upgrade','late') AND seen_at>=? GROUP BY 1 ORDER BY 1").all(day0 - 29 * 86400);
+  const value = { at: Date.now(), latest, sum, areas: list, daily, userdb: userdb.enabled() };
+  progressCache = { at: Date.now(), value };
+  return value;
+}
+
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json' };
 const TRACKS = ['v7-stable', 'v7-long-term', 'v6-long-term', 'hold'];
 
@@ -347,6 +405,7 @@ async function api(req, res, method, p, url) {
   if (method === 'GET' && seg[0] === 'changelog' && seg[1]) return send(res, 200, await V.getChangelog(seg[1]));
   // statistika celé sítě (jen počty, bez cizích detailů) — proužek nahoře pro všechny
   if (method === 'GET' && p === '/api/stats') return send(res, 200, networkStats());
+  if (method === 'GET' && p === '/api/progress') return send(res, 200, await networkProgress());
   // seznamy z plánovače pro nápovědu (vždy odpovídají kódu)
   if (method === 'GET' && p === '/api/rules') return send(res, 200, { noV7: NO_V7.map(r => ({ hw: r.hw, why: r.why, src: r.src, hard: !!r.hard })), knownBad: KNOWN_BAD.map(r => ({ hw: r.hw, versions: r.versions, why: r.why || r.warn || r.firmwareWarn })), globalBad: Object.entries(GLOBAL_BAD).map(([v, why]) => ({ version: v, why })) });
 

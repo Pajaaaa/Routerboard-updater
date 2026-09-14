@@ -14,10 +14,11 @@ for i in $(seq 1 40); do curl -s -o /dev/null http://127.0.0.1:28999/mikrotik/ &
 curl -s -o /dev/null http://127.0.0.1:28999/mikrotik/ || { echo "server nenaběhl:"; cat "$T/server.log"; exit 1; }
 J="$T/cj"
 curl -s -c "$J" -H 'content-type: application/json' -d '{"username":"preflight","password":"preflight-heslo"}' http://127.0.0.1:28999/mikrotik/api/login | grep -q '"ok":true' || { echo "login selhal"; cat "$T/server.log"; exit 1; }
-for p in /api/whoami /api/state /api/stats /api/settings /api/jobs /api/rules /api/users /api/busy; do
+for p in /api/whoami /api/state /api/stats /api/progress /api/settings /api/jobs /api/rules /api/users /api/busy; do
   code=$(curl -s -o "$T/out" -w '%{http_code}' -b "$J" "http://127.0.0.1:28999/mikrotik$p")
   [ "$code" = 200 ] || { echo "API $p → HTTP $code"; head -c 300 "$T/out"; echo; cat "$T/server.log"; exit 1; }
 done
+curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:28999/mikrotik/prehled.html | grep -q 200 || { echo "prehled.html se nepodává"; exit 1; }
 curl -s -X PUT -b "$J" -H 'content-type: application/json' -d '{"min_uptime_min":11}' http://127.0.0.1:28999/mikrotik/api/settings/mine | grep -q '"min_uptime_min":11' || { echo "uložení nastavení selhalo"; exit 1; }
 grep -iE "error|TypeError|ReferenceError" "$T/server.log" | grep -v ExperimentalWarning && { echo "chyby v logu serveru"; exit 1; }
 echo "3/4 vykreslení UI v opravdovém DOM (jsdom) proti serveru nanečisto"
