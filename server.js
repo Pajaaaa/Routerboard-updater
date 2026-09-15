@@ -275,6 +275,13 @@ async function userAreas(acct) {
   return { id: w ? w.id : (acct.userdb_uid || 0), nick: w ? w.nick : (acct.userdb_nick || acct.name), email: w ? w.email : (acct.email || ''), areas, apCount: areas.reduce((n, a) => n + a.aps.length, 0), linkedAdmin: !!w };
 }
 
+/** účet, kterému správce nástroje APčko výslovně přidělil (users.userdb_aps); víc účtů → přednost má správce oblasti (SO) z userdb, jinak nejstarší účet; null = nikdo */
+function assignedOwner(apId, so) {
+  const id = Number(apId || 0); if (!id) return null;
+  const hits = db.listUsers().filter(u => !u.disabled && (u.userdb_aps || []).includes(id)).sort((x, y) => x.id - y.id);
+  if (!hits.length) return null;
+  return (so && hits.find(u => u.userdb_uid === Number(so.id))) || hits[0];
+}
 /** import z userdb na pozadí (viz POST /api/userdb/import): stažení loginů, doplnění existujících, nové do fronty skenu */
 async function runUserdbImport({ acct, allMode, ownerMe, onlyAps, key, prog, byName, isAdm, ip, track }) {
   void isAdm; void ip;
@@ -288,6 +295,7 @@ async function runUserdbImport({ acct, allMode, ownerMe, onlyAps, key, prog, byN
   const ownerFor = (d) => {
     if (!allMode || ownerMe) return acct.id; // ownerMe: správce chce zařízení celé sítě přiřadit sobě, ne správci oblasti z userdb
     const so = (d.areaAdmins || []).find(x => x.role === 'SO') || (d.areaAdmins || [])[0];
+    const asg = assignedOwner(d.apId, so); if (asg) return asg.id; // APčko přidělené účtu ve Správě (users.userdb_aps) má přednost před správcem oblasti
     if (!so) return acct.id;
     if (ownerCache.has(so.id)) return ownerCache.get(so.id);
     let u = db.getUserByUserdbUid(so.id);
@@ -504,7 +512,7 @@ async function api(req, res, method, p, url) {
       for (const a of all) {
         const so = a.admins.find(x => x.role === 'SO') || a.admins[0] || null;
         const ownerAcct = so ? db.getUserByUserdbUid(so.id) : null;
-        const aps = a.aps.map(ap => { const list = results.get(ap.id) || []; return { id: ap.id, name: ap.name, active: ap.active, address: ap.address, total: list.length, members: list.filter(d => d.member).length, imported: allDevs.filter(d => d.userdb_ap_id === ap.id).length }; });
+        const aps = a.aps.map(ap => { const list = results.get(ap.id) || []; const asg = assignedOwner(ap.id, so); return { id: ap.id, name: ap.name, active: ap.active, address: ap.address, total: list.length, members: list.filter(d => d.member).length, imported: allDevs.filter(d => d.userdb_ap_id === ap.id).length, owner: asg ? `${asg.userdb_nick || asg.name} (přiděleno)` : '' }; });
         areasOut.push({ id: a.id, name: a.name, role: '', admins: a.admins.map(x => `${x.nick} (${x.id}, ${x.role})`).join(', '), owner: so ? `${so.nick} (${so.id})${ownerAcct ? '' : ' — účet vznikne'}` : '— bez správce → ' + acct.name, aps });
       }
       return send(res, 200, { linked: true, all: true, user: { id: acct.id, name: acct.name }, admin: { id: acct.userdb_uid, nick: acct.userdb_nick || acct.name, email: acct.email }, areas: areasOut, lastImport: userdbImports.get(-1) || null });

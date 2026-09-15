@@ -34,6 +34,8 @@ const check = (name, ok, extra = '') => { console.log(`  ${name}: ${ok ? 'OK' : 
   await run('window.__p = loadState()');
   await run('state.authed = true; render(); window.__p = 1');
   await sleep(300);
+  // po přihlášení heslem (bez načtení stránky) musí loadState osvěžit i účet a vazbu na userdb (15.9.2026: zůstávaly z doby před přihlášením)
+  check('loadState po přihlášení osvěží účet', (await run('window.__p = JSON.stringify((state.auth.user || {}).name || "")')) === JSON.stringify(USER), await run('window.__p = JSON.stringify(state.auth.user)'));
   // klíčové prvky, které musí v daném pohledu existovat
   const expect = { devices: ['#vfilter', '#sort'], jobs: [], help: [], settings: ['#setf-mine'], admin: ['#setf', '#userlist', '#auditbox'] };
   for (const pw of [true, false]) {
