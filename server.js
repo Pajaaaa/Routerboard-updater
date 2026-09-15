@@ -14,6 +14,8 @@ const cfg = require('./lib/config');
 const db = require('./lib/db');
 const { encrypt, decrypt, makeSession, checkSession, hashPassword, verifyPassword } = require('./lib/crypto');
 const V = require('./lib/versions');
+// připnuté cílové verze kanálů (nastavení správce) → cíl kampaně se novým vydáním MikroTiku sám neposune
+V.configure({ pins: () => { const s = db.getSettings(); return { 'v7-stable': s.pin_v7_stable, 'v7-long-term': s.pin_v7_long_term, 'v6-long-term': s.pin_v6_long_term }; } });
 const { RunnerPool } = require('./lib/runner');
 const { Scanner } = require('./lib/scanner');
 const { plan, effectiveTrack, NO_V7, KNOWN_BAD, GLOBAL_BAD } = require('./lib/planner');
@@ -425,7 +427,23 @@ async function api(req, res, method, p, url) {
   if (method === 'GET' && p === '/api/settings') return send(res, 200, { settings: db.getSettings(req.user.id), own: db.getUserSettings(req.user.id), global: isAdmin(req) ? db.getSettings() : undefined });
   if (method === 'PUT' && p === '/api/settings/mine') { const b = await readBody(req); const own = db.setUserSettings(req.user.id, b); audit(req, 'vlastní nastavení', JSON.stringify(own)); return send(res, 200, { settings: db.getSettings(req.user.id), own }); }
   if (method === 'DELETE' && p === '/api/settings/mine') { db.clearUserSettings(req.user.id); audit(req, 'vlastní nastavení zrušeno', ''); return send(res, 200, { settings: db.getSettings(req.user.id), own: {} }); }
-  if (method === 'PUT' && p === '/api/settings') { if (!adminOnly(req, res)) return; const b = await readBody(req); db.setSettings(b); audit(req, 'nastavení', JSON.stringify(b)); return send(res, 200, db.getSettings()); }
+  if (method === 'PUT' && p === '/api/settings') {
+    if (!adminOnly(req, res)) return; const b = await readBody(req);
+    // připnuté verze: prázdné = sledovat MikroTik, jinak musí být čitelná verze RouterOS správné řady (v6 kanál 6.x, v7 kanály 7.x)
+    for (const [k, major] of [['pin_v7_stable', 7], ['pin_v7_long_term', 7], ['pin_v6_long_term', 6]]) {
+      if (!(k in b)) continue;
+      const v = String(b[k] || '').trim(); b[k] = v;
+      if (!v) continue;
+      const pv = V.parseVersion(v);
+      if (!pv) return send(res, 400, { error: `${k}: „${v}“ není verze RouterOS (např. 7.24.2)` });
+      if (pv.major !== major) return send(res, 400, { error: `${k}: verze ${v} nepatří do řady ${major}.x` });
+    }
+    const before = db.getSettings();
+    db.setSettings(b); audit(req, 'nastavení', JSON.stringify(b));
+    const after = db.getSettings();
+    if (['pin_v7_stable', 'pin_v7_long_term', 'pin_v6_long_term'].some(k => before[k] !== after[k])) { statsCache.at = 0; progressCache.at = 0; bus.emit('event', { type: 'latest', latest: V.getLatest() }); }
+    return send(res, 200, after);
+  }
   if (method === 'GET' && p === '/api/audit') { if (!adminOnly(req, res)) return; return send(res, 200, db.listAudit(300)); }
 
   // uživatelé (jen správce) + změna vlastního hesla

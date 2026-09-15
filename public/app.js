@@ -157,7 +157,11 @@ function render() {
 }
 function latestBar() {
   const v = state.latest.versions || {};
-  const row = (k, l) => { const x = v[k]; if (!x) return ''; const age = x.releasedAt ? Math.floor((Date.now() / 1000 - x.releasedAt) / 86400) : null; const fresh = age !== null && age < (state.settings.min_release_age_days || 0); return `<div title="${fresh ? 'mladší než limit v nastavení, upgrade blokován' : 'stáří vydání'}">${l} <b>${esc(x.version)}</b>${age !== null ? ` <span class="${fresh ? 'fresh' : ''}">${age} d</span>` : ''}</div>`; };
+  const row = (k, l) => { const x = v[k]; if (!x) return ''; const age = x.releasedAt ? Math.floor((Date.now() / 1000 - x.releasedAt) / 86400) : null; const fresh = age !== null && age < (state.settings.min_release_age_days || 0);
+    // připnutý cíl: nové vydání MikroTiku se jen ukáže, cíl kampaně se neposune, dokud ho správce v nastavení nepřijme
+    const pin = x.pinned ? ` <span title="cílová verze připnutá správcem — nová vydání MikroTiku cíl neposunou, dokud je správce v nastavení nepřijme">📌</span>` : '';
+    const newer = x.pinned && x.newer ? `<div class="muted" title="MikroTik už nabízí novější vydání; cíl kampaně zůstává připnutý${state.admin ? ' — přijmout jde v Nastavení → Verze' : ''}">↳ nově ${esc(x.newer)}, zatím se nebere</div>` : '';
+    return `<div title="${fresh ? 'mladší než limit v nastavení, upgrade blokován' : 'stáří vydání'}">${l} <b>${esc(x.version)}</b>${pin}${age !== null ? ` <span class="${fresh ? 'fresh' : ''}">${age} d</span>` : ''}</div>${newer}`; };
   return row('v7-stable', 'v7 stable') + row('v7-long-term', 'v7 long-term') + row('v6-long-term', 'v6 long-term') + (state.latest.error ? `<div class="b-err" title="${esc(state.latest.error)}">verze nedostupné</div>` : '');
 }
 // popisek zařízení: primárně /system identity; výchozí identita („MikroTik“ nebo název modelu, jak ji RouterOS 7 přepisuje) se přeskočí
@@ -573,9 +577,14 @@ function renderHelp(m) {
     $('#rules-bad').innerHTML = `<div class="tablewrap"><table><thead><tr><th>Hardware</th><th>Verze</th><th>Proč</th></tr></thead><tbody>${r.knownBad.filter(x => x.versions.length).map(x => `<tr><td style="white-space:normal">${esc(x.hw)}</td><td class="mono" style="white-space:normal">${esc(x.versions.join(', '))}</td><td style="white-space:normal">${esc(x.why)}</td></tr>`).join('')}<tr><td>všechna zařízení</td><td class="mono" style="white-space:normal">${esc(r.globalBad.map(g => g.version).join(', '))}</td><td style="white-space:normal">${esc(r.globalBad.map(g => `${g.version}: ${g.why}`).join(' · '))}</td></tr></tbody></table></div>`;
   }).catch(e => { const n = $('#rules-nov7'); if (n) n.textContent = e.message; });
 }
-function settingsFields(s) {
+function settingsFields(s, global) {
   const f = (k, label, type = 'number', step = '1') => `<label>${label}<input name="${k}" type="${type}" step="${step}" value="${esc(s[k])}"></label>`;
   const c = (k, label) => `<label class="check"><input type="checkbox" name="${k}" ${s[k] ? 'checked' : ''}> ${label}</label>`;
+  // připnuté cílové verze (jen společné nastavení): kampaň běží na jedné verzi, nové vydání MikroTiku ji samo neposune
+  const mt = (state.latest && state.latest.mikrotik) || {}; const lv = (state.latest && state.latest.versions) || {};
+  const pinField = (k, track, label) => { const m = mt[track] ? mt[track].version : ''; const cur = lv[track] ? lv[track].version : ''; const newer = s[k] && m && lv[track] && lv[track].newer; return `<label>${label}<input name="${k}" type="text" value="${esc(s[k] || '')}" placeholder="sledovat MikroTik${m ? ` (${m})` : ''}" list="pins-${track}"><datalist id="pins-${track}">${((state.latest && state.latest.known && state.latest.known[track]) || []).map(r => `<option value="${esc(r.version)}">`).join('')}</datalist>${newer ? `<span class="hint" style="color:var(--warn)">MikroTik nabízí ${esc(m)} — přijmeš ji přepsáním pole (nebo vymazáním = sledovat MikroTik)</span>` : (s[k] ? `<span class="hint">cíl připnutý; MikroTik nabízí ${esc(m || '?')}</span>` : cur ? `<span class="hint">sleduje se MikroTik, teď ${esc(cur)}</span>` : '')}</label>`; };
+  const pinsHtml = global ? `<div class="wide hint">Připnutá cílová verze: statistika, plány i „Upgradovat vše potřebné“ počítají s ní; když MikroTik vydá novou, jen se ukáže v levém panelu a kampaň pokračuje na připnuté, dokud ji sem nezapíšeš. Prázdné pole = vždy nejnovější vydání.</div>
+    ${pinField('pin_v7_stable', 'v7-stable', 'připnutý cíl v7 stable')}${pinField('pin_v7_long_term', 'v7-long-term', 'připnutý cíl v7 long-term')}${pinField('pin_v6_long_term', 'v6-long-term', 'připnutý cíl v6 long-term')}<label>&nbsp;<button type="button" class="small" id="pin-now" title="zapíše do polí verze, na které se právě upgraduje">Připnout současné cíle</button></label>` : '';
   return `<h2>Kontroly před upgradem</h2>
     ${f('min_uptime_min', 'min. uptime zařízení (min)')}${f('min_free_mem_mb', 'min. volná RAM (MB)')}${f('space_margin_mb', 'rezerva místa k balíčkům (MB)', 'number', '0.5')}${f('ssh_timeout_sec', 'SSH timeout připojení (s)')}
     <h2>Verze</h2>
@@ -583,6 +592,7 @@ function settingsFields(s) {
     ${c('stay_on_v6', 'zůstat na v6: moje zařízení, která běží na RouterOS 6, nepřevádět na v7 — upgradují se jen na poslední v6 long-term, ať mají kanál jakýkoli (zařízení už na v7 se dál aktualizují v rámci v7; odškrtnutím se zase začne nabízet přechod na v7)')}
     <div class="wide row"><button type="button" class="small" id="tracksel-stable">Přepnout všechna moje zařízení na v7 stable</button><button type="button" class="small" id="tracksel-lt">Přepnout všechna moje zařízení na v7 long-term</button><span class="hint">nemění zařízení držená na v6 ani hold</span></div>
     ${f('min_release_age_days', 'min. stáří verze (dní)', 'number', '0.5')}${f('zero_release_min_days', 'min. stáří první verze větve x.y.0 (dní)')}<label class="wide">zakázané verze (čárkou)<input name="bad_versions" type="text" value="${esc(s.bad_versions)}" placeholder="7.19.4, 7.23.4"></label>
+    ${pinsHtml}
     <h2>Průběh a bezdrátové spoje</h2>
     ${f('reboot_timeout_min', 'návrat po restartu (min)')}${f('pause_between_devices_sec', 'pauza mezi zařízeními (s)')}${f('link_wait_min', 'čekání na obnovení spojů (min)')}${f('link_return_pct', 'návrat klientů sektoru (%)')}${f('preventive_reboot_days', 'preventivní restart při uptime nad (dní, 0 = vypnuto)')}
     ${f('radio_min_signal', 'varovat při signálu pod (dBm, 5 GHz)')}${f('radio_min_ccq', 'varovat při CCQ pod (%)')}${f('radio_min_signal60', 'varovat při 60 GHz kvalitě pod (%)')}${f('radio_max_per', 'varovat při 60 GHz chybovosti nad (%)')}
@@ -615,7 +625,7 @@ function settingsFields(s) {
 }
 function adminPanelsHtml(s) {
   return `<h1>Správa</h1>
-  <div class="panel"><h2>Společné nastavení</h2><div class="hint" style="margin-bottom:8px">Výchozí hodnoty pro všechny; kdo si uložil „Moje nastavení“, používá svoje.</div><form id="setf" class="form">${settingsFields(state.settingsGlobal || s)}<div class="wide"><button class="primary">Uložit společné</button></div></form></div>
+  <div class="panel"><h2>Společné nastavení</h2><div class="hint" style="margin-bottom:8px">Výchozí hodnoty pro všechny; kdo si uložil „Moje nastavení“, používá svoje.</div><form id="setf" class="form">${settingsFields(state.settingsGlobal || s, true)}<div class="wide"><button class="primary">Uložit společné</button></div></form></div>
   <div class="panel"><h2>Uživatelé</h2><div class="hint" style="margin-bottom:8px">Každý vidí a upgraduje jen zařízení, která sám přidal (nebo mu je správce přidělil v editaci zařízení). Správce vidí vše a spravuje účty i nastavení. Tlačítkem <b>APčka</b> jde účtu přidělit APčka z userdb navíc k jeho oblastem — uvidí je v „Natáhnout z userdb“ a může si jejich zařízení natáhnout, převzít a spravovat.</div>
     ${state.auth.passwordLogin ? `<label class="check" style="margin-bottom:8px"><input type="checkbox" id="regtoggle" ${s.allow_registration ? 'checked' : ''}> povolit samoregistraci na přihlašovací stránce (nový účet = role uživatel)</label>` : ''}
     <div id="userlist">načítám…</div>
@@ -694,6 +704,7 @@ function renderSettings(m, adminMode = false) {
     const nt = r.settings.default_track; if (nt !== before && ['v7-stable', 'v7-long-term'].includes(nt) && (state.devices || []).some(d => d.owner_id === (state.auth.user || {}).id && !['v6-long-term', 'hold'].includes(d.track) && d.track !== nt) && confirm(`Kanál pro nová zařízení je teď ${nt}. Přepnout na něj i tvoje stávající zařízení (kromě v6 a hold)?`)) { try { const b = await api('/devices/bulk-track', { method: 'POST', body: { track: nt } }); toast(`kanál přepnut u ${b.changed} zařízení`); await loadState(); } catch (e3) { toast(e3.message, true); } }
     render(); } catch (e2) { toast(e2.message, true); } };
   on('#setreset', async () => { if (!confirm('Zahodit vlastní hodnoty a používat společné nastavení?')) return; try { const r = await api('/settings/mine', { method: 'DELETE' }); state.settings = r.settings; state.settingsOwn = r.own; toast('používáš společné nastavení'); render(); } catch (e2) { toast(e2.message, true); } });
+  on('#pin-now', () => { const lv = (state.latest && state.latest.versions) || {}; const sg = $('#setf'); if (!sg) return; for (const [k, t] of [['pin_v7_stable', 'v7-stable'], ['pin_v7_long_term', 'v7-long-term'], ['pin_v6_long_term', 'v6-long-term']]) { const el = sg.elements[k]; if (el && lv[t]) el.value = lv[t].version; } toast('vyplněno — ulož společné nastavení'); });
   const sg = $('#setf'); if (sg) sg.onsubmit = async (e) => { e.preventDefault(); try { state.settingsGlobal = await api('/settings', { method: 'PUT', body: formBody(e.target) }); await loadState(); toast('společné nastavení uloženo'); render(); const d = $('#setglobal'); if (d) d.open = true; } catch (e2) { toast(e2.message, true); } };
 }
 

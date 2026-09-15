@@ -35,6 +35,10 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
 - **Po restartu:** verze, balíčky, log, rozhraní a IP, spoje (stanice na stejném AP, ≥ 80 % klientů sektoru zpět,
   60 GHz MCS ≥ 1, CAP registrován), ping na bránu z routeru, sousedé, počty položek konfigurace proti stavu před upgradem.
 - **Nastavení per uživatel:** společné hodnoty nastavuje správce, každý si je může přepsat pro své joby, kontroly a plány.
+- **Připnutá cílová verze:** správce může cíl každého kanálu (v7 stable / v7 long-term / v6 long-term) připnout na jednu
+  verzi. Nové vydání MikroTiku pak cíl neposune samo — statistika, plány i „Upgradovat vše potřebné“ dál počítají
+  s připnutou verzí a nová se jen ukáže v panelu verzí, dokud ji správce nepřijme. Prázdné pole = vždy nejnovější vydání.
+  Verze a data vydání, která kdy MikroTik nabídl, si nástroj pamatuje (`data/releases.json`).
 - **Volitelná hardening:** `/ip service` (vypnutí nepotřebných služeb, povolené adresy; ssh se nikdy nevypne a adresy
   se použijí jen když obsahují IP serveru), vzdálené logování na syslog, NTP klient a časová zóna. Mění se jen odchylky.
 - **Účty:** přihlášení přes OpenID Connect (SSO). Každý vidí jen svá zařízení, správce vše. Účet se při prvním
