@@ -51,6 +51,11 @@ select.small{padding:2px 2px;font-size:11.5px;max-width:96px}
 .pulse{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:6px;box-shadow:0 0 0 0 #1f9d5580;animation:pulse 1.6s infinite}
 @keyframes pulse{to{box-shadow:0 0 0 7px transparent}}
 @media (prefers-reduced-motion:reduce){.pulse{animation:none}}
+/* aktualizace serveru (drain): červený blikající pruh v levém panelu, ať je to vidět na první pohled */
+.drainbanner{margin:4px 6px 8px;padding:8px 10px;border-radius:8px;background:var(--err);color:#fff;font-size:12px;line-height:1.4;animation:drainblink 1.2s ease-in-out infinite;box-shadow:0 0 0 0 var(--err)}
+.drainbanner b{color:#fff}.drainbanner>b{display:block;font-size:13px;letter-spacing:.3px;margin-bottom:2px}
+@keyframes drainblink{0%,100%{opacity:1;box-shadow:0 0 0 0 var(--err)}50%{opacity:.55;box-shadow:0 0 0 6px transparent}}
+@media (prefers-reduced-motion:reduce){.drainbanner{animation:none;outline:2px solid #fff;outline-offset:-4px}}
 .side .versions{font-size:12px;color:var(--muted);padding:8px 10px;line-height:1.7}
 .side .versions b{font-family:var(--mono);font-weight:500;color:var(--ink2)}
 .side .versions .fresh{color:var(--warn)}

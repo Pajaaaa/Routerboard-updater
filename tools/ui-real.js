@@ -53,6 +53,16 @@ const check = (name, ok, extra = '') => { console.log(`  ${name}: ${ok ? 'OK' : 
       }
     }
   }
+  // aktualizace serveru (drain): v levém panelu musí být červený blikající pruh .drainbanner
+  {
+    const before = errors.length; let err = '';
+    try { await run("state.auth.draining = true; state.auth.drainJobs = [{ owner: 'X', jobs: 1, devices: 3 }]; state.view = 'devices'; render(); window.__p = 1"); } catch (e) { err = e && e.message || String(e); }
+    await sleep(200);
+    const bn = w.document.querySelector('.side .drainbanner');
+    check('aktualizace serveru: červený pruh vlevo', !err && !!bn && /AKTUALIZACE SERVERU/.test(bn.textContent) && /X/.test(bn.textContent) && !errors.slice(before).length, [err, errors.slice(before).join('; ')].filter(Boolean).join(' | '));
+    await run("state.auth.draining = false; state.auth.drainJobs = []; render(); window.__p = 1"); await sleep(100);
+    check('bez aktualizace pruh není', !w.document.querySelector('.side .drainbanner'));
+  }
   // detail zařízení (modální okno) s několika řádky logu — logLine má 2. parametr, map(logLine) by podstrčil index (9.9.2026)
   {
     const before = errors.length; let err = '';
