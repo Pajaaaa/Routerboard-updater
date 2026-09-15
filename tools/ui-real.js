@@ -144,6 +144,8 @@ const check = (name, ok, extra = '') => { console.log(`  ${name}: ${ok ? 'OK' : 
     try {
       await run("state.view = 'devices'; render(); window.__p = 1"); await sleep(300);
       await run("const b = document.querySelector('.side .byline'); if (!b) throw new Error('patička chybí'); const t = b.textContent || ''; if (!/Pavel Vlček/.test(t)) throw new Error('bez autora: ' + t); if (!/hkfree\\.org/.test(t)) throw new Error('bez hkfree.org: ' + t); window.__p = 1");
+      // verze musí přijít z /whoami (15.9.2026: server ji posílal, ale UI si ji do state.auth nepřebíralo → patička bez čísla verze)
+      await run("const b = document.querySelector('.side .byline'); if (!/v1\\.\\d+/.test(b.textContent || '')) throw new Error('chybí číslo verze ze serveru: ' + b.textContent); window.__p = 1");
       await run("state.auth.build = { version: '1.999', commit: 'abc1234', author: 'Pavel Vlček', org: 'hkfree.org', year: 2026, full: 'x', origin: 'X' }; render(); window.__p = 1"); await sleep(300);
       await run("const b = document.querySelector('.side .byline'); if (!/v1\\.999/.test(b.textContent || '')) throw new Error('chybí číslo verze: ' + b.textContent); window.__p = 1");
     } catch (e) { err = e && e.message || String(e); }
