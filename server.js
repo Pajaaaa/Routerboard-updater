@@ -117,7 +117,8 @@ function networkStats() {
 function networkStatsCompute() {
   const latestOf = new Map(); // cíl podle vlastníka (uživatel může mít připnutou vyšší verzi než společnou)
   const latestFor = (uid) => { const k = uid || 0; if (!latestOf.has(k)) latestOf.set(k, V.getLatest(sc(k || undefined))); return latestOf.get(k); };
-  const devs = db.listDevices().filter(d => d.managed);
+  // stejně jako přehled po oblastech: bez duplicit podle sériového čísla (stejný kus pod jinou IP, dup_of) — jinak „celkem“ nesedí
+  const devs = db.listDevices().filter(d => d.managed && !d.dup_of);
   const busy = new Set(runner.running().map(x => x.deviceId).filter(Boolean));
   const st = { total: devs.length, upToDate: 0, needs: 0, stayV6: 0, unreachable: 0, unreachableToday: 0, upgrading: busy.size, hold: 0, never: 0, dead: 0, deadToday: 0 };
   const day0 = Math.floor(new Date(new Date().setHours(0, 0, 0, 0)).getTime() / 1000);
