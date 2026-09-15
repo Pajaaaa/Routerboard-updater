@@ -37,6 +37,11 @@ check(l.versions['v7-stable'].releasedAt === 1788739200, 'datum vydání připnu
 check(V2.releaseInfo('7.24.3') && V2.releaseInfo('7.24.3').releasedAt === 1789371648, 'releaseInfo najde i verzi, kterou MikroTik nabízí nově');
 check(V2.cmpVersion('7.24.3', '7.24.2') > 0 && V2.cmpVersion('7.24.2', '7.24.2') === 0, 'porovnání verzí');
 
+// cíl podle vlastníka: pins() dostane scope (id vlastníka / jeho nastavení) a může vrátit vyšší verzi než společnou
+V2.configure({ pins: (scope) => scope === 7 ? { 'v7-stable': '7.24.3' } : { 'v7-stable': '7.24.2' } });
+check(V2.getLatest().versions['v7-stable'].version === '7.24.2' && V2.getLatest(7).versions['v7-stable'].version === '7.24.3', 'cíl podle vlastníka (scope) — uživatel 7 má vlastní vyšší připnutí');
+check(V2.getLatest(7).versions['v7-stable'].newer === null && V2.getLatest().versions['v7-stable'].newer === null, 'newer jen když MikroTik nabízí víc než připnutí (bez odpovědi MikroTiku nic)');
+
 // neplatné připnutí se ignoruje (server ho ani nepustí, ale kdyby v DB bylo)
 V2.configure({ pins: () => ({ 'v7-stable': 'nesmysl' }) });
 l = V2.getLatest();

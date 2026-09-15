@@ -38,7 +38,8 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
 - **Připnutá cílová verze:** správce může cíl každého kanálu (v7 stable / v7 long-term / v6 long-term) připnout na jednu
   verzi. Nové vydání MikroTiku pak cíl neposune samo — statistika, plány i „Upgradovat vše potřebné“ dál počítají
   s připnutou verzí a nová se jen ukáže v panelu verzí, dokud ji správce nepřijme. Prázdné pole = vždy nejnovější vydání.
-  Verze a data vydání, která kdy MikroTik nabídl, si nástroj pamatuje (`data/releases.json`).
+  Verze a data vydání, která kdy MikroTik nabídl, si nástroj pamatuje (`data/releases.json`). Každý uživatel si ve svém
+  nastavení smí zvolit cíl **vyšší** než společný (třeba nové vydání dřív než ostatní), nikdy nižší a nejvýš to, co MikroTik nabízí.
 - **Volitelná hardening:** `/ip service` (vypnutí nepotřebných služeb, povolené adresy; ssh se nikdy nevypne a adresy
   se použijí jen když obsahují IP serveru), vzdálené logování na syslog, NTP klient a časová zóna. Mění se jen odchylky.
 - **Účty:** přihlášení přes OpenID Connect (SSO). Každý vidí jen svá zařízení, správce vše. Účet se při prvním

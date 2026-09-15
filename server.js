@@ -14,8 +14,39 @@ const cfg = require('./lib/config');
 const db = require('./lib/db');
 const { encrypt, decrypt, makeSession, checkSession, hashPassword, verifyPassword } = require('./lib/crypto');
 const V = require('./lib/versions');
-// připnuté cílové verze kanálů (nastavení správce) → cíl kampaně se novým vydáním MikroTiku sám neposune
-V.configure({ pins: () => { const s = db.getSettings(); return { 'v7-stable': s.pin_v7_stable, 'v7-long-term': s.pin_v7_long_term, 'v6-long-term': s.pin_v6_long_term }; } });
+// připnuté cílové verze kanálů → cíl kampaně se novým vydáním MikroTiku sám neposune. Společné připnutí (správce) je spodní mez;
+// uživatel si ve svém nastavení smí zvolit jen vyšší verzi (níž ne, ani kdyby ji měl uloženou z dřívějška) — scope = id vlastníka
+// nebo jeho už načtené nastavení; bez scope společné nastavení.
+const PIN_TRACKS = [['pin_v7_stable', 'v7-stable', 7], ['pin_v7_long_term', 'v7-long-term', 7], ['pin_v6_long_term', 'v6-long-term', 6]];
+function pinsFor(scope) {
+  const g = db.getSettings();
+  const s = scope == null ? g : (typeof scope === 'object' ? scope : db.getSettings(scope));
+  const out = {};
+  for (const [k, track] of PIN_TRACKS) {
+    const gv = String(g[k] || '').trim(), uv = String(s[k] || '').trim();
+    out[track] = uv && (!gv || (V.parseVersion(uv) && V.cmpVersion(uv, gv) >= 0)) ? uv : gv;
+  }
+  return out;
+}
+V.configure({ pins: pinsFor });
+/** kontrola připnutých verzí v uloženém nastavení: čitelná verze správné řady; u uživatele navíc ne níž než společná a ne výš než nabízí MikroTik */
+function checkPins(b, mine) {
+  const g = mine ? db.getSettings() : null, mt = V.getLatest().mikrotik || {};
+  for (const [k, track, major] of PIN_TRACKS) {
+    if (!(k in b)) continue;
+    const v = String(b[k] || '').trim(); b[k] = v;
+    if (!v) continue;
+    const pv = V.parseVersion(v);
+    if (!pv) return `${track}: „${v}“ není verze RouterOS (např. 7.24.2)`;
+    if (pv.major !== major) return `${track}: verze ${v} nepatří do řady ${major}.x`;
+    if (mine) {
+      const floor = String(g[k] || '').trim();
+      if (floor && V.cmpVersion(v, floor) < 0) return `${track}: níž než společný cíl ${floor} nejde (správce nástroje drží minimum kvůli bezpečnostním opravám)`;
+      if (mt[track] && V.cmpVersion(v, mt[track].version) > 0) return `${track}: MikroTik zatím nabízí nejvýš ${mt[track].version}`;
+    }
+  }
+  return '';
+}
 const { RunnerPool } = require('./lib/runner');
 const { Scanner } = require('./lib/scanner');
 const { plan, effectiveTrack, NO_V7, KNOWN_BAD, GLOBAL_BAD } = require('./lib/planner');
@@ -84,7 +115,8 @@ function networkStats() {
   return value;
 }
 function networkStatsCompute() {
-  const latest = V.getLatest();
+  const latestOf = new Map(); // cíl podle vlastníka (uživatel může mít připnutou vyšší verzi než společnou)
+  const latestFor = (uid) => { const k = uid || 0; if (!latestOf.has(k)) latestOf.set(k, V.getLatest(sc(k || undefined))); return latestOf.get(k); };
   const devs = db.listDevices().filter(d => d.managed);
   const busy = new Set(runner.running().map(x => x.deviceId).filter(Boolean));
   const st = { total: devs.length, upToDate: 0, needs: 0, stayV6: 0, unreachable: 0, unreachableToday: 0, upgrading: busy.size, hold: 0, never: 0, dead: 0, deadToday: 0 };
@@ -113,7 +145,7 @@ function networkStatsCompute() {
       }
       continue;
     }
-    const t = targetFor(eff, latest);
+    const t = targetFor(eff, latestFor(d.owner_id));
     if (!t) continue;
     const c = V.cmpVersion(d.version, t);
     if (Number.isFinite(c) && c < 0) st.needs++; else st.upToDate++;
@@ -135,6 +167,8 @@ async function networkProgress() {
   if (progressCache.value && Date.now() - progressCache.at < 30000) return progressCache.value;
   const latest = V.getLatest();
   const sc = settingsByOwner();
+  const latestOf = new Map(); // cíl podle vlastníka (uživatel může mít připnutou vyšší verzi než společnou)
+  const latestFor = (uid) => { const k = uid || 0; if (!latestOf.has(k)) latestOf.set(k, V.getLatest(sc(k || undefined))); return latestOf.get(k); };
   const apArea = new Map(); // apId → { ap, area, areaId, active }
   if (userdb.enabled()) { try { for (const a of await userdb.areas()) for (const ap of a.aps) apArea.set(ap.id, { ap: ap.name, area: a.name, areaId: a.id, active: ap.active }); } catch {} }
   const stateOf = (d) => {
@@ -143,7 +177,7 @@ async function networkProgress() {
     if (eff === 'hold') return 'hold';
     if (d.scan_status === 'never' || !d.version) return 'never';
     if (d.scan_status !== 'ok') return 'unreachable';
-    const t = targetFor(eff, latest); if (!t) return 'ok';
+    const t = targetFor(eff, latestFor(d.owner_id)); if (!t) return 'ok';
     const c = V.cmpVersion(d.version, t);
     return Number.isFinite(c) && c < 0 ? 'needs' : 'ok';
   };
@@ -407,14 +441,16 @@ async function api(req, res, method, p, url) {
     if (!latest.fetchedAt) await V.refreshLatest().catch(() => {});
     // ?nodevices=1: jen joby/runner/nastavení (klient si to stahuje při každé události runneru; seznam zařízení se mění zvlášť přes události 'device')
     const noDev = url.searchParams.get('nodevices') === '1';
-    const base = { latest: V.getLatest(), settings: db.getSettings(req.user.id), settingsOwn: db.getUserSettings(req.user.id), settingsGlobal: isAdmin(req) ? db.getSettings() : undefined, jobs: visJobs(req, 30), runner: runnerStatusFor(req), tracks: TRACKS, scanning: [...scanner.inProgress], checkProg: scanner.checkProgress(req.user.id), discovery: discoveryFor(req), admin: isAdmin(req), user: req.user };
+    const base = { latest: { ...V.getLatest(req.user.id), floor: pinsFor(null) }, settings: db.getSettings(req.user.id), settingsOwn: db.getUserSettings(req.user.id), settingsGlobal: isAdmin(req) ? db.getSettings() : undefined, jobs: visJobs(req, 30), runner: runnerStatusFor(req), tracks: TRACKS, scanning: [...scanner.inProgress], checkProg: scanner.checkProgress(req.user.id), discovery: discoveryFor(req), admin: isAdmin(req), user: req.user };
     if (noDev) return send(res, 200, base);
     // seznam zařízení správce (2000+ kusů, ~4 MB) se skládá až sekundu — jednou za verzi dat a sdílí se mezi všemi správci; JSON se vkládá hotový
     const devJson = adminDevicesJson(req);
     const head = JSON.stringify(base);
     return send(res, 200, head.slice(0, -1) + ',"devices":' + devJson + '}', { 'Content-Type': 'application/json; charset=utf-8' });
   }
-  if (method === 'POST' && p === '/api/versions/refresh') { const l = await V.refreshLatest(true); bus.emit('event', { type: 'latest', latest: l }); return send(res, 200, l); }
+  if (method === 'POST' && p === '/api/versions/refresh') { await V.refreshLatest(true); bus.emit('event', { type: 'latest' }); return send(res, 200, V.getLatest(req.user.id)); }
+  // cílové verze pro přihlášeného (jeho připnutí nad společným) + společné připnutí jako spodní mez pro nastavení
+  if (method === 'GET' && p === '/api/versions') return send(res, 200, { ...V.getLatest(req.user.id), floor: pinsFor(null) });
   if (method === 'GET' && seg[0] === 'changelog' && seg[1]) return send(res, 200, await V.getChangelog(seg[1]));
   // statistika celé sítě (jen počty, bez cizích detailů) — proužek nahoře pro všechny
   if (method === 'GET' && p === '/api/stats') return send(res, 200, networkStats());
@@ -425,23 +461,22 @@ async function api(req, res, method, p, url) {
   // nastavení
   // nastavení: společné (správce) + vlastní přepsání každého uživatele (platí pro jeho joby, skeny a plány)
   if (method === 'GET' && p === '/api/settings') return send(res, 200, { settings: db.getSettings(req.user.id), own: db.getUserSettings(req.user.id), global: isAdmin(req) ? db.getSettings() : undefined });
-  if (method === 'PUT' && p === '/api/settings/mine') { const b = await readBody(req); const own = db.setUserSettings(req.user.id, b); audit(req, 'vlastní nastavení', JSON.stringify(own)); return send(res, 200, { settings: db.getSettings(req.user.id), own }); }
-  if (method === 'DELETE' && p === '/api/settings/mine') { db.clearUserSettings(req.user.id); audit(req, 'vlastní nastavení zrušeno', ''); return send(res, 200, { settings: db.getSettings(req.user.id), own: {} }); }
+  if (method === 'PUT' && p === '/api/settings/mine') {
+    const b = await readBody(req); const err = checkPins(b, true); if (err) return send(res, 400, { error: err });
+    const before = pinsFor(req.user.id); const own = db.setUserSettings(req.user.id, b); audit(req, 'vlastní nastavení', JSON.stringify(own));
+    if (JSON.stringify(before) !== JSON.stringify(pinsFor(req.user.id))) { statsCache.at = 0; progressCache.at = 0; }
+    return send(res, 200, { settings: db.getSettings(req.user.id), own, latest: V.getLatest(req.user.id) });
+  }
+  if (method === 'DELETE' && p === '/api/settings/mine') { db.clearUserSettings(req.user.id); statsCache.at = 0; progressCache.at = 0; audit(req, 'vlastní nastavení zrušeno', ''); return send(res, 200, { settings: db.getSettings(req.user.id), own: {}, latest: V.getLatest(req.user.id) }); }
   if (method === 'PUT' && p === '/api/settings') {
     if (!adminOnly(req, res)) return; const b = await readBody(req);
-    // připnuté verze: prázdné = sledovat MikroTik, jinak musí být čitelná verze RouterOS správné řady (v6 kanál 6.x, v7 kanály 7.x)
-    for (const [k, major] of [['pin_v7_stable', 7], ['pin_v7_long_term', 7], ['pin_v6_long_term', 6]]) {
-      if (!(k in b)) continue;
-      const v = String(b[k] || '').trim(); b[k] = v;
-      if (!v) continue;
-      const pv = V.parseVersion(v);
-      if (!pv) return send(res, 400, { error: `${k}: „${v}“ není verze RouterOS (např. 7.24.2)` });
-      if (pv.major !== major) return send(res, 400, { error: `${k}: verze ${v} nepatří do řady ${major}.x` });
-    }
+    // připnuté verze: prázdné = sledovat MikroTik, jinak čitelná verze RouterOS správné řady (v6 kanál 6.x, v7 kanály 7.x)
+    const err = checkPins(b, false); if (err) return send(res, 400, { error: err });
     const before = db.getSettings();
     db.setSettings(b); audit(req, 'nastavení', JSON.stringify(b));
     const after = db.getSettings();
-    if (['pin_v7_stable', 'pin_v7_long_term', 'pin_v6_long_term'].some(k => before[k] !== after[k])) { statsCache.at = 0; progressCache.at = 0; bus.emit('event', { type: 'latest', latest: V.getLatest() }); }
+    // změna společného cíle se dotkne všech (uživatelské volby pod novým minimem přestanou platit) → klienti si stáhnou svůj cíl znovu
+    if (db.PIN_KEYS.some(k => before[k] !== after[k])) { statsCache.at = 0; progressCache.at = 0; bus.emit('event', { type: 'latest' }); }
     return send(res, 200, after);
   }
   if (method === 'GET' && p === '/api/audit') { if (!adminOnly(req, res)) return; return send(res, 200, db.listAudit(300)); }
@@ -754,7 +789,7 @@ async function api(req, res, method, p, url) {
     if (method === 'GET' && seg[2] === 'plan') {
       await V.refreshLatest().catch(() => {});
       const opts = { mode: q.get('mode') || 'upload', allow_routing_migration: q.get('allow_routing') === '1', allow_small_flash: q.get('allow_small_flash') === '1', allow_v7: !!dev.allow_v7, ignore_flagged: !!dev.ignore_flagged, skip_link_check: !!dev.skip_link_check };
-      const pl = await plan(dev, { track: q.get('track') || dev.track, settings: db.getSettings(dev.owner_id), latest: V.getLatest(), options: opts });
+      const pl = await plan(dev, { track: q.get('track') || dev.track, settings: db.getSettings(dev.owner_id), latest: V.getLatest(dev.owner_id), options: opts });
       return send(res, 200, pl);
     }
     if (method === 'GET' && seg[2] === 'password') { if (!adminOnly(req, res)) return; audit(req, 'zobrazení hesla', dev.host); return send(res, 200, { password: decrypt(db.getDeviceRaw(id).password_enc) }); }
