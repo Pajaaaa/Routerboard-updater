@@ -317,7 +317,8 @@ async function runUserdbImport({ acct, allMode, ownerMe, onlyAps, key, prog, byN
         const o = db.getUser(ex.owner_id); const on = o ? (o.userdb_nick || o.name) : 'jiný uživatel';
         sum.foreign.push(`${d.ip} (${d.name || d.ap}) má u sebe ${on}`);
         // převzetí: zařízení pod APčkem z MÉ oblasti (r.devices jsou jen z oblastí, kde jsem SO/ZSO) si můžu vzít k sobě — víc správců jednoho AP
-        if (!allMode) sum.takeover.push({ id: ex.id, ip: d.ip, name: d.name || d.note || '', ap: d.ap, apId: d.apId, owner: on });
+        // (import celé sítě „pod sebe“: správce si je může převzít taky — bez ověřování)
+        if (!allMode || ownerMe) sum.takeover.push({ id: ex.id, ip: d.ip, name: d.name || d.note || '', ap: d.ap, apId: d.apId, owner: on });
         continue;
       }
       const f = { ...extra };
@@ -335,7 +336,7 @@ async function runUserdbImport({ acct, allMode, ownerMe, onlyAps, key, prog, byN
   userdbImports.set(key, sum);
   db.audit(byName, allMode ? (ownerMe ? 'import celé sítě z userdb (pod sebe)' : 'import celé sítě z userdb') : 'import z userdb', `${r.admin.nick}: ${sum.total} zařízení z userdb, ${entries.length} nových ke skenu, ${sum.updated} aktualizováno, ${sum.foreign.length} u jiného uživatele${allMode ? `; vlastníci: ${Object.entries(sum.owners).map(([k, v]) => `${k} ${v}`).join(', ')}` : ''}`);
   // do výsledku skenu se přidá i to, co se skenovat nebude: zařízení jiného uživatele a IP bez loginu v userdb
-  const foreign = sum.foreign.map(x => `${x} — každé zařízení může mít jen jednoho vlastníka; když je pod APčkem tvé oblasti, můžeš si ho převzít tlačítkem níže`);
+  const foreign = sum.foreign.map(x => `${x} — každé zařízení může mít jen jednoho vlastníka; ${isAdm ? 'jako správce nástroje si ho můžeš převzít tlačítkem níže' : 'když je pod APčkem tvé oblasti, můžeš si ho převzít tlačítkem níže'}`);
   const takeover = sum.takeover;
   const errors = sum.missingLogin.map(x => `${x}: v userdb chybí login/heslo — doplň je v userdb a načti znovu`);
   if (entries.length) {
@@ -541,9 +542,12 @@ async function api(req, res, method, p, url) {
     // převzetí zařízení kolegou z téže oblasti: jen zařízení importovaná z userdb, jejichž AP je v oblasti, kde je žadatel SO/ZSO (ověřuje se živě v userdb)
     if (method === 'POST' && p === '/api/userdb/takeover') {
       const b = await readBody(req).catch(() => ({}));
-      const w = await userAreas(acct);
-      if (!w) throw new Error('účet není navázaný na správce v userdb ani nemá přidělená APčka');
-      const myAps = new Set(); for (const a of w.areas) for (const ap of a.aps) myAps.add(Number(ap.id));
+      // správce nástroje smí převzít cokoli (vlastníka může měnit i v editaci zařízení) — bez ověřování oblasti a sektoru
+      // (15.9.2026 Rohlík/Kosičky: router bez nadřazeného prvku a stanice s ověřením na sektoru se nedaly převzít)
+      const adm = isAdmin(req);
+      const w = adm ? await userAreas(acct).catch(() => null) : await userAreas(acct);
+      if (!w && !adm) throw new Error('účet není navázaný na správce v userdb ani nemá přidělená APčka');
+      const myAps = new Set(); for (const a of (w ? w.areas : [])) for (const ap of a.aps) myAps.add(Number(ap.id));
       const ids = Array.isArray(b.ids) ? b.ids.map(Number).filter(Boolean).slice(0, 2000) : [];
       let taken = 0; const skipped = [];
       const sectorCache = new Map(); // host sektoru → registrované MAC (živě), ať se na sektor nepřipojuje pro každé zařízení zvlášť
@@ -559,9 +563,10 @@ async function api(req, res, method, p, url) {
       for (const id of ids) {
         const d = db.getDeviceRaw(id);
         if (!d) { skipped.push(`#${id}: neexistuje`); continue; }
-        if (!d.userdb_ap_id || !myAps.has(Number(d.userdb_ap_id))) { skipped.push(`${d.host}: není pod APčkem tvé oblasti`); continue; }
+        if (!adm && (!d.userdb_ap_id || !myAps.has(Number(d.userdb_ap_id)))) { skipped.push(`${d.host}: není pod APčkem tvé oblasti`); continue; }
         if (d.owner_id === acct.id) continue;
         if (runner.isDeviceBusy(id)) { skipped.push(`${d.host}: právě v jobu`); continue; }
+        if (adm) { const prev = db.getUser(d.owner_id); db.updateDevice(id, { owner_id: acct.id }); audit(req, 'zařízení převzato (správce)', `${d.host} ${devLabel(d)} od ${prev ? (prev.userdb_nick || prev.name) : d.owner_id} (AP ${d.userdb_ap || d.userdb_ap_id || '—'})`); taken++; continue; }
         // ověření na sektoru: stanice musí být teď registrovaná na sektoru z mé oblasti (userdb může být zastaralá); drátový kus musí viset pod zařízením mé oblasti
         let fl = {}; try { fl = JSON.parse(d.flags || '{}'); } catch {}
         const st = ((fl.links && fl.links.stations) || []).find(x => x.ap && x.ap.mac);
