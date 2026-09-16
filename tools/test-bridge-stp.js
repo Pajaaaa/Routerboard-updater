@@ -29,6 +29,8 @@ check(Runner.bridgeStpChanges([B('b', 'RSTP')]).length === 1, 'velikost písmen 
   cmds.length = 0; log.length = 0;
   await r.disableBridgeStp({ list: async () => null, exec: async () => '' }, (lv, m) => log.push(m), (m) => log.push(m), { bridge_stp_off: true }, false);
   check(cmds.length === 0 && log.length === 0, 'menu bez bridge = ticho');
+  await r.disableBridgeStp({ list: async () => [], exec: async () => '' }, (lv, m) => log.push(m), (m) => log.push(m), { bridge_stp_off: true }, false);
+  check(log.length === 1 && /nemá bridge/.test(log[0]), 'bez bridge = poznámka'); log.length = 0;
   await r.disableBridgeStp({ list: async () => [B('bridge1', 'none')], exec: async () => '' }, (lv, m) => log.push(m), (m) => log.push(m), { bridge_stp_off: true }, false);
   check(log.length === 1 && /nic k vypnutí/.test(log[0]), 'už none = jen poznámka');
   console.log(bad ? `SELHALO: ${bad}` : 'bridge STP OK');
