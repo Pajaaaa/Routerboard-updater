@@ -24,6 +24,9 @@ check(Runner.bridgeStpChanges([B('b', 'RSTP')]).length === 1, 'velikost písmen 
   await r.disableBridgeStp(fake, (lv, m) => log.push(lv + ': ' + m), (m) => log.push('warn: ' + m), { bridge_stp_off: false }, false);
   check(cmds.length === 0 && log.length === 0, 'vypnuté nastavení = nic');
   cmds.length = 0; log.length = 0;
+  await r.disableBridgeStp(fake, (lv, m) => log.push(m), (m) => log.push(m), { bridge_stp_off: true, bridge_stp_keep: true }, false);
+  check(cmds.length === 0 && log.length === 1 && /nevypíná/.test(log[0]), 'vlastní „nevypínat“ přebije společné zapnutí');
+  cmds.length = 0; log.length = 0;
   await r.disableBridgeStp({ list: async () => null, exec: async () => '' }, (lv, m) => log.push(m), (m) => log.push(m), { bridge_stp_off: true }, false);
   check(cmds.length === 0 && log.length === 0, 'menu bez bridge = ticho');
   await r.disableBridgeStp({ list: async () => [B('bridge1', 'none')], exec: async () => '' }, (lv, m) => log.push(m), (m) => log.push(m), { bridge_stp_off: true }, false);

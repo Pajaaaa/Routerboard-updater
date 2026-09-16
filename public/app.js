@@ -623,7 +623,8 @@ function settingsFields(s, global) {
     <label>NTP servery (čárkou; IP nebo jména)<input name="ntp_servers" type="text" value="${esc(s.ntp_servers)}" placeholder="192.0.2.1"></label>
     <label>časová zóna<input name="timezone_name" type="text" value="${esc(s.timezone_name)}" placeholder="Europe/Prague"></label>
     <h2>Bridge</h2>
-    ${c('bridge_stp_off', 'při ostrém běhu vypnout (R)STP na bridgích zařízení (protocol-mode rstp/stp → none; mstp se nechává) — na spojích a sektorech STP jen zdržuje a po upgradu umí port v bridge zablokovat')}
+    ${global ? c('bridge_stp_off', 'při ostrém běhu vypnout (R)STP na bridgích zařízení (protocol-mode rstp/stp → none; mstp se nechává) — na spojích a sektorech STP jen zdržuje a po upgradu umí port v bridge zablokovat; každý si to může ve svém nastavení vypnout')
+    : c('bridge_stp_keep', `nevypínat (R)STP na mých zařízeních — společné nastavení správce teď RSTP ${s.bridge_stp_off ? 'vypíná (protocol-mode rstp/stp → none)' : 'nevypíná'}; zaškrtnuté platí pro všechna moje zařízení bez ohledu na společné nastavení`)}
     <h2>Vzdálené logování (syslog)</h2>
     ${c('remote_log_enable', 'při ostrém běhu zajistit logging action target=remote a pravidla pro témata (přidá se jen, co chybí)')}
     <label>IP syslog serveru<input name="remote_log_host" type="text" value="${esc(s.remote_log_host)}" placeholder="192.0.2.10"></label>

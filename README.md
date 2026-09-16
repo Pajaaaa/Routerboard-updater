@@ -46,7 +46,8 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
 - **Volitelná hardening:** `/ip service` (vypnutí nepotřebných služeb, povolené adresy; ssh se nikdy nevypne a adresy
   se použijí jen když obsahují IP serveru), vzdálené logování na syslog, NTP klient a časová zóna. Mění se jen odchylky.
   Dále (výchozí zapnuto) vypnutí (R)STP na bridgích zařízení (`protocol-mode rstp/stp → none`, `mstp` se nechává) —
-  na spojích a sektorech STP jen zdržuje a po upgradu umí port v bridge zablokovat.
+  na spojích a sektorech STP jen zdržuje a po upgradu umí port v bridge zablokovat. Kdo to u svých zařízení nechce,
+  zaškrtne v „Moje nastavení“ → Bridge „nevypínat (R)STP na mých zařízeních“ (platí bez ohledu na společné nastavení).
 - **Účty:** přihlášení přes OpenID Connect (SSO). Každý vidí jen svá zařízení, správce vše. Účet se při prvním
   přihlášení naváže podle e-mailu na správce oblasti v userdb.
 - **Import z userdb:** v dialogu „Přidat zařízení (sken)“ tlačítko „Natáhnout z userdb“ → tabulka oblastí a APček
