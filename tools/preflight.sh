@@ -34,5 +34,6 @@ node tools/test-fw-log.js || { echo "kontrola pravidel logování pro firmware s
 node tools/test-poe-models.js || { echo "kontrola tabulky PoE-out portů selhala"; exit 1; }
 node tools/test-arch.js || { echo "kontrola názvů balíčků podle architektury selhala"; exit 1; }
 node tools/test-bridge-stp.js || { echo "kontrola vypínání STP na bridgi selhala"; exit 1; }
+node tools/test-snmp.js || { echo "kontrola SNMP selhala"; exit 1; }
 node tools/ui-smoke.js
 echo "preflight OK"

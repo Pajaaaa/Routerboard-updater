@@ -622,6 +622,9 @@ function settingsFields(s, global) {
     ${c('ntp_enable', 'při ostrém běhu nastavit NTP klienta a časovou zónu (mění se jen to, co neodpovídá)')}
     <label>NTP servery (čárkou; IP nebo jména)<input name="ntp_servers" type="text" value="${esc(s.ntp_servers)}" placeholder="192.0.2.1"></label>
     <label>časová zóna<input name="timezone_name" type="text" value="${esc(s.timezone_name)}" placeholder="Europe/Prague"></label>
+    <h2>SNMP</h2>
+    ${c('snmp_enable', 'při ostrém běhu zapnout SNMP (/snmp enabled=yes) a každou zapnutou community omezit na povolené adresy (mění se jen community, jejichž adresy nejsou celé uvnitř povoleného rozsahu)')}
+    <label class="wide">povolené adresy / CIDR pro SNMP (čárkou; prázdné = krok se neprovádí)<input name="snmp_addresses" type="text" value="${esc(s.snmp_addresses)}" placeholder="10.0.0.0/8"></label>
     <h2>Bridge</h2>
     ${global ? c('bridge_stp_off', 'při ostrém běhu vypnout (R)STP na bridgích zařízení (protocol-mode rstp/stp → none; mstp se nechává) — na spojích a sektorech STP jen zdržuje a po upgradu umí port v bridge zablokovat; každý si to může ve svém nastavení vypnout')
     : c('bridge_stp_keep', `nevypínat (R)STP na mých zařízeních — společné nastavení správce teď RSTP ${s.bridge_stp_off ? 'vypíná (protocol-mode rstp/stp → none)' : 'nevypíná'}; zaškrtnuté platí pro všechna moje zařízení bez ohledu na společné nastavení`)}
