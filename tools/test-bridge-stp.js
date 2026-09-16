@@ -1,0 +1,33 @@
+// Regresní test: vypínání (R)STP na bridgích — které bridge se mění a jaké příkazy se pošlou.
+process.env.MTU_SECRET = process.env.MTU_SECRET || 'test-secret-1234567890';
+process.env.MTU_PASSWORD = process.env.MTU_PASSWORD || 'test';
+process.env.DATA_DIR = process.env.DATA_DIR || require('fs').mkdtempSync(require('os').tmpdir() + '/mtu-stp-');
+const { Runner } = require('../lib/runner');
+let bad = 0;
+const check = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'OK ' : 'FAIL'} ${msg}`); };
+const B = (name, mode) => ({ name, 'protocol-mode': mode });
+const ch = Runner.bridgeStpChanges([B('bridge', 'rstp'), B('bridge1', 'none'), B('br-vlan', 'mstp'), B('old', 'stp')]);
+check(ch.length === 2 && ch[0].name === 'bridge' && ch[0].mode === 'rstp' && ch[1].name === 'old' && ch[1].mode === 'stp', 'rstp a stp se vypínají, none a mstp ne');
+check(Runner.bridgeStpChanges([]).length === 0 && Runner.bridgeStpChanges(null).length === 0, 'bez bridge nic');
+check(Runner.bridgeStpChanges([B('b', 'RSTP')]).length === 1, 'velikost písmen nevadí');
+(async () => {
+  const log = [], cmds = [];
+  const fake = { list: async () => [B('bridge', 'rstp'), B('bridge1', 'none'), B('x y', 'rstp')], exec: async (cmd) => { cmds.push(cmd); return ''; } };
+  const r = Object.create(Runner.prototype);
+  await r.disableBridgeStp(fake, (lv, m) => log.push(lv + ': ' + m), (m) => log.push('warn: ' + m), { bridge_stp_off: true }, false);
+  check(cmds.length === 1 && cmds[0] === '/interface bridge set [find name="bridge"] protocol-mode=none', 'pošle se jen set na bridge s rstp: ' + cmds.join(' | '));
+  check(log.some(l => /vypnuto RSTP/.test(l)) && log.some(l => /neobvyklé znaky/.test(l)), 'log: vypnuto + varování u divného názvu');
+  cmds.length = 0; log.length = 0;
+  await r.disableBridgeStp(fake, (lv, m) => log.push(lv + ': ' + m), (m) => log.push('warn: ' + m), { bridge_stp_off: true }, true);
+  check(cmds.length === 0 && log.some(l => /DRY RUN bridge STP/.test(l)), 'dry run nic neposílá');
+  cmds.length = 0; log.length = 0;
+  await r.disableBridgeStp(fake, (lv, m) => log.push(lv + ': ' + m), (m) => log.push('warn: ' + m), { bridge_stp_off: false }, false);
+  check(cmds.length === 0 && log.length === 0, 'vypnuté nastavení = nic');
+  cmds.length = 0; log.length = 0;
+  await r.disableBridgeStp({ list: async () => null, exec: async () => '' }, (lv, m) => log.push(m), (m) => log.push(m), { bridge_stp_off: true }, false);
+  check(cmds.length === 0 && log.length === 0, 'menu bez bridge = ticho');
+  await r.disableBridgeStp({ list: async () => [B('bridge1', 'none')], exec: async () => '' }, (lv, m) => log.push(m), (m) => log.push(m), { bridge_stp_off: true }, false);
+  check(log.length === 1 && /nic k vypnutí/.test(log[0]), 'už none = jen poznámka');
+  console.log(bad ? `SELHALO: ${bad}` : 'bridge STP OK');
+  process.exit(bad ? 1 : 0);
+})();
