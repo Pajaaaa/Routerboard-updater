@@ -35,5 +35,6 @@ node tools/test-poe-models.js || { echo "kontrola tabulky PoE-out portů selhala
 node tools/test-arch.js || { echo "kontrola názvů balíčků podle architektury selhala"; exit 1; }
 node tools/test-bridge-stp.js || { echo "kontrola vypínání STP na bridgi selhala"; exit 1; }
 node tools/test-snmp.js || { echo "kontrola SNMP selhala"; exit 1; }
+node tools/test-ros-slow.js || { echo "kontrola pomalých zařízení selhala"; exit 1; }
 node tools/ui-smoke.js
 echo "preflight OK"
