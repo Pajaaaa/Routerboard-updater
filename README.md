@@ -32,6 +32,9 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
   cizí .npk/RouterBOOT soubory, vadné bloky flash a jejich trend, dynamický routing při 6→7, neovladatelný PoE prvek
   nad zařízením, druhý konec 60 GHz spoje, kvalita rádia (signál, CCQ, MCS, chybovost), vlastní restartovací skripty,
   ping-watchdog, CAPsMAN policy, SFP/PoE změny chování mezi verzemi, otisky zneužití SSH zranitelností.
+  Neovladatelný PoE prvek se posuzuje podle modelu a portu (tabulka PoE-out portů v `lib/poe-models.js`, ověřená
+  z mikrotik.com): RB4011 napájí jen z ether10, hEX S jen z ether5, RB5009UPr z ether1–8 … zařízení na jiném portu
+  nebo na optice/rádiu upgrade neblokuje. Neznámý model nebo port schovaný za bridge/VLAN → rozhodnout nejde → blokuje.
 - **Po restartu:** verze, balíčky, log, rozhraní a IP, spoje (stanice na stejném AP, ≥ 80 % klientů sektoru zpět,
   60 GHz MCS ≥ 1, CAP registrován), ping na bránu z routeru, sousedé, počty položek konfigurace proti stavu před upgradem.
 - **Nastavení per uživatel:** společné hodnoty nastavuje správce, každý si je může přepsat pro své joby, kontroly a plány.
@@ -65,6 +68,7 @@ lib/planner.js     plán hopů a balíčků, blokátory a varování, seznamy ri
 lib/runner.js      job engine (kontrola → záloha → staging → ověření → restart → ověření → firmware), zámky
 lib/scanner.js     kontrola zařízení (po načtení, ručně, před jobem; žádný plošný periodický sken), duplicity podle sériového čísla
 lib/topology.js    určení rodiče (rádio, PoE, CAPsMAN, brána)
+lib/poe-models.js  tabulka PoE-out portů podle modelu RouterBOARDu (pro kontrolu PoE prvku nad zařízením)
 lib/discovery.js   sken adres a rozsahů ve frontě (víc uživatelů naráz), zakládání zařízení
 lib/userdb.js      klient evidence sítě (oblasti, správci, zařízení APček, loginy)
 lib/sso.js         OpenID Connect (authorization code + PKCE)
