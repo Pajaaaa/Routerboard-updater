@@ -30,5 +30,6 @@ node tools/test-vlan-mgmt.js || { echo "kontrola VLAN managementu selhala"; exit
 node tools/test-no-v7.js || { echo "kontrola seznamu hardware bez v7 selhala"; exit 1; }
 node tools/test-country-indoor.js || { echo "kontrola kanálů jen pro vnitřní použití selhala"; exit 1; }
 node tools/test-pins.js || { echo "kontrola připnutých cílových verzí selhala"; exit 1; }
+node tools/test-fw-log.js || { echo "kontrola pravidel logování pro firmware selhala"; exit 1; }
 node tools/ui-smoke.js
 echo "preflight OK"
