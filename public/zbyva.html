@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<!--
+  MikroTik upgrader — neupgradovaná zařízení po oblastech a APčkách (stránka přes tajný odkaz, bez přihlášení).
+  Autor: Pavel Vlček, hkfree.org, 2026.
+-->
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="author" content="Pavel Vlček (hkfree.org)">
+<title>Zbývá upgradovat — MikroTik upgrader</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .wrap{max-width:1200px;margin:0 auto;padding:18px 16px 40px}
+  h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:22px 0 8px}
+  .top{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px}
+  .sum{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}
+  .sum .stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:8px 14px;min-width:110px}
+  .sum .stat b{display:block;font-size:22px;line-height:1.1}.sum .stat span{color:var(--muted);font-size:12px}
+  .sum .stat.warn b{color:var(--warn)}.sum .stat.err b{color:var(--err)}.sum .stat.info b{color:var(--info)}
+  .ctl{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0}
+  .ctl input[type=search]{padding:5px 8px;border:1px solid var(--line2);border-radius:var(--r);background:var(--panel);min-width:220px}
+  .ctl button{padding:4px 10px;border:1px solid var(--line2);background:var(--panel);border-radius:var(--r);cursor:pointer;color:inherit}
+  .area{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);margin:10px 0;overflow:hidden}
+  .area>summary{padding:8px 12px;cursor:pointer;background:var(--panel2);font-weight:600;list-style:none;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+  .area>summary::-webkit-details-marker{display:none}.area>summary .arrow{color:var(--muted);font-weight:400;width:12px;display:inline-block}
+  .area>summary .adm{font-weight:400;color:var(--muted);font-size:12px}.area>summary .noadm{color:var(--err);font-weight:600;font-size:12px}
+  .area>summary .cnt{margin-left:auto;font-weight:400;color:var(--warn)}
+  .ap{padding:6px 12px 10px;border-top:1px solid var(--line)}
+  .ap h3{font-size:14px;margin:6px 0 4px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}.ap h3 .muted{font-weight:400;font-size:12px}
+  .ap.missing h3{color:var(--err)}
+  table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:3px 8px;border-top:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-weight:500;font-size:12px;border-top:0}
+  td.mono,.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+  .badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;white-space:nowrap}
+  .b-needs{background:#b8740a22;color:var(--warn)}.b-never{background:#d9b25c33;color:#8a6d1a}.b-unr{background:#d23f3f22;color:var(--err)}.b-hold{background:#9aa4b233;color:var(--muted)}.b-v6{background:#7a4dd622;color:var(--v6)}
+  .err{color:var(--err)}.muted{color:var(--muted)}
+  .legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--muted);margin:6px 0 14px}
+  #msg{margin:30px auto;max-width:460px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px}
+  @media print{.ctl,.top a{display:none}.area{break-inside:avoid}details>summary .arrow{display:none}}
+  @media (max-width:700px){.sum .stat{min-width:90px;padding:6px 10px}.sum .stat b{font-size:18px}td:nth-child(6),th:nth-child(6){display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><h1>Zbývá upgradovat — RouterOS po oblastech a APčkách</h1><span class="muted"><span id="stamp"></span></span></div>
+  <div id="msg" style="display:none"></div>
+  <div id="main"></div>
+</div>
+<script>
+'use strict';
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const token = new URLSearchParams(location.search).get('k') || '';
+let data = null, q = '', onlyNoAdmin = false, openAll = null; // openAll: null = výchozí (oblasti bez správce otevřené), true/false = vše
+const STATE = { needs: ['b-needs', 'čeká na upgrade'], never: ['b-never', 'nezkontrolováno'], unreachable: ['b-unr', 'nedostupné, stará verze'], hold: ['b-hold', 'pozastaveno (hold), stará verze'] };
+const ago = (ts) => { if (!ts) return '–'; const d = Math.floor((Date.now() / 1000 - ts) / 86400); return d < 1 ? 'dnes' : d === 1 ? 'včera' : `před ${d} d`; };
+
+async function load() {
+  if (!token) { msg('Odkaz je neúplný — chybí klíč. Vyžádej si celý odkaz od správce upgraderu.'); return; }
+  let r;
+  try { r = await fetch(`api/verejne/zbyva?k=${encodeURIComponent(token)}`, { cache: 'no-store' }); } catch { msg('Server neodpovídá, zkus to za chvíli.'); return; }
+  if (r.status === 404) { msg('Tenhle odkaz už neplatí. Vyžádej si nový od správce upgraderu.'); return; }
+  if (!r.ok) { msg(`chyba ${r.status}`); return; }
+  data = await r.json(); $('#msg').style.display = 'none'; render();
+}
+function msg(t) { const m = $('#msg'); m.style.display = 'block'; m.textContent = t; $('#main').innerHTML = ''; }
+
+function devRow(d) {
+  const st = STATE[d.state] || ['b-hold', d.state];
+  const name = d.identity || d.name || '';
+  return `<tr><td>${esc(name) || '<span class="muted">bez názvu</span>'}${d.parent ? `<div class="muted" style="font-size:11px">za: ${esc(d.parent)}</div>` : ''}</td><td class="mono">${esc(d.host)}</td><td>${esc(d.model)}</td><td class="mono">${d.version ? `${esc(d.version)}${d.v6 ? ' <span class="badge b-v6">v6</span>' : ''}` : '?'}${d.target && d.target !== 'hold' && d.target !== d.version ? ` <span class="muted">→ ${esc(d.target)}</span>` : ''}</td><td><span class="badge ${st[0]}">${st[1]}</span>${d.scan_error ? `<div class="muted" style="font-size:11px">${esc(d.scan_error)}</div>` : ''}</td><td>${esc(d.owner) || '<span class="err">nikdo</span>'}</td><td class="muted">${ago(d.last_seen_at)}</td></tr>`;
+}
+function render() {
+  if (!data) return;
+  const s = data.sum;
+  $('#stamp').textContent = `stav k ${new Date(data.at).toLocaleString('cs-CZ')}`;
+  const stat = (v, l, c) => `<div class="stat ${c || ''}"><b>${v}</b><span>${l}</span></div>`;
+  const tg = (k) => data.targets[k] ? `${data.targets[k]}${data.min && data.min[k] && data.min[k] !== data.targets[k] ? ` (stačí ${data.min[k]}+)` : ''}` : '?';
+  let h = `<div class="sum">
+    ${stat(s.remaining, 'zařízení zbývá', 'warn')}
+    ${stat(s.needs, 'čeká na upgrade', 'warn')}
+    ${stat(s.never, 'nezkontrolováno')}
+    ${stat(s.unreachable, 'nedostupné se starou verzí', 'err')}
+    ${stat(s.aps, 'APček s prací', 'info')}
+    ${stat(s.apsMissing, 'APček bez zařízení v upgraderu', 'err')}
+    ${stat(s.areasNoAdmin, 'oblastí bez správce', 'err')}
+  </div>
+  <div class="legend"><span>cíle: v7 long-term <b>${esc(tg('v7-long-term'))}</b>, v7 stable <b>${esc(tg('v7-stable'))}</b>, v6 long-term <b>${esc(tg('v6-long-term'))}</b></span><span>APčka, kde je vše hotové, se neukazují.</span></div>
+  <div class="ctl"><input type="search" id="q" placeholder="hledat oblast / AP / IP / název…" value="${esc(q)}"><label><input type="checkbox" id="noadm" ${onlyNoAdmin ? 'checked' : ''}> jen oblasti bez správce</label><button type="button" id="expand">rozbalit vše</button><button type="button" id="collapse">sbalit vše</button><button type="button" onclick="print()">tisk</button></div>`;
+  const qq = q.trim().toLowerCase();
+  const hit = (ar, a) => !qq || ar.area.toLowerCase().includes(qq) || a.ap.toLowerCase().includes(qq) || a.devices.some(d => [d.host, d.name, d.identity, d.model, d.version, d.owner].join(' ').toLowerCase().includes(qq));
+  let shown = 0;
+  for (const ar of data.areas) {
+    if (onlyNoAdmin && !ar.noAdmin) continue;
+    const aps = ar.aps.filter(a => hit(ar, a));
+    if (!aps.length) continue;
+    shown++;
+    const open = openAll !== null ? openAll : (ar.noAdmin || !!qq);
+    const adm = ar.admins.length ? `<span class="adm">správci: ${ar.admins.map(u => `${esc(u.nick)}${u.role ? ` (${esc(u.role)})` : ''}`).join(', ')}</span>` : `<span class="noadm">⚠ bez správce v userdb</span>`;
+    h += `<details class="area" ${open ? 'open' : ''}><summary><span class="arrow">▸</span>${esc(ar.area)} ${adm}<span class="cnt">${ar.remaining ? `${ar.remaining} zařízení` : ''}${ar.missing ? `${ar.remaining ? ', ' : ''}${ar.missing} AP nenačteno` : ''}</span></summary>`;
+    for (const a of aps) {
+      if (a.missing) { h += `<div class="ap missing"><h3>✗ ${esc(a.ap)} <span class="muted">v upgraderu není ani jedno zařízení — správce je zatím nenačetl z userdb${a.active === false ? ' (v userdb neaktivní)' : ''}</span></h3></div>`; continue; }
+      h += `<div class="ap"><h3>${esc(a.ap)} <span class="muted">zbývá ${a.remaining} z ${a.total}</span></h3>
+        <table><thead><tr><th>zařízení</th><th>IP</th><th>model</th><th>verze → cíl</th><th>stav</th><th>v upgraderu má</th><th>naposledy viděno</th></tr></thead><tbody>${a.devices.map(devRow).join('')}</tbody></table></div>`;
+    }
+    h += '</details>';
+  }
+  if (!shown) h += `<p class="muted">${data.areas.length ? 'nic neodpovídá filtru' : 'všechno je hotové — nic nezbývá'}</p>`;
+  if (!data.userdb) h += '<p class="muted">Napojení na userdb není zapnuté — zařízení nejdou rozdělit do oblastí a APček, správci oblastí nejsou známí.</p>';
+  $('#main').innerHTML = h;
+  $('#q').oninput = (e) => { q = e.target.value; render(); const i = $('#q'); i.focus(); i.setSelectionRange(q.length, q.length); };
+  $('#noadm').onchange = (e) => { onlyNoAdmin = e.target.checked; render(); };
+  $('#expand').onclick = () => { openAll = true; render(); };
+  $('#collapse').onclick = () => { openAll = false; render(); };
+  document.querySelectorAll('details.area').forEach(d => { d.ontoggle = () => { d.querySelector('.arrow').textContent = d.open ? '▾' : '▸'; }; d.querySelector('.arrow').textContent = d.open ? '▾' : '▸'; });
+}
+load();
+setInterval(load, 120000);
+</script>
+</body>
+</html>

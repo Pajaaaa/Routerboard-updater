@@ -243,6 +243,69 @@ async function networkProgress() {
   return value;
 }
 
+/** neupgradovaná zařízení po oblastech a APčkách (stránka zbyva.html přes tajný odkaz): každé APčko z userdb včetně těch bez správce,
+ *  zařízení, které čeká na upgrade (pod bezpečnostním minimem), není zkontrolované, nebo je nedostupné se starou/neznámou verzí */
+let remainingCache = { at: 0, value: null };
+async function remainingByAp() {
+  if (remainingCache.value && Date.now() - remainingCache.at < 30000) return remainingCache.value;
+  const sc = settingsByOwner();
+  const latestOf = new Map();
+  const latestFor = (uid) => { const k = uid || 0; if (!latestOf.has(k)) latestOf.set(k, V.getLatest(sc(k || undefined))); return latestOf.get(k); };
+  const apMeta = new Map(); // apId → { ap, area, areaId, active, admins }
+  const areaMeta = new Map();
+  if (userdb.enabled()) { try { for (const a of await userdb.areas()) { areaMeta.set(a.id, { area: a.name, areaId: a.id, admins: a.admins.map(u => ({ nick: u.nick, role: u.role })) }); for (const ap of a.aps) apMeta.set(ap.id, { ap: ap.name, apId: ap.id, area: a.name, areaId: a.id, active: ap.active }); } } catch {} }
+  const users = new Map(db.listUsers().map(u => [u.id, u.userdb_nick || u.name]));
+  const devs = db.listDevices().filter(d => d.managed && !d.dup_of);
+  const parentOf = new Map(devs.map(d => [d.id, d]));
+  const aps = new Map();
+  const apOf = (d) => { const apId = Number(d.userdb_ap_id || 0); const key = apId ? `ap:${apId}` : 'none'; if (!aps.has(key)) { const m = apMeta.get(apId); aps.set(key, { apId, ap: m ? m.ap : (d.userdb_ap || d.group_name || (apId ? `AP ${apId}` : 'mimo userdb')), area: m ? m.area : (apId ? 'oblast neznámá (userdb neodpovídá)' : 'mimo userdb'), areaId: m ? m.areaId : 0, active: m ? m.active : true, total: 0, devices: [] }); } return aps.get(key); };
+  const st = { total: 0, needs: 0, never: 0, unreachable: 0, hold: 0 };
+  for (const d of devs) {
+    const a = apOf(d); a.total++; st.total++;
+    if (!d.enabled) continue;
+    const eff = effectiveTrack(d, sc(d.owner_id));
+    const latest = latestFor(d.owner_id);
+    const target = eff === 'hold' ? null : targetFor(eff, latest);
+    let state = null;
+    if (d.scan_status === 'never' || !d.version) state = 'never';
+    else if (d.scan_status !== 'ok') { if (eff !== 'hold' && needsUpgrade(d.version, eff, latest)) state = 'unreachable'; }
+    else if (eff === 'hold') { if (needsUpgrade(d.version, d.track && d.track !== 'hold' ? d.track : 'v7-long-term', latest)) state = 'hold'; }
+    else if (needsUpgrade(d.version, eff, latest)) state = 'needs';
+    if (!state) continue;
+    st[state]++;
+    const par = d.parent_id ? parentOf.get(d.parent_id) : null;
+    a.devices.push({ id: d.id, host: d.host, name: d.name || '', identity: d.identity || '', model: d.model || d.board_name || '', version: d.version || '', target: target || (eff === 'hold' ? 'hold' : ''), track: eff, state, owner: users.get(d.owner_id) || '', last_seen_at: d.last_seen_at || 0, last_scan_at: d.last_scan_at || 0, scan_error: d.scan_status === 'ok' ? '' : (d.scan_error || d.scan_status || ''), parent: par ? (par.identity || par.name || par.host) : '', v6: /^6\./.test(d.version || '') });
+  }
+  // APčka z userdb bez jediného zařízení v upgraderu: jejich zařízení nikdo nenačetl, s největší pravděpodobností jsou neupgradovaná
+  for (const [apId, m] of apMeta) if (!aps.has(`ap:${apId}`)) aps.set(`ap:${apId}`, { ...m, total: 0, devices: [], missing: true });
+  const areas = new Map();
+  for (const a of aps.values()) {
+    const k = a.areaId || a.area;
+    if (!areas.has(k)) { const m = areaMeta.get(a.areaId); areas.set(k, { area: a.area, areaId: a.areaId, admins: m ? m.admins : [], aps: [], total: 0, remaining: 0, missing: 0 }); }
+    const ar = areas.get(k);
+    a.remaining = a.devices.length;
+    a.devices.sort((x, y) => (x.state === 'needs' ? 0 : 1) - (y.state === 'needs' ? 0 : 1) || V.cmpVersion(x.version || '0', y.version || '0') || x.host.localeCompare(y.host));
+    if (a.remaining || a.missing) ar.aps.push(a);
+    ar.total += a.total; ar.remaining += a.remaining; if (a.missing) ar.missing++;
+  }
+  const list = [...areas.values()].filter(ar => ar.remaining || ar.missing)
+    .map(ar => ({ ...ar, noAdmin: !ar.admins.length, aps: ar.aps.sort((x, y) => (y.remaining - x.remaining) || x.ap.localeCompare(y.ap, 'cs')) }))
+    .sort((x, y) => (x.areaId && !y.areaId ? -1 : !x.areaId && y.areaId ? 1 : 0) || x.area.localeCompare(y.area, 'cs'));
+  const lv = V.getLatest().versions || {};
+  const value = { at: Date.now(), userdb: userdb.enabled(), targets: Object.fromEntries(Object.entries(lv).map(([k, v]) => [k, v.version])), min: minsFor(), sum: { ...st, remaining: st.needs + st.never + st.unreachable + st.hold, areas: list.length, aps: list.reduce((n, ar) => n + ar.aps.length, 0), apsMissing: list.reduce((n, ar) => n + ar.missing, 0), areasNoAdmin: list.filter(ar => ar.noAdmin).length }, areas: list };
+  remainingCache = { at: Date.now(), value };
+  return value;
+}
+/** tajný odkaz na zbyva.html: porovnání tokenu z URL s nastavením v konstantním čase; prázdné nastavení = odkaz vypnutý */
+function publicLinkOk(token) {
+  const want = String(db.getSettings().public_link_token || ''), got = String(token || '');
+  if (!want || want.length < 16 || got.length !== want.length) return false;
+  return require('crypto').timingSafeEqual(Buffer.from(want), Buffer.from(got));
+}
+const publicLinkFails = new Map(); // ip → { n, t }: hádání tokenu brzdit
+function publicLinkAllowed(ip) { const a = publicLinkFails.get(ip); if (a && Date.now() - a.t > 600000) { publicLinkFails.delete(ip); return true; } return !a || a.n < 20; }
+function publicLinkFail(ip) { const a = publicLinkFails.get(ip) || { n: 0, t: 0 }; publicLinkFails.set(ip, { n: a.n + 1, t: Date.now() }); }
+
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json' };
 const TRACKS = ['v7-stable', 'v7-long-term', 'v6-long-term', 'hold'];
 
@@ -489,15 +552,22 @@ async function api(req, res, method, p, url) {
     return send(res, 200, { settings: db.getSettings(req.user.id), own, latest: V.getLatest(req.user.id) });
   }
   if (method === 'DELETE' && p === '/api/settings/mine') { db.clearUserSettings(req.user.id); statsCache.at = 0; progressCache.at = 0; audit(req, 'vlastní nastavení zrušeno', ''); return send(res, 200, { settings: db.getSettings(req.user.id), own: {}, latest: V.getLatest(req.user.id) }); }
+  if (p === '/api/public-link') {
+    if (!adminOnly(req, res)) return;
+    if (method === 'POST') { const token = require('crypto').randomBytes(24).toString('base64url'); db.setSettings({ public_link_token: token }); audit(req, 'tajný odkaz vytvořen', ''); return send(res, 200, { token }); }
+    if (method === 'DELETE') { db.setSettings({ public_link_token: '' }); audit(req, 'tajný odkaz zrušen', ''); return send(res, 200, { token: '' }); }
+    return send(res, 200, { token: db.getSettings().public_link_token || '' });
+  }
   if (method === 'PUT' && p === '/api/settings') {
     if (!adminOnly(req, res)) return; const b = await readBody(req);
     // připnuté verze: prázdné = sledovat MikroTik, jinak čitelná verze RouterOS správné řady (v6 kanál 6.x, v7 kanály 7.x)
     const err = checkPins(b, false); if (err) return send(res, 400, { error: err });
+    delete b.public_link_token; // odkaz se mění jen přes /api/public-link
     const before = db.getSettings();
     db.setSettings(b); audit(req, 'nastavení', JSON.stringify(b));
     const after = db.getSettings();
     // změna společného cíle se dotkne všech (uživatelské volby pod novým minimem přestanou platit) → klienti si stáhnou svůj cíl znovu
-    if ([...db.PIN_KEYS, ...db.MIN_KEYS].some(k => before[k] !== after[k])) { statsCache.at = 0; progressCache.at = 0; bus.emit('event', { type: 'latest' }); }
+    if ([...db.PIN_KEYS, ...db.MIN_KEYS].some(k => before[k] !== after[k])) { statsCache.at = 0; progressCache.at = 0; remainingCache.at = 0; bus.emit('event', { type: 'latest' }); }
     return send(res, 200, after);
   }
   if (method === 'GET' && p === '/api/audit') { if (!adminOnly(req, res)) return; return send(res, 200, db.listAudit(300)); }
@@ -1020,6 +1090,13 @@ const server = http.createServer(async (req, res) => {
       const on = url.searchParams.get('on');
       if (on != null) { runner.setDraining(on === '1'); console.log(`drain ${on === '1' ? 'zapnut' : 'vypnut'} (deploy)`); }
       return send(res, 200, { draining: runner.draining, jobs: runner.running().length });
+    }
+    // tajný odkaz (bez přihlášení): neupgradovaná zařízení po APčkách pro stránku zbyva.html
+    if (method === 'GET' && p === '/api/verejne/zbyva') {
+      const ip = req.headers['x-forwarded-for'] ? String(req.headers['x-forwarded-for']).split(',')[0].trim() : (req.socket && req.socket.remoteAddress) || '';
+      if (!publicLinkAllowed(ip)) return send(res, 429, { error: 'moc pokusů, zkus to za 10 minut' });
+      if (!publicLinkOk(url.searchParams.get('k'))) { publicLinkFail(ip); return send(res, 404, { error: 'odkaz neplatí' }); }
+      return send(res, 200, await remainingByAp(), { 'Cache-Control': 'no-store' });
     }
     if (p === '/api/whoami') {
       // při drainu (čeká se na restart kvůli aktualizaci) vypsat, na které joby se čeká — ať každý vidí, proč restart ještě neproběhl

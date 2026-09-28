@@ -651,6 +651,8 @@ function adminPanelsHtml(s) {
     ${state.auth.passwordLogin ? `<label class="check" style="margin-bottom:8px"><input type="checkbox" id="regtoggle" ${s.allow_registration ? 'checked' : ''}> povolit samoregistraci na přihlašovací stránce (nový účet = role uživatel)</label>` : ''}
     <div id="userlist">načítám…</div>
     ${state.auth.passwordLogin ? `<form id="useradd" class="form" style="margin-top:12px"><h2>Nový účet</h2><label>jméno<input name="name" required autocomplete="off"></label><label>heslo (aspoň 8 znaků)<input name="password" type="password" required minlength="8" autocomplete="new-password"></label><label>role<select name="role"><option value="user">uživatel</option><option value="admin">správce</option></select></label><label>&nbsp;<button class="primary">Založit</button></label></form>` : '<div class="hint" style="margin-bottom:8px">Účty vznikají samy při prvním přihlášení přes SSO (podle e-mailu) a navážou se na správce v userdb.</div>'}</div>
+  <div class="panel"><h2>Tajný odkaz: neupgradovaná zařízení po APčkách</h2><div class="hint" style="margin-bottom:8px">Stránka bez přihlášení pro toho, kdo odkaz zná: každé APčko z userdb (i bez správce) a jeho zařízení, která ještě čekají na upgrade, nejsou zkontrolovaná nebo jsou nedostupná se starou verzí. Ukazuje názvy, IP, modely a verze — posílej jen lidem, kterým to patří vidět. Nový odkaz starý zneplatní.</div>
+    <div id="publink" class="hint">načítám…</div></div>
   <div class="panel"><details id="auditbox"><summary><b>Kdo co dělal</b> (audit posledních akcí)</summary><div id="auditlist" class="hint">načítám…</div></details></div>
 `;
 }
@@ -712,6 +714,15 @@ function renderSettings(m, adminMode = false) {
     renderUsers();
     if ($('#regtoggle')) $('#regtoggle').onchange = async (e) => { try { state.settings = await api('/settings', { method: 'PUT', body: { allow_registration: e.target.checked } }); toast(e.target.checked ? 'registrace povolena' : 'registrace vypnuta'); } catch (e2) { toast(e2.message, true); } };
     if ($('#useradd')) $('#useradd').onsubmit = async (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); try { await api('/users', { method: 'POST', body: b }); toast(`účet ${b.name} založen`); e.target.reset(); await renderUsers(); } catch (e2) { toast(e2.message, true); } };
+  }
+  const pl = $('#publink'); if (pl) {
+    const linkUrl = (t) => new URL(`zbyva.html?k=${encodeURIComponent(t)}`, location.href).href;
+    const drawLink = (t) => { pl.innerHTML = t ? `<div class="row"><input type="text" readonly value="${esc(linkUrl(t))}" style="flex:1;min-width:260px" onclick="this.select()"><button type="button" class="small" id="publink-copy">Kopírovat</button><a class="small" href="${esc(linkUrl(t))}" target="_blank" rel="noopener">Otevřít</a><button type="button" class="small" id="publink-new">Vytvořit nový (starý přestane platit)</button><button type="button" class="small danger" id="publink-off">Zrušit odkaz</button></div>` : `<div class="row"><span>odkaz není vytvořený</span><button type="button" class="small primary" id="publink-new">Vytvořit odkaz</button></div>`;
+      on('#publink-copy', async () => { try { await navigator.clipboard.writeText(linkUrl(t)); toast('odkaz zkopírován'); } catch { toast('zkopíruj ručně z pole', true); } });
+      on('#publink-new', async () => { if (t && !confirm('Vytvořit nový odkaz? Starý přestane platit všem, kdo ho mají.')) return; try { const r = await api('/public-link', { method: 'POST' }); toast('odkaz vytvořen'); drawLink(r.token); } catch (e) { toast(e.message, true); } });
+      on('#publink-off', async () => { if (!confirm('Zrušit odkaz? Stránka přestane fungovat všem, kdo ho mají.')) return; try { await api('/public-link', { method: 'DELETE' }); toast('odkaz zrušen'); drawLink(''); } catch (e) { toast(e.message, true); } });
+    };
+    api('/public-link').then(r => drawLink(r.token)).catch(e => { pl.textContent = e.message; });
   }
   const ab = $('#auditbox'); if (ab) {
     const drawAudit = (rows) => { const el = $('#auditlist'); if (el) el.innerHTML = rows.length ? `<table>${rows.map(r => `<tr><td class="muted">${fmtTs(Math.floor(r.ts / 1000))}</td><td>${esc(r.user)}</td><td class="mono">${esc(r.ip || '')}</td><td>${esc(r.action)}</td><td class="muted" style="white-space:normal">${esc(r.detail)}</td></tr>`).join('')}</table>` : 'zatím nic'; };
