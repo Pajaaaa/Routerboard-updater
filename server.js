@@ -381,7 +381,7 @@ async function runUserdbImport({ acct, allMode, ownerMe, onlyAps, key, prog, byN
     const CH = 2000;
     for (let i = 0; i < entries.length; i += CH) {
       const part = entries.slice(i, i + CH);
-      const o = { entries: part, creds: [], port: 22, track: track || db.getSettings(acct.id).default_track || 'v7-stable', parallel: 24, ownerId: acct.id, takeover: i === 0 ? takeover : [], label: entries.length > CH ? `část ${i / CH + 1}/${Math.ceil(entries.length / CH)}` : '', foreign: i === 0 ? foreign : [], errors: i === 0 ? errors : [] };
+      const o = { entries: part, creds: [], port: 22, track: track || db.getSettings(acct.id).default_track || 'v7-long-term', parallel: 24, ownerId: acct.id, takeover: i === 0 ? takeover : [], label: entries.length > CH ? `část ${i / CH + 1}/${Math.ceil(entries.length / CH)}` : '', foreign: i === 0 ? foreign : [], errors: i === 0 ? errors : [] };
       discovery.prepare(o);
       discovery.run(o).catch(e => bus.emit('event', { type: 'discovery-error', error: e.message }));
     }
@@ -683,7 +683,7 @@ async function api(req, res, method, p, url) {
       entries.push({ host, port, username, password, name: rest.join(' ') });
     });
     if (entryErrors.length) throw new Error(entryErrors.join('; '));
-    const o = { ranges, entries, creds, port: parseInt(b.port || 22, 10), group_name: b.group_name || '', track: b.track || 'v7-stable', parallel: parseInt(b.parallel || 24, 10), ownerId: req.user.id };
+    const o = { ranges, entries, creds, port: parseInt(b.port || 22, 10), group_name: b.group_name || '', track: b.track || db.getSettings(req.user.id).default_track || 'v7-long-term', parallel: parseInt(b.parallel || 24, 10), ownerId: req.user.id };
     discovery.prepare(o); // validace → 400 s popisem chyby (sken se zařadí do fronty, když jiný běží)
     audit(req, 'sken rozsahu', [...ranges, ...(entries.length ? [`${entries.length} zařízení ze seznamu`] : [])].join(' '));
     discovery.run(o).catch(e => bus.emit('event', { type: 'discovery-error', error: e.message }));
