@@ -29,6 +29,19 @@ function pinsFor(scope) {
   return out;
 }
 V.configure({ pins: pinsFor });
+/** bezpečnostní minimum kanálů (jen společné nastavení): { 'v7-stable': '7.24.2', … }; prázdné = minimum je cíl */
+const MIN_TRACKS = [['min_v7_stable', 'v7-stable', 7], ['min_v7_long_term', 'v7-long-term', 7], ['min_v6_long_term', 'v6-long-term', 6]];
+function minsFor() { const g = db.getSettings(); const out = {}; for (const [k, track] of MIN_TRACKS) { const v = String(g[k] || '').trim(); if (v && V.parseVersion(v)) out[track] = v; } return out; }
+/** čeká zařízení na upgrade? Níž než cíl kanálu, ale ve stejné řadě na bezpečnostním minimu nebo výš = hotové („aktuální“) —
+ *  když MikroTik vydá další verzi a správce posune cíl, už upgradované kusy se nevrací do fronty; výslovně spuštěný upgrade jde na cíl dál */
+function needsUpgrade(version, track, latest) {
+  const t = targetFor(track, latest); if (!t) return false;
+  const c = V.cmpVersion(version, t);
+  if (!Number.isFinite(c) || c >= 0) return false;
+  const min = minsFor()[track]; if (!min) return true;
+  const pv = V.parseVersion(version), pt = V.parseVersion(t);
+  return !(pv && pt && pv.major === pt.major && V.cmpVersion(version, min) >= 0);
+}
 /** kontrola připnutých verzí v uloženém nastavení: čitelná verze správné řady; u uživatele navíc ne níž než společná a ne výš než nabízí MikroTik */
 function checkPins(b, mine) {
   const g = mine ? db.getSettings() : null, mt = V.getLatest().mikrotik || {};
@@ -44,6 +57,17 @@ function checkPins(b, mine) {
       if (floor && V.cmpVersion(v, floor) < 0) return `${track}: níž než společný cíl ${floor} nejde (správce nástroje drží minimum kvůli bezpečnostním opravám)`;
       if (mt[track] && V.cmpVersion(v, mt[track].version) > 0) return `${track}: MikroTik zatím nabízí nejvýš ${mt[track].version}`;
     }
+  }
+  if (!mine) for (const [k, track, major] of MIN_TRACKS) {
+    if (!(k in b)) continue;
+    const v = String(b[k] || '').trim(); b[k] = v;
+    if (!v) continue;
+    const pv = V.parseVersion(v);
+    if (!pv) return `minimum ${track}: „${v}“ není verze RouterOS (např. 7.24.2)`;
+    if (pv.major !== major) return `minimum ${track}: verze ${v} nepatří do řady ${major}.x`;
+    const pinKey = PIN_TRACKS.find(x => x[1] === track)[0];
+    const pin = String((pinKey in b ? b[pinKey] : db.getSettings()[pinKey]) || '').trim() || (mt[track] && mt[track].version) || '';
+    if (pin && V.cmpVersion(v, pin) > 0) return `minimum ${track}: ${v} je výš než cíl ${pin} — minimum musí být nejvýš cíl`;
   }
   return '';
 }
@@ -146,10 +170,8 @@ function networkStatsCompute() {
       }
       continue;
     }
-    const t = targetFor(eff, latestFor(d.owner_id));
-    if (!t) continue;
-    const c = V.cmpVersion(d.version, t);
-    if (Number.isFinite(c) && c < 0) st.needs++; else st.upToDate++;
+    if (!targetFor(eff, latestFor(d.owner_id))) continue;
+    if (needsUpgrade(d.version, eff, latestFor(d.owner_id))) st.needs++; else st.upToDate++;
   }
   const q = (sql, ...a) => db.db.prepare(sql).get(...a).n;
   st.upgradedToday = q("SELECT COUNT(DISTINCT device_id) n FROM version_history WHERE source='upgrade' AND seen_at>=?", day0);
@@ -178,9 +200,7 @@ async function networkProgress() {
     if (eff === 'hold') return 'hold';
     if (d.scan_status === 'never' || !d.version) return 'never';
     if (d.scan_status !== 'ok') return 'unreachable';
-    const t = targetFor(eff, latestFor(d.owner_id)); if (!t) return 'ok';
-    const c = V.cmpVersion(d.version, t);
-    return Number.isFinite(c) && c < 0 ? 'needs' : 'ok';
+    return needsUpgrade(d.version, eff, latestFor(d.owner_id)) ? 'needs' : 'ok';
   };
   const KEYS = ['ok', 'needs', 'unreachable', 'never', 'hold', 'off'];
   const blank = () => Object.fromEntries(KEYS.map(k => [k, 0]));
@@ -442,7 +462,7 @@ async function api(req, res, method, p, url) {
     if (!latest.fetchedAt) await V.refreshLatest().catch(() => {});
     // ?nodevices=1: jen joby/runner/nastavení (klient si to stahuje při každé události runneru; seznam zařízení se mění zvlášť přes události 'device')
     const noDev = url.searchParams.get('nodevices') === '1';
-    const base = { latest: { ...V.getLatest(req.user.id), floor: pinsFor(null) }, settings: db.getSettings(req.user.id), settingsOwn: db.getUserSettings(req.user.id), settingsGlobal: isAdmin(req) ? db.getSettings() : undefined, jobs: visJobs(req, 30), runner: runnerStatusFor(req), tracks: TRACKS, scanning: [...scanner.inProgress], checkProg: scanner.checkProgress(req.user.id), discovery: discoveryFor(req), admin: isAdmin(req), user: req.user };
+    const base = { latest: { ...V.getLatest(req.user.id), floor: pinsFor(null), min: minsFor() }, settings: db.getSettings(req.user.id), settingsOwn: db.getUserSettings(req.user.id), settingsGlobal: isAdmin(req) ? db.getSettings() : undefined, jobs: visJobs(req, 30), runner: runnerStatusFor(req), tracks: TRACKS, scanning: [...scanner.inProgress], checkProg: scanner.checkProgress(req.user.id), discovery: discoveryFor(req), admin: isAdmin(req), user: req.user };
     if (noDev) return send(res, 200, base);
     // seznam zařízení správce (2000+ kusů, ~4 MB) se skládá až sekundu — jednou za verzi dat a sdílí se mezi všemi správci; JSON se vkládá hotový
     const devJson = adminDevicesJson(req);
@@ -451,7 +471,7 @@ async function api(req, res, method, p, url) {
   }
   if (method === 'POST' && p === '/api/versions/refresh') { await V.refreshLatest(true); bus.emit('event', { type: 'latest' }); return send(res, 200, V.getLatest(req.user.id)); }
   // cílové verze pro přihlášeného (jeho připnutí nad společným) + společné připnutí jako spodní mez pro nastavení
-  if (method === 'GET' && p === '/api/versions') return send(res, 200, { ...V.getLatest(req.user.id), floor: pinsFor(null) });
+  if (method === 'GET' && p === '/api/versions') return send(res, 200, { ...V.getLatest(req.user.id), floor: pinsFor(null), min: minsFor() });
   if (method === 'GET' && seg[0] === 'changelog' && seg[1]) return send(res, 200, await V.getChangelog(seg[1]));
   // statistika celé sítě (jen počty, bez cizích detailů) — proužek nahoře pro všechny
   if (method === 'GET' && p === '/api/stats') return send(res, 200, networkStats());
@@ -477,7 +497,7 @@ async function api(req, res, method, p, url) {
     db.setSettings(b); audit(req, 'nastavení', JSON.stringify(b));
     const after = db.getSettings();
     // změna společného cíle se dotkne všech (uživatelské volby pod novým minimem přestanou platit) → klienti si stáhnou svůj cíl znovu
-    if (db.PIN_KEYS.some(k => before[k] !== after[k])) { statsCache.at = 0; progressCache.at = 0; bus.emit('event', { type: 'latest' }); }
+    if ([...db.PIN_KEYS, ...db.MIN_KEYS].some(k => before[k] !== after[k])) { statsCache.at = 0; progressCache.at = 0; bus.emit('event', { type: 'latest' }); }
     return send(res, 200, after);
   }
   if (method === 'GET' && p === '/api/audit') { if (!adminOnly(req, res)) return; return send(res, 200, db.listAudit(300)); }
