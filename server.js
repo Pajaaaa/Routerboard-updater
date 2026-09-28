@@ -32,15 +32,22 @@ V.configure({ pins: pinsFor });
 /** bezpečnostní minimum kanálů (jen společné nastavení): { 'v7-stable': '7.24.2', … }; prázdné = minimum je cíl */
 const MIN_TRACKS = [['min_v7_stable', 'v7-stable', 7], ['min_v7_long_term', 'v7-long-term', 7], ['min_v6_long_term', 'v6-long-term', 6]];
 function minsFor() { const g = db.getSettings(); const out = {}; for (const [k, track] of MIN_TRACKS) { const v = String(g[k] || '').trim(); if (v && V.parseVersion(v)) out[track] = v; } return out; }
-/** čeká zařízení na upgrade? Níž než cíl kanálu, ale ve stejné řadě na bezpečnostním minimu nebo výš = hotové („aktuální“) —
+/** bezpečnostní minimum pro zařízení podle řady, na které BĚŽÍ: kus na v6 se měří minimem v6 long-term, ať má kanál jakýkoli
+ *  (i v7-stable kus na 6.49.21 je „hotový“, když je minimum v6 6.49.21); kus na v7 minimem svého v7 kanálu */
+function minFor(version, track) {
+  const pv = V.parseVersion(version); if (!pv) return '';
+  const mins = minsFor();
+  if (pv.major < 7) return mins['v6-long-term'] || '';
+  return /^v7/.test(track) ? (mins[track] || '') : '';
+}
+/** čeká zařízení na upgrade? Níž než cíl kanálu, ale na bezpečnostním minimu své řady nebo výš = hotové („aktuální“) —
  *  když MikroTik vydá další verzi a správce posune cíl, už upgradované kusy se nevrací do fronty; výslovně spuštěný upgrade jde na cíl dál */
 function needsUpgrade(version, track, latest) {
   const t = targetFor(track, latest); if (!t) return false;
   const c = V.cmpVersion(version, t);
   if (!Number.isFinite(c) || c >= 0) return false;
-  const min = minsFor()[track]; if (!min) return true;
-  const pv = V.parseVersion(version), pt = V.parseVersion(t);
-  return !(pv && pt && pv.major === pt.major && V.cmpVersion(version, min) >= 0);
+  const min = minFor(version, track); if (!min) return true;
+  return V.cmpVersion(version, min) < 0;
 }
 /** kontrola připnutých verzí v uloženém nastavení: čitelná verze správné řady; u uživatele navíc ne níž než společná a ne výš než nabízí MikroTik */
 function checkPins(b, mine) {

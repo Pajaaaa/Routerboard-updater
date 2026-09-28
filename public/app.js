@@ -47,9 +47,11 @@ function verStatus(d) {
   if (c === 0) return { cls: 'b-ok', txt: 'aktuální', key: 'ok' };
   if (c > 0) return { cls: 'b-info', txt: 'novější', key: 'newer' };
   const pv = parseVer(d.version);
-  // bezpečnostní minimum kanálu: stejná řada, na minimu nebo výš → hotové; cíl je jen nabídka (upgrade jde spustit ručně)
-  const min = ((state.latest && state.latest.min) || {})[trackOf(d)];
-  if (min && pv && pv.major === parseVer(t).major && cmpVer(d.version, min) >= 0) return { cls: 'b-ok', txt: 'aktuální', key: 'ok', optional: t };
+  // bezpečnostní minimum podle řady, na které kus běží (v6 → minimum v6 long-term ať má kanál jakýkoli, v7 → minimum svého kanálu):
+  // na minimu nebo výš → hotové; cíl je jen nabídka (upgrade jde spustit ručně)
+  const mins = (state.latest && state.latest.min) || {};
+  const min = pv ? (pv.major < 7 ? mins['v6-long-term'] : mins[trackOf(d)]) : '';
+  if (min && cmpVer(d.version, min) >= 0) return { cls: 'b-ok', txt: 'aktuální', key: 'ok', optional: t };
   if (pv && pv.major < 7 && parseVer(t).major >= 7) return { cls: 'b-v6', txt: 'v6 → v7', key: 'v6' };
   return { cls: 'b-warn', txt: `→ ${t}`, key: 'old' };
 }
@@ -594,7 +596,7 @@ function settingsFields(s, global) {
   const minField = (k, track, label) => { const cur = lv[track] ? lv[track].version : ''; return `<label>${label}<input name="${k}" type="text" value="${esc(s[k] || '')}" placeholder="= cíl${cur ? ` (${cur})` : ''}" list="pins-${track}"><span class="hint">${s[k] ? `stačí ${esc(s[k])} a výš` : 'k upgradu je vše pod cílem'}</span></label>`; };
   const pinsHtml = global ? `<div class="wide hint">Připnutá cílová verze: statistika, plány i „Upgradovat vše potřebné“ počítají s ní; když MikroTik vydá novou, jen se ukáže v levém panelu a kampaň pokračuje na připnuté, dokud ji sem nezapíšeš. Prázdné pole = vždy nejnovější vydání. Uživatelé si ve svém nastavení smí zvolit jen vyšší verzi než tuhle, níž ne.</div>
     ${pinField('pin_v7_stable', 'v7-stable', 'připnutý cíl v7 stable')}${pinField('pin_v7_long_term', 'v7-long-term', 'připnutý cíl v7 long-term')}${pinField('pin_v6_long_term', 'v6-long-term', 'připnutý cíl v6 long-term')}<label>&nbsp;<button type="button" class="small" id="pin-now" title="zapíše do polí verze, na které se právě upgraduje">Připnout současné cíle</button></label>
-    <div class="wide hint">Bezpečnostní minimum: verze, která opravila bezpečnostní chybu. Zařízení stejné řady na ní nebo výš se už nepočítá k upgradu, i když MikroTik vydá další verzi a cíl výš posuneš — už upgradované kusy se nevrací do fronty (cíl jde u nich spustit ručně). Prázdné = minimum je cíl. Při další bezpečnostní opravě posuň cíl i minimum.</div>
+    <div class="wide hint">Bezpečnostní minimum: verze, která opravila bezpečnostní chybu. Zařízení na ní nebo výš se už nepočítá k upgradu, i když MikroTik vydá další verzi a cíl výš posuneš. Minimum v6 platí pro každý kus, který běží na v6, ať má kanál jakýkoli (i v7-stable kus na 6.49.21 je hotový); minimum v7 platí pro kusy na v7 podle jejich kanálu — už upgradované kusy se nevrací do fronty (cíl jde u nich spustit ručně). Prázdné = minimum je cíl. Při další bezpečnostní opravě posuň cíl i minimum.</div>
     ${minField('min_v7_stable', 'v7-stable', 'minimum v7 stable')}${minField('min_v7_long_term', 'v7-long-term', 'minimum v7 long-term')}${minField('min_v6_long_term', 'v6-long-term', 'minimum v6 long-term')}`
     : `<div class="wide hint">Vlastní cílová verze: můžeš jít výš než společný cíl (třeba na nové vydání MikroTiku dřív než ostatní), níž ne — správce nástroje drží minimum kvůli bezpečnostním opravám. Prázdné = společný cíl.</div>
     ${myPinField('pin_v7_stable', 'v7-stable', 'můj cíl v7 stable')}${myPinField('pin_v7_long_term', 'v7-long-term', 'můj cíl v7 long-term')}${myPinField('pin_v6_long_term', 'v6-long-term', 'můj cíl v6 long-term')}`;
