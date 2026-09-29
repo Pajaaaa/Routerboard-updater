@@ -86,7 +86,7 @@ function render() {
     ${stat(s.apsMissing, 'APček bez zařízení v upgraderu', 'err')}
     ${stat(s.areasNoAdmin, 'oblastí bez správce', 'err')}
   </div>
-  <div class="legend"><span>cíle: v7 long-term <b>${esc(tg('v7-long-term'))}</b>, v7 stable <b>${esc(tg('v7-stable'))}</b>, v6 long-term <b>${esc(tg('v6-long-term'))}</b></span><span>APčka, kde je vše hotové, se neukazují.</span></div>
+  <div class="legend"><span>cíle: v7 long-term <b>${esc(tg('v7-long-term'))}</b>, v7 stable <b>${esc(tg('v7-stable'))}</b>, v6 long-term <b>${esc(tg('v6-long-term'))}</b></span><span>APčka, kde je vše hotové, se neukazují; stejně tak APčka, pod kterými userdb žádnou infrastrukturu neeviduje (jen adresa, zařízení jsou pod jiným APčkem).</span></div>
   <div class="ctl"><input type="search" id="q" placeholder="hledat oblast / AP / IP / název…" value="${esc(q)}"><label><input type="checkbox" id="noadm" ${onlyNoAdmin ? 'checked' : ''}> jen oblasti bez správce</label><button type="button" id="expand">rozbalit vše</button><button type="button" id="collapse">sbalit vše</button><button type="button" onclick="print()">tisk</button></div>`;
   const qq = q.trim().toLowerCase();
   const hit = (ar, a) => !qq || ar.area.toLowerCase().includes(qq) || a.ap.toLowerCase().includes(qq) || a.devices.some(d => [d.host, d.name, d.identity, d.model, d.version, d.owner].join(' ').toLowerCase().includes(qq));
@@ -100,7 +100,11 @@ function render() {
     const adm = ar.admins.length ? `<span class="adm">správci: ${ar.admins.map(u => `${esc(u.nick)}${u.role ? ` (${esc(u.role)})` : ''}`).join(', ')}</span>` : `<span class="noadm">⚠ bez správce v userdb</span>`;
     h += `<details class="area" ${open ? 'open' : ''}><summary><span class="arrow">▸</span>${esc(ar.area)} ${adm}<span class="cnt">${ar.remaining ? `${ar.remaining} zařízení` : ''}${ar.missing ? `${ar.remaining ? ', ' : ''}${ar.missing} AP nenačteno` : ''}</span></summary>`;
     for (const a of aps) {
-      if (a.missing) { h += `<div class="ap missing"><h3>✗ ${esc(a.ap)} <span class="muted">v upgraderu není ani jedno zařízení — správce je zatím nenačetl z userdb${a.active === false ? ' (v userdb neaktivní)' : ''}</span></h3></div>`; continue; }
+      if (a.missing) {
+        const u = a.udb;
+        const detail = u ? `userdb pod ním eviduje ${u.infra} zařízení infrastruktury${u.members ? ` (+ ${u.members} členských)` : ''}${u.known ? `, ${u.known} z nich už v upgraderu je pod jiným APčkem` : ''}` : 'userdb teď neodpovídá, počet zařízení neznámý';
+        h += `<div class="ap missing"><h3>✗ ${esc(a.ap)} <span class="muted">v upgraderu není ani jedno zařízení — správce je zatím nenačetl z userdb${a.active === false ? ' (v userdb neaktivní)' : ''}; ${detail}</span></h3></div>`; continue;
+      }
       h += `<div class="ap"><h3>${esc(a.ap)} <span class="muted">zbývá ${a.remaining} z ${a.total}</span></h3>
         <table><thead><tr><th>zařízení</th><th>IP</th><th>model</th><th>verze → cíl</th><th>stav</th><th>v upgraderu má</th><th>naposledy viděno</th></tr></thead><tbody>${a.devices.map(devRow).join('')}</tbody></table></div>`;
     }

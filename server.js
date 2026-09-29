@@ -283,8 +283,21 @@ async function remainingByAp() {
     const par = d.parent_id ? parentOf.get(d.parent_id) : null;
     a.devices.push({ id: d.id, host: d.host, name: d.name || '', identity: d.identity || '', model: d.model || d.board_name || '', version: d.version || '', target: target || (eff === 'hold' ? 'hold' : ''), track: eff, state, owner: users.get(d.owner_id) || '', last_seen_at: d.last_seen_at || 0, last_scan_at: d.last_scan_at || 0, scan_error: d.scan_status === 'ok' ? '' : (d.scan_error || d.scan_status || ''), parent: par ? (par.identity || par.name || par.host) : '', v6: /^6\./.test(d.version || '') });
   }
-  // APčka z userdb bez jediného zařízení v upgraderu: jejich zařízení nikdo nenačetl, s největší pravděpodobností jsou neupgradovaná
-  for (const [apId, m] of apMeta) if (!aps.has(`ap:${apId}`)) aps.set(`ap:${apId}`, { ...m, total: 0, devices: [], missing: true });
+  // APčka z userdb bez jediného zařízení v upgraderu: jejich zařízení nikdo nenačetl, s největší pravděpodobností jsou neupgradovaná.
+  // Ale jen když userdb pod tím APčkem nějakou infrastrukturu eviduje — spousta APček jsou jen záznamy adresy (podružné APčko, jehož
+  // zařízení jsou v userdb pod hlavním APčkem oblasti), a tam není co načítat (29.9.2026: 28 z 51 „nenačtených“ bylo takových)
+  const missingAps = [...apMeta].filter(([apId]) => !aps.has(`ap:${apId}`));
+  const known = new Set(db.listDevices().map(d => d.host));
+  let mi = 0;
+  await Promise.all(Array.from({ length: 6 }, async () => {
+    while (mi < missingAps.length) {
+      const [apId, m] = missingAps[mi++];
+      let udb = null; // null = userdb neodpověděl → hlásit jako dřív, ať se nic neschová
+      try { const l = await userdb.devicesForAp(apId); const infra = l.filter(x => !x.member); udb = { infra: infra.length, members: l.length - infra.length, known: infra.filter(x => known.has(x.ip)).length }; } catch {}
+      if (udb && !udb.infra) continue; // v userdb pod tím APčkem žádná infrastruktura není → není co načítat, nehlásit
+      aps.set(`ap:${apId}`, { ...m, total: 0, devices: [], missing: true, udb });
+    }
+  }));
   const areas = new Map();
   for (const a of aps.values()) {
     const k = a.areaId || a.area;
