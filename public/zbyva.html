@@ -30,14 +30,15 @@
   .ap{padding:6px 12px 10px;border-top:1px solid var(--line)}
   .ap h3{font-size:14px;margin:6px 0 4px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}.ap h3 .muted{font-weight:400;font-size:12px}
   .ap.missing h3{color:var(--err)}
-  table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:3px 8px;border-top:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-weight:500;font-size:12px;border-top:0}
+  .tw{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%}
+  table{width:100%;min-width:640px;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:3px 8px;border-top:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-weight:500;font-size:12px;border-top:0}
   td.mono,.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
   .badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;white-space:nowrap}
   .b-needs{background:#b8740a22;color:var(--warn)}.b-never{background:#d9b25c33;color:#8a6d1a}.b-unr{background:#d23f3f22;color:var(--err)}.b-hold{background:#9aa4b233;color:var(--muted)}.b-v6{background:#7a4dd622;color:var(--v6)}
   .err{color:var(--err)}.muted{color:var(--muted)}
   .legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--muted);margin:6px 0 14px}
   #msg{margin:30px auto;max-width:460px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px}
-  @media print{.ctl,.top a{display:none}.area{break-inside:avoid}details>summary .arrow{display:none}}
+  @media print{.ctl,.top a{display:none}.tw{overflow:visible}table{min-width:0}.area{break-inside:avoid}details>summary .arrow{display:none}}
   @media (max-width:700px){.sum .stat{min-width:90px;padding:6px 10px}.sum .stat b{font-size:18px}td:nth-child(6),th:nth-child(6){display:none}}
 </style>
 </head>
@@ -106,7 +107,7 @@ function render() {
         h += `<div class="ap missing"><h3>✗ ${esc(a.ap)} <span class="muted">v upgraderu není ani jedno zařízení — správce je zatím nenačetl z userdb${a.active === false ? ' (v userdb neaktivní)' : ''}; ${detail}</span></h3></div>`; continue;
       }
       h += `<div class="ap"><h3>${esc(a.ap)} <span class="muted">zbývá ${a.remaining} z ${a.total}</span></h3>
-        <table><thead><tr><th>zařízení</th><th>IP</th><th>model</th><th>verze → cíl</th><th>stav</th><th>v upgraderu má</th><th>naposledy viděno</th></tr></thead><tbody>${a.devices.map(devRow).join('')}</tbody></table></div>`;
+        <div class="tw"><table><thead><tr><th>zařízení</th><th>IP</th><th>model</th><th>verze → cíl</th><th>stav</th><th>v upgraderu má</th><th>naposledy viděno</th></tr></thead><tbody>${a.devices.map(devRow).join('')}</tbody></table></div></div>`;
     }
     h += '</details>';
   }
