@@ -253,8 +253,34 @@ async function networkProgress() {
 /** neupgradovaná zařízení po oblastech a APčkách (stránka zbyva.html přes tajný odkaz): každé APčko z userdb včetně těch bez správce,
  *  zařízení, které čeká na upgrade (pod bezpečnostním minimem), není zkontrolované, nebo je nedostupné se starou/neznámou verzí */
 let remainingCache = { at: 0, value: null };
+// zařízení přidaná ručně podle IP (ne přes „Natáhnout z userdb“) nemají vazbu na APčko → dohledat podle IP v userdb a uložit,
+// ať sedí zbyva.html, přehled po APčkách i přebírání správci oblasti (30.9.2026: 117 ze 126 kusů bez vazby šlo dohledat, TAPO - Plácky u cekra).
+// Jen doplňuje prázdné, vazbu z importu nepřepisuje. Běží po startu, každých 30 min a na pozadí při načtení zbyva.html (nejvýš 1× za 10 min).
+let resolveApsAt = 0, resolveApsRunning = null;
+function resolveUserdbAps(reason) {
+  if (!userdb.enabled()) return Promise.resolve(0);
+  if (resolveApsRunning) return resolveApsRunning;
+  resolveApsRunning = (async () => {
+    try {
+      const todo = db.listDevices().filter(d => !d.userdb_ap_id);
+      if (!todo.length) return 0;
+      const idx = await userdb.ipIndex();
+      let n = 0;
+      for (const d of todo) {
+        const h = idx.get(d.host); if (!h) continue;
+        db.updateDevice(d.id, { userdb_ap_id: h.apId, userdb_ap: h.ap, userdb_member: h.member ? h.userId : 0, ...(d.group_name ? {} : { group_name: h.ap }) });
+        n++;
+      }
+      if (n) { console.log(`userdb: doplněna vazba na APčko u ${n} z ${todo.length} zařízení bez vazby (${reason})`); remainingCache.at = 0; bus.emit('event', { type: 'devices-changed' }); }
+      return n;
+    } catch (e) { console.error('userdb vazba na APčko:', e.message); return 0; }
+    finally { resolveApsAt = Date.now(); resolveApsRunning = null; }
+  })();
+  return resolveApsRunning;
+}
 async function remainingByAp() {
   if (remainingCache.value && Date.now() - remainingCache.at < 30000) return remainingCache.value;
+  if (Date.now() - resolveApsAt > 600000) resolveUserdbAps('zbyva.html').catch(() => {}); // na pozadí, výsledek se projeví při dalším načtení
   const sc = settingsByOwner();
   const latestOf = new Map();
   const latestFor = (uid) => { const k = uid || 0; if (!latestOf.has(k)) latestOf.set(k, V.getLatest(sc(k || undefined))); return latestOf.get(k); };
@@ -1173,5 +1199,7 @@ server.listen(cfg.port, cfg.host, () => {
   // předehřát keš seznamu zařízení pro správce hned po startu (skládá se ~1 s a blokuje smyčku) — dřív než se rozjedou joby a SSH spojení
   setTimeout(() => { try { adminDevicesJson({ user: { role: 'admin' } }); } catch (e) { console.error('keš zařízení:', e.message); } }, 300);
   scanner.startPeriodic();
+  setTimeout(() => resolveUserdbAps('po startu').catch(() => {}), 20000);
+  setInterval(() => resolveUserdbAps('pravidelně').catch(() => {}), 30 * 60e3);
 });
 process.on('SIGTERM', () => { server.close(); process.exit(0); });
