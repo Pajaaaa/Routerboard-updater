@@ -39,6 +39,14 @@ function cmpVer(a, b) { const A = parseVer(a), B = parseVer(b); if (!A || !B) re
 /** skutečný kanál: server u HW bez v7 (32 MB RAM apod.) posílá eff_track = v6-long-term, pokud v7 není výslovně povolena */
 function trackOf(d) { return d.eff_track || d.track; }
 function targetOf(d) { const t = trackOf(d); return t === 'hold' ? null : (state.latest.versions[t] || {}).version || null; }
+function minForVer(pv) {
+  const mins = (state.latest && state.latest.min) || {};
+  if (pv.major < 7) return mins['v6-long-term'] || '';
+  const v7 = ['v7-long-term', 'v7-stable'].map(t => mins[t]).filter(Boolean).map(m => ({ m, p: parseVer(m) })).filter(x => x.p).sort((a, b) => cmpVer(a.m, b.m));
+  if (!v7.length) return '';
+  const fit = v7.filter(x => x.p.major < pv.major || (x.p.major === pv.major && x.p.minor <= pv.minor));
+  return (fit.length ? fit[fit.length - 1] : v7[0]).m;
+}
 function verStatus(d) {
   if (!d.version) return { cls: 'b-muted', txt: '?' , key: 'unknown' };
   const t = targetOf(d);
@@ -47,10 +55,9 @@ function verStatus(d) {
   if (c === 0) return { cls: 'b-ok', txt: 'aktuální', key: 'ok' };
   if (c > 0) return { cls: 'b-info', txt: 'novější', key: 'newer' };
   const pv = parseVer(d.version);
-  // bezpečnostní minimum podle řady, na které kus běží (v6 → minimum v6 long-term ať má kanál jakýkoli, v7 → minimum svého kanálu):
-  // na minimu nebo výš → hotové; cíl je jen nabídka (upgrade jde spustit ručně)
-  const mins = (state.latest && state.latest.min) || {};
-  const min = pv ? (pv.major < 7 ? mins['v6-long-term'] : mins[trackOf(d)]) : '';
+  // bezpečnostní minimum podle řady, na které kus běží, ať má kanál jakýkoli (v6 → minimum v6 long-term; v7 → minimum té v7 řady
+  // major.minor, ve které kus je: 7.23.x long-term, 7.24.x stable; stejně jako minFor na serveru): na minimu nebo výš → hotové; cíl je jen nabídka
+  const min = pv ? minForVer(pv) : '';
   if (min && cmpVer(d.version, min) >= 0) return { cls: 'b-ok', txt: 'aktuální', key: 'ok', optional: t };
   if (pv && pv.major < 7 && parseVer(t).major >= 7) return { cls: 'b-v6', txt: 'v6 → v7', key: 'v6' };
   return { cls: 'b-warn', txt: `→ ${t}`, key: 'old' };

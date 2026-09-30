@@ -32,13 +32,18 @@ V.configure({ pins: pinsFor });
 /** bezpečnostní minimum kanálů (jen společné nastavení): { 'v7-stable': '7.24.2', … }; prázdné = minimum je cíl */
 const MIN_TRACKS = [['min_v7_stable', 'v7-stable', 7], ['min_v7_long_term', 'v7-long-term', 7], ['min_v6_long_term', 'v6-long-term', 6]];
 function minsFor() { const g = db.getSettings(); const out = {}; for (const [k, track] of MIN_TRACKS) { const v = String(g[k] || '').trim(); if (v && V.parseVersion(v)) out[track] = v; } return out; }
-/** bezpečnostní minimum pro zařízení podle řady, na které BĚŽÍ: kus na v6 se měří minimem v6 long-term, ať má kanál jakýkoli
- *  (i v7-stable kus na 6.49.21 je „hotový“, když je minimum v6 6.49.21); kus na v7 minimem svého v7 kanálu */
+/** bezpečnostní minimum pro zařízení podle řady, na které BĚŽÍ, ať má kanál jakýkoli: kus na v6 se měří minimem v6 long-term,
+ *  kus na v7 minimem té v7 řady (major.minor), ve které je — 7.23.x minimem long-term (7.23.5), 7.24.x minimem stable (7.24.2):
+ *  nejvyšší nastavené v7 minimum, jehož řada není novější než verze kusu; kus pod nejstarší řadou s minimem (7.22 a níž) se měří tím nejstarším.
+ *  30.9.2026: 33 kusů na 7.23.5 s kanálem v7-stable a 5 kusů na v7 s kanálem v6 se hlásilo k upgradu, ač byly na opravené verzi */
 function minFor(version, track) {
   const pv = V.parseVersion(version); if (!pv) return '';
   const mins = minsFor();
   if (pv.major < 7) return mins['v6-long-term'] || '';
-  return /^v7/.test(track) ? (mins[track] || '') : '';
+  const v7 = ['v7-long-term', 'v7-stable'].map(t => mins[t]).filter(Boolean).map(m => ({ m, p: V.parseVersion(m) })).filter(x => x.p).sort((a, b) => V.cmpVersion(a.m, b.m));
+  if (!v7.length) return '';
+  const fit = v7.filter(x => x.p.major < pv.major || (x.p.major === pv.major && x.p.minor <= pv.minor));
+  return (fit.length ? fit[fit.length - 1] : v7[0]).m;
 }
 /** čeká zařízení na upgrade? Níž než cíl kanálu, ale na bezpečnostním minimu své řady nebo výš = hotové („aktuální“) —
  *  když MikroTik vydá další verzi a správce posune cíl, už upgradované kusy se nevrací do fronty; výslovně spuštěný upgrade jde na cíl dál */
