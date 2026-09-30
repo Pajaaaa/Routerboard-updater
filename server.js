@@ -855,6 +855,22 @@ async function api(req, res, method, p, url) {
     bus.emit('event', { type: 'devices-changed' });
     return send(res, 200, { updated: n });
   }
+  // správce: kontrola všech načtených zařízení naráz (i cizích) — rozsah all / stale (sken starší než N dnů nebo nikdy) / bad (nedostupné, špatný login, změněný klíč),
+  // vlastní paralelnost; průběh a souhrn jde přes stejný mechanismus jako běžná hromadná kontrola (checkProg správce, SSE scan-progress/scan-done)
+  if (method === 'POST' && p === '/api/admin/scan-all') {
+    if (!adminOnly(req, res)) return;
+    if (scanner.checkRuns.has(req.user.id)) throw new Error('kontrola už běží — počkej, až doběhne, nebo ji zastav');
+    const b = await readBody(req).catch(() => ({}));
+    const scope = ['all', 'stale', 'bad'].includes(b.scope) ? b.scope : 'all';
+    const days = Math.max(1, Math.min(365, parseInt(b.stale_days, 10) || 3));
+    const parallel = Math.max(1, Math.min(16, parseInt(b.parallel, 10) || cfg.scanParallel));
+    const cut = db.now() - days * 86400;
+    const ids = db.listDevices().filter(d => d.managed && d.enabled && !d.dup_of).filter(d => scope === 'all' ? true : scope === 'stale' ? (d.scan_status === 'never' || !d.last_scan_at || d.last_scan_at < cut) : d.scan_status !== 'ok').map(d => d.id);
+    const label = scope === 'all' ? 'všechna zařízení' : scope === 'stale' ? `zařízení se skenem starším než ${days} d` : 'nedostupná zařízení';
+    audit(req, 'kontrola všech zařízení', `${label}: ${ids.length} zařízení, paralelně ${parallel}`);
+    if (ids.length) scanner.scanAll(ids, { ownerId: req.user.id, tag: 'check', parallel, label }).catch(() => {});
+    return send(res, 200, { started: !!ids.length, total: ids.length, parallel, label });
+  }
   if (method === 'POST' && p === '/api/scan/cancel') { const ok = scanner.cancelCheck(req.user.id); if (ok) audit(req, 'kontrola zrušena', ''); return send(res, 200, { cancelled: ok }); }
   if (method === 'POST' && p === '/api/scan') {
     const b = await readBody(req).catch(() => ({}));

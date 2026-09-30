@@ -520,7 +520,7 @@ function renderHelp(m) {
     <li><b>Přihlášení</b> je přes hkfree SSO, stejným účtem jako do userdb. Účet v upgraderu vznikne sám při prvním přihlášení a podle e-mailu se naváže na tvoje oblasti v userdb. Odhlásit se dá tlačítkem vlevo dole. Přihlášení vydrží 30 dní.</li>
     <li><b>Co vidíš:</b> jen svoje zařízení, upgrady, zálohy a logy. Každé zařízení má jednoho vlastníka; adresu, kterou už má někdo jiný, ti sken nepřidá a napíše, kdo ji má. Předat zařízení může jen správce (tužka ✎ → vlastník, nebo ⇄ Přesunout vybrané).</li>
     <li><b>Nastavení:</b> každý má „Moje nastavení“ (kanál RouterOS pro nová zařízení: v7 stable nebo long-term, „zůstat na v6“ pro všechna zařízení běžící na šestce, limity kontrol, čekání po restartu, prahy rádia, hardening služeb, syslog, NTP a časová zóna…), které platí pro jeho upgrady, kontroly a plány. Předvyplněné jsou společné hodnoty; po uložení se používají vlastní, „Vrátit na společné“ je zahodí.</li>
-    <li><b>Správce</b> vidí všechno. Seznam má nahoře výběr vlastníka, výchozí je jeho vlastní pohled. V záložce Správa spravuje účty (vazba na userdb, role, vypnutí, smazání), společné nastavení výchozí pro všechny a vidí audit „kdo co dělal“.</li>
+    <li><b>Správce</b> vidí všechno. Seznam má nahoře výběr vlastníka, výchozí je jeho vlastní pohled. V záložce Správa spravuje účty (vazba na userdb, role, vypnutí, smazání), společné nastavení výchozí pro všechny, může spustit kontrolu všech načtených zařízení naráz (i cizích, s volbou rozsahu a paralelnosti, se souhrnem změn po skončení) a vidí audit „kdo co dělal“.</li>
   </ul></div>
 
   <div class="panel help"><h2>Postup krok za krokem</h2>
@@ -653,6 +653,8 @@ function adminPanelsHtml(s) {
     ${state.auth.passwordLogin ? `<label class="check" style="margin-bottom:8px"><input type="checkbox" id="regtoggle" ${s.allow_registration ? 'checked' : ''}> povolit samoregistraci na přihlašovací stránce (nový účet = role uživatel)</label>` : ''}
     <div id="userlist">načítám…</div>
     ${state.auth.passwordLogin ? `<form id="useradd" class="form" style="margin-top:12px"><h2>Nový účet</h2><label>jméno<input name="name" required autocomplete="off"></label><label>heslo (aspoň 8 znaků)<input name="password" type="password" required minlength="8" autocomplete="new-password"></label><label>role<select name="role"><option value="user">uživatel</option><option value="admin">správce</option></select></label><label>&nbsp;<button class="primary">Založit</button></label></form>` : '<div class="hint" style="margin-bottom:8px">Účty vznikají samy při prvním přihlášení přes SSO (podle e-mailu) a navážou se na správce v userdb.</div>'}</div>
+  <div class="panel"><h2>Kontrola všech zařízení</h2><div class="hint" style="margin-bottom:8px">Znovu přečte stav (verze, model, dostupnost, topologie) všech načtených zařízení naráz, i cizích. Zařízení, která jsou právě v jobu, se přeskočí; duplicitní záznamy stejného kusu se nekontrolují. Při tisících kusů to trvá desítky minut až hodiny, běží to na serveru a jde to kdykoli zastavit. Po skončení je tu souhrn, co se změnilo.</div>
+    ${adminScanHtml()}</div>
   <div class="panel"><h2>Tajný odkaz: neupgradovaná zařízení po APčkách</h2><div class="hint" style="margin-bottom:8px">Stránka bez přihlášení pro toho, kdo odkaz zná: každé APčko z userdb (i bez správce) a jeho zařízení, která ještě čekají na upgrade, nejsou zkontrolovaná nebo jsou nedostupná se starou verzí. Ukazuje názvy, IP, modely a verze — posílej jen lidem, kterým to patří vidět. Nový odkaz starý zneplatní.</div>
     <div id="publink" class="hint">načítám…</div></div>
   <div class="panel"><details id="auditbox"><summary><b>Kdo co dělal</b> (audit posledních akcí)</summary><div id="auditlist" class="hint">načítám…</div></details></div>
@@ -716,6 +718,16 @@ function renderSettings(m, adminMode = false) {
     renderUsers();
     if ($('#regtoggle')) $('#regtoggle').onchange = async (e) => { try { state.settings = await api('/settings', { method: 'PUT', body: { allow_registration: e.target.checked } }); toast(e.target.checked ? 'registrace povolena' : 'registrace vypnuta'); } catch (e2) { toast(e2.message, true); } };
     if ($('#useradd')) $('#useradd').onsubmit = async (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); try { await api('/users', { method: 'POST', body: b }); toast(`účet ${b.name} založen`); e.target.reset(); await renderUsers(); } catch (e2) { toast(e2.message, true); } };
+  }
+  if ($('#ascan')) {
+    on('#ascope', () => { state.adminScanScope = $('#ascope').value; render(); });
+    on('#apar', () => { state.adminScanParallel = +$('#apar').value; });
+    $('#adays').onchange = () => { state.adminScanDays = Math.max(1, Math.min(365, +$('#adays').value || 3)); render(); };
+    on('#ascan', async () => {
+      const scope = state.adminScanScope || 'all', n = $('#ascan').textContent.replace(/\D/g, '');
+      if (scope === 'all' && !confirm(`Zkontrolovat všech ${n} zařízení? Při ${state.adminScanParallel || 8} paralelně to může trvat i přes hodinu; kdykoli to jde zastavit.`)) return;
+      try { const r = await api('/admin/scan-all', { method: 'POST', body: { scope, stale_days: state.adminScanDays || 3, parallel: state.adminScanParallel || 8 } }); if (!r.started) return toast('v rozsahu není žádné zařízení'); state.checkProg = { done: 0, total: r.total, startedAt: Date.now(), finishedAt: 0, label: r.label, parallel: r.parallel }; toast(`kontrola spuštěna: ${r.total} zařízení, ${r.parallel} paralelně`); render(); } catch (e) { toast(e.message, true); }
+    });
   }
   const pl = $('#publink'); if (pl) {
     const linkUrl = (t) => new URL(`zbyva.html?k=${encodeURIComponent(t)}`, location.href).href;
@@ -965,6 +977,32 @@ function parentOptions(sel, selfId = 0) {
   return `<option value="0" ${!sel ? 'selected' : ''}>— žádný —</option>` + foreign + list.map(d => `<option value="${d.id}" ${d.id === sel ? 'selected' : ''}>${esc(devName(d))} (${esc(d.host)})${d.managed ? '' : ' [neřízený]'}</option>`).join('');
 }
 /** progress bar hromadné kontroly (⟳ Zkontrolovat stav / vybrané): hotovo/celkem, uplynulý čas a odhad dokončení z průměru na zařízení */
+/** panel správce „Kontrola všech zařízení“: volba rozsahu s počty z načteného seznamu, paralelnost, progress + souhrn poslední kontroly */
+function adminScanHtml() {
+  const devs = state.devices.filter(d => d.managed && d.enabled && !d.dup_of);
+  const days = state.adminScanDays || 3, cut = Math.floor(Date.now() / 1000) - days * 86400;
+  const cnt = { all: devs.length, stale: devs.filter(d => d.scan_status === 'never' || !d.last_scan_at || d.last_scan_at < cut).length, bad: devs.filter(d => d.scan_status !== 'ok').length };
+  const p = state.checkProg, running = p && p.total && !p.finishedAt;
+  const scope = state.adminScanScope || 'all';
+  const par = state.adminScanParallel || 8;
+  const sum = p && p.finishedAt && p.summary ? adminScanSummaryHtml(p) : '';
+  return `<div class="row" style="align-items:flex-end;gap:10px;flex-wrap:wrap">
+    <label>rozsah<select id="ascope" ${running ? 'disabled' : ''}><option value="all" ${scope === 'all' ? 'selected' : ''}>všechna zařízení (${cnt.all})</option><option value="stale" ${scope === 'stale' ? 'selected' : ''}>jen se skenem starším než ${days} d nebo nezkontrolovaná (${cnt.stale})</option><option value="bad" ${scope === 'bad' ? 'selected' : ''}>jen nedostupná / špatný login / změněný klíč (${cnt.bad})</option></select></label>
+    <label title="stáří skenu pro rozsah „starší než“">dnů<input id="adays" type="number" min="1" max="365" value="${days}" style="width:64px" ${running ? 'disabled' : ''}></label>
+    <label title="kolik zařízení se kontroluje současně; 8 je bezpečný kompromis pro server i síť, víc jen když spěcháš">paralelně<select id="apar" ${running ? 'disabled' : ''}>${[2, 4, 6, 8, 12, 16].map(n => `<option value="${n}" ${n === par ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+    <button id="ascan" class="primary" ${running || !cnt[scope] ? 'disabled' : ''} title="spustí kontrolu vybraného rozsahu; průběh vidíš tady i v seznamu zařízení">⟳ Zkontrolovat ${cnt[scope]} zařízení</button>
+  </div>
+  <div id="adminprog">${checkProgHtml()}</div>${sum}`;
+}
+function adminScanSummaryHtml(p) {
+  const s = p.summary; if (!s) return '';
+  const fmt = (x) => x < 60 ? `${Math.round(x)} s` : `${Math.floor(x / 60)} min ${Math.round(x % 60)} s`;
+  const el = Math.max(0, (p.finishedAt - p.startedAt) / 1000);
+  const tile = (n, label, cls = '') => `<div class="stat ${cls}"><b>${n}</b><span>${label}</span></div>`;
+  return `<div class="hint" style="margin-top:10px"><b>Poslední kontrola${p.label ? ` (${esc(p.label)})` : ''}:</b> ${p.cancelled ? `zastavena po ${p.done} z ${p.total}` : `${s.checked} zařízení`} za ${fmt(el)}${s.skipped ? `, ${s.skipped} přeskočeno (v jobu)` : ''}.</div>
+  <div class="stats" style="margin-top:6px">${tile(s.ok, 'dostupné', 'ok')}${tile(s.unreachable, 'nedostupné', s.unreachable ? 'warn' : '')}${tile(s.auth, 'špatný login', s.auth ? 'err' : '')}${tile(s.hostkey, 'změněný SSH klíč', s.hostkey ? 'err' : '')}${tile(s.becameOk, 'znovu dostupné', s.becameOk ? 'ok' : '')}${tile(s.becameUnreachable, 'nově nedostupné', s.becameUnreachable ? 'err' : '')}${tile(s.versionChanged, 'změněná verze', s.versionChanged ? 'info' : '')}</div>
+  ${s.changed && s.changed.length ? `<details style="margin-top:6px"><summary>co se změnilo (${s.changed.length}${s.changedMore ? ` z ${s.changed.length + s.changedMore}` : ''})</summary><table>${s.changed.map(c => `<tr><td class="mono">${esc(c.host)}</td><td>${esc(c.label)}</td><td class="muted">${esc(c.what)}</td></tr>`).join('')}</table></details>` : ''}`;
+}
 function checkProgHtml() {
   const p = state.checkProg; if (!p || !p.total) return '';
   const now = Date.now(), el = Math.max(0, ((p.finishedAt || now) - (p.startedAt || now)) / 1000);
@@ -1056,8 +1094,8 @@ function connectSSE() {
     else if (ev.type === 'runner') { scheduleReload(false); }
     else if (ev.type === 'discovery' || ev.type === 'discovery-done') { state.discovery = ev.state; const r = $('#discres'); if (r) r.innerHTML = discoveryHtml(ev.state); if (ev.type === 'discovery-done') { toast(`sken rozsahu hotov: ${ev.state.added} nových zařízení`); loadState().then(() => { if (state.modal && state.modal.type === 'discover') renderModal(); else render(); }); } }
     else if (ev.type === 'discovery-error') toast('sken rozsahu: ' + ev.error, true);
-    else if (ev.type === 'scan-progress' && ev.tag === 'check') { state.checkProg = { done: ev.done, total: ev.total, startedAt: ev.startedAt || (state.checkProg && state.checkProg.startedAt) || Date.now(), finishedAt: 0 }; renderSoon(); }
-    else if (ev.type === 'scan-done' && ev.tag === 'check') { if (state.checkProg) state.checkProg = { ...state.checkProg, done: ev.cancelled ? ev.count : state.checkProg.total, finishedAt: Date.now(), cancelled: !!ev.cancelled }; toast(ev.cancelled ? `kontrola zrušena (${ev.count} zařízení hotových)` : `kontrola hotová (${ev.count} zařízení)`); scheduleReload(); }
+    else if (ev.type === 'scan-progress' && ev.tag === 'check') { state.checkProg = { ...(state.checkProg || {}), done: ev.done, total: ev.total, startedAt: ev.startedAt || (state.checkProg && state.checkProg.startedAt) || Date.now(), finishedAt: 0, label: ev.label || (state.checkProg && state.checkProg.label) || '', summary: undefined }; if (state.view === 'admin') { const el = $('#checkprog'), box = $('#adminprog'); if (el) el.outerHTML = checkProgHtml(); else if (box) box.innerHTML = checkProgHtml(); } else renderSoon(); }
+    else if (ev.type === 'scan-done' && ev.tag === 'check') { if (state.checkProg) state.checkProg = { ...state.checkProg, done: ev.cancelled ? ev.count : state.checkProg.total, finishedAt: Date.now(), cancelled: !!ev.cancelled, summary: ev.summary }; toast(ev.cancelled ? `kontrola zrušena (${ev.count} zařízení hotových)` : `kontrola hotová (${ev.count} zařízení)`); scheduleReload(); if (state.view === 'admin') renderSoon(); }
     else if (ev.type === 'scan-progress' && ev.tag === 'discovery') { state.scanProg = { done: ev.done, total: ev.total, ids: ev.ids }; const r = $('#discres'); if (r && state.discovery) r.innerHTML = discoveryHtml(state.discovery); }
     else if (ev.type === 'scan-done' && ev.tag === 'discovery' && state.scanProg) { state.scanProg = { ...state.scanProg, done: state.scanProg.total, ids: ev.ids || state.scanProg.ids }; loadState().then(() => { render(); const r = $('#discres'); if (r && state.discovery) r.innerHTML = discoveryHtml(state.discovery); }); }
     else if (ev.type === 'devices-changed') scheduleReload();
@@ -1072,6 +1110,6 @@ function connectSSE() {
   render();
   setInterval(() => { if (state.authed && state.view === 'devices' && !state.modal) renderLive(); }, 60000);
   // běžící hromadná kontrola: každou sekundu jen přepsat progress bar (uplynulý čas, odhad), ne celý seznam
-  setInterval(() => { const p = state.checkProg; if (!p || p.finishedAt || state.view !== 'devices') return; const el = $('#checkprog'); if (el) el.outerHTML = checkProgHtml(); }, 1000);
+  setInterval(() => { const p = state.checkProg; if (!p || p.finishedAt || (state.view !== 'devices' && state.view !== 'admin')) return; const el = $('#checkprog'); if (el) el.outerHTML = checkProgHtml(); }, 1000);
   setInterval(async () => { if (!state.authed) return; try { state.stats = await api('/stats'); const el = document.querySelector('.stats'); if (el) el.outerHTML = statsStrip(); } catch {} }, 30000);
 })();
