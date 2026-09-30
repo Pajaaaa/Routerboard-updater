@@ -97,6 +97,8 @@ function plainStatus(d) {
   return { cls: 'b-muted', txt: 'neznámý stav', act: 'scan' };
 }
 function needsUpgrade(d) { const p = plainStatus(d); return p.act === 'upgrade'; }
+/** kritické: dostupné zařízení pod bezpečnostním minimem své řady (ještě nemá žádnou verzi s opravou CVE) — bez kusů na minimu a výš, které mají jen volitelný cíl nebo firmware */
+function criticalUpgrade(d) { if (!needsUpgrade(d)) return false; const k = verStatus(d).key; return k === 'old' || k === 'v6'; }
 function shortReason(txt) { const parts = String(txt || '').split(' | '); return parts[0] + (parts.length > 1 ? ` (+${parts.length - 1})` : ''); }
 const badge = (map, k) => { const [c, t] = map[k] || ['b-muted', k]; return `<span class="badge ${c}">${esc(t)}</span>`; };
 
@@ -208,9 +210,9 @@ function treeOrder(devs) {
 // filtr podle verze/stavu: vše / v6 / v7 / k upgradu / aktuální / nedostupné (sdílí ho seznam i hlavička s počty)
 function vfInfo() {
   const vf = state.vf || '';
-  const vfMatch = (d) => { if (!vf) return true; const v = String(d.version || ''); if (vf === 'v6') return v.startsWith('6.'); if (vf === 'v7') return v.startsWith('7.'); if (vf === 'need') return needsUpgrade(d); if (vf === 'ok') return plainStatus(d).cls === 'b-ok'; if (vf === 'bad') return !!d.scan_status && !['ok', 'never'].includes(d.scan_status); return true; };
+  const vfMatch = (d) => { if (!vf) return true; const v = String(d.version || ''); if (vf === 'v6') return v.startsWith('6.'); if (vf === 'v7') return v.startsWith('7.'); if (vf === 'need') return needsUpgrade(d); if (vf === 'crit') return criticalUpgrade(d); if (vf === 'ok') return plainStatus(d).cls === 'b-ok'; if (vf === 'bad') return !!d.scan_status && !['ok', 'never'].includes(d.scan_status); return true; };
   const base = state.devices.filter(d => (!state.owner || d.owner_id === state.owner) && (!state.group || d.group_name === state.group));
-  const vfCounts = { v6: base.filter(d => String(d.version || '').startsWith('6.')).length, v7: base.filter(d => String(d.version || '').startsWith('7.')).length, need: base.filter(needsUpgrade).length, ok: base.filter(d => plainStatus(d).cls === 'b-ok').length, bad: base.filter(d => !!d.scan_status && !['ok', 'never'].includes(d.scan_status)).length };
+  const vfCounts = { v6: base.filter(d => String(d.version || '').startsWith('6.')).length, v7: base.filter(d => String(d.version || '').startsWith('7.')).length, need: base.filter(needsUpgrade).length, crit: base.filter(criticalUpgrade).length, ok: base.filter(d => plainStatus(d).cls === 'b-ok').length, bad: base.filter(d => !!d.scan_status && !['ok', 'never'].includes(d.scan_status)).length };
   return { vf, vfMatch, base, vfCounts };
 }
 function filteredDevices() {
@@ -270,13 +272,14 @@ function renderDevices(m) {
   const checkLabel = state.selected.size ? `⟳ Zkontrolovat vybrané (${state.selected.size})` : filterOn ? `⟳ Zkontrolovat zobrazené (${real.length})` : `⟳ Zkontrolovat stav (${devs.length})`;
   const checkTitle = state.selected.size ? 'znovu načte stav jen zaškrtnutých zařízení' : filterOn ? 'znovu načte stav jen zařízení, která jsou teď zobrazená podle filtru' : 'znovu načte stav všech zařízení v seznamu (při filtru nebo výběru jen těch)';
   const toUpgrade = devs.filter(d => needsUpgrade(d));
+  const critical = toUpgrade.filter(criticalUpgrade).length;
   const segs = [['ok', 'aktuální', 'var(--ok)'], ['old', 'čeká na upgrade', 'var(--warn)'], ['v6', 'v6, čeká na v7', 'var(--v6)'], ['unreachable', 'nedostupné', 'var(--err)'], ['hold', 'neupgradují se', 'var(--muted)'], ['unknown', 'nezkontrolované', 'var(--line2)']];
   const total = devs.length || 1;
   const running = state.runner.running;
   const { vf, base, vfCounts } = vfInfo();
   const th = (key, label) => `<th class="clickable sorth" data-sort="${key}" title="seřadit podle: ${label} (druhý klik obrátí pořadí, třetí vrátí strom topologie)">${label}${state.sort === key ? (state.sortDir === 'desc' ? ' ▼' : ' ▲') : ''}</th>`;
   m.innerHTML = `<h1>Zařízení</h1><div class="fleet"><div class="head"><div class="count">${devs.length}<small>zařízení ve správě</small></div>
-      <div class="row">${toUpgrade.length ? `<span class="hint" title="hromadné tlačítko tu záměrně není, aby se omylem nespustil upgrade všech zařízení najednou; vyber zaškrtávátky a dej „Upgradovat vybrané“, nebo ▶ u řádku">k upgradu: ${toUpgrade.length}</span>` : `<span class="hint">${devs.length ? 'Všechna dostupná zařízení jsou aktuální.' : 'Začni přidáním zařízení.'}</span>`}</div></div>
+      <div class="row">${toUpgrade.length ? `<span class="hint" title="hromadné tlačítko tu záměrně není, aby se omylem nespustil upgrade všech zařízení najednou; vyber zaškrtávátky a dej „Upgradovat vybrané“, nebo ▶ u řádku">k upgradu: ${toUpgrade.length}${critical ? `, <b title="pod bezpečnostním minimem — ještě bez opravy">z toho kritických: ${critical}</b>` : ''}</span>` : `<span class="hint">${devs.length ? 'Všechna dostupná zařízení jsou aktuální.' : 'Začni přidáním zařízení.'}</span>`}</div></div>
     <div class="bar">${segs.map(([k, , c]) => `<span style="width:${cnt[k] / total * 100}%;background:${c}" title="${cnt[k]}"></span>`).join('')}</div>
     <div class="legend">${segs.filter(([k]) => cnt[k]).map(([k, l, c]) => `<span><i class="sw" style="background:${c}"></i>${l} <b>${cnt[k]}</b></span>`).join('')}</div></div>
   <div class="panel"><div class="toolbar">
@@ -289,7 +292,7 @@ function renderDevices(m) {
     <button class="danger" id="delsel" ${state.selected.size ? '' : 'disabled'} title="smaže vybraná zařízení z evidence včetně historie a záloh (vlastní; správce jakákoli)">✕ Smazat vybrané (${state.selected.size})</button>
     <span class="spacer"></span>
     ${state.admin && state.users && state.users.length > 1 ? `<select id="ownerf" title="zobrazit zařízení jednoho uživatele"><option value="0" ${!state.owner ? 'selected' : ''}>všichni vlastníci</option>${state.users.map(u => `<option value="${u.id}" ${u.id === state.owner ? 'selected' : ''}>${esc(u.name)} (${state.devices.filter(d => d.owner_id === u.id).length})</option>`).join('')}</select>` : ''}
-    <select id="vfilter" title="filtr podle verze a stavu"><option value="" ${!vf ? 'selected' : ''}>zobrazit vše (${base.length})</option><option value="need" ${vf === 'need' ? 'selected' : ''}>k upgradu (${vfCounts.need})</option><option value="v6" ${vf === 'v6' ? 'selected' : ''}>na v6 (${vfCounts.v6})</option><option value="v7" ${vf === 'v7' ? 'selected' : ''}>na v7 (${vfCounts.v7})</option><option value="ok" ${vf === 'ok' ? 'selected' : ''}>aktuální (${vfCounts.ok})</option><option value="bad" ${vf === 'bad' ? 'selected' : ''}>nedostupné / chyba (${vfCounts.bad})</option></select>
+    <select id="vfilter" title="filtr podle verze a stavu"><option value="" ${!vf ? 'selected' : ''}>zobrazit vše (${base.length})</option><option value="need" ${vf === 'need' ? 'selected' : ''}>k upgradu (${vfCounts.need})</option><option value="crit" ${vf === 'crit' ? 'selected' : ''} title="jen zařízení pod bezpečnostním minimem své řady — ještě nemají žádnou verzi s opravou; kusy na minimu a výš s volitelným cílem nebo firmware sem nepatří">k upgradu kritické — bez opravy (${vfCounts.crit})</option><option value="v6" ${vf === 'v6' ? 'selected' : ''}>na v6 (${vfCounts.v6})</option><option value="v7" ${vf === 'v7' ? 'selected' : ''}>na v7 (${vfCounts.v7})</option><option value="ok" ${vf === 'ok' ? 'selected' : ''}>aktuální (${vfCounts.ok})</option><option value="bad" ${vf === 'bad' ? 'selected' : ''}>nedostupné / chyba (${vfCounts.bad})</option></select>
     ${groups.length ? `<select id="group"><option value="">všechny skupiny</option>${groups.map(g => `<option ${g === state.group ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select>` : ''}
     ${state.sort !== 'tree' ? `<button class="small" id="sorttree" title="vrátit řazení podle topologie (rodič → potomci)">⌥ strom</button>` : ''}
     <select id="sort"><option value="tree" ${state.sort === 'tree' ? 'selected' : ''}>řadit: strom (topologie)</option><option value="priority" ${state.sort === 'priority' ? 'selected' : ''}>priorita</option><option value="name" ${state.sort === 'name' ? 'selected' : ''}>název</option><option value="version" ${state.sort === 'version' ? 'selected' : ''}>verze</option><option value="model" ${state.sort === 'model' ? 'selected' : ''}>model</option><option value="seen" ${state.sort === 'seen' ? 'selected' : ''}>naposledy viděno</option><option value="status" ${state.sort === 'status' ? 'selected' : ''}>stav</option><option value="firmware" ${state.sort === 'firmware' ? 'selected' : ''}>firmware</option><option value="host" ${state.sort === 'host' ? 'selected' : ''}>IP adresa</option></select>
