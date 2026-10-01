@@ -726,16 +726,20 @@ async function api(req, res, method, p, url) {
       if (discovery.status(req.user.id) && !discovery.status(req.user.id).finishedAt) throw new Error('tvůj sken ještě běží, počkej na jeho dokončení');
       const ownerMe = !!b.owner_me;
       const track = ['v7-stable', 'v7-long-term'].includes(b.track) ? b.track : '';
-      const r = await rbdb.list(); const names = new Map(r.rows.map(x => [x.ip, x.name]));
+      const r = await rbdb.list(); const names = new Map(r.rows.map(x => [x.ip, x.name])), dupsOf = new Map(r.rows.map(x => [x.ip, x.dups || []]));
       let idx = null; try { idx = await userdb.ipIndex(); } catch {}
       const areaById = new Map((await userdb.areas()).map(a => [a.id, a]));
       const byHost = new Map(); for (const d of db.listDevices()) if (!byHost.has(d.host)) byHost.set(d.host, d);
       const creds = new Map(); let qi = 0;
       await Promise.all(Array.from({ length: 6 }, async () => { while (qi < ips.length) { const ip = ips[qi++]; creds.set(ip, await userdb.getCredentials(ip).catch(() => null)); } }));
       const ownerFor = userdbOwnerResolver({ acct: req.user, allMode: true, ownerMe, byName: req.user.name });
-      const entries = [], existing = [], missingLogin = [], owners = {};
+      const entries = [], existing = [], missingLogin = [], owners = {}; const queued = new Set(); let dupSkipped = 0;
       for (const ip of ips) {
-        if (byHost.has(ip)) { existing.push(ip); continue; }
+        // RBDB² zná u routeru i jeho další adresy: stejný kus pod jinou IP se nezakládá podruhé (ani když tu druhou IP upgrader už má)
+        const dups = dupsOf.get(ip) || [];
+        if (byHost.has(ip) || dups.some(d => byHost.has(d))) { existing.push(ip); continue; }
+        if (dups.some(d => queued.has(d))) { dupSkipped++; continue; }
+        queued.add(ip);
         const c = creds.get(ip); if (!c) { missingLogin.push(ip); continue; }
         const u = idx ? idx.get(ip) : null, a = u ? areaById.get(u.areaId) : null;
         const ownerId = ownerFor({ apId: u ? u.apId : 0, areaAdmins: a ? a.admins : [] });
@@ -752,8 +756,8 @@ async function api(req, res, method, p, url) {
         }
         await new Promise(r2 => setTimeout(r2, 50));
       } else { discovery.setResult({ ownerId: req.user.id, foreign: [], errors, takeover: [] }); bus.emit('event', { type: 'devices-changed' }); }
-      audit(req, ownerMe ? 'import z RB-DB (pod sebe)' : 'import z RB-DB', `${ips.length} IP: ${entries.length} nových ke skenu, ${existing.length} už v seznamu, ${missingLogin.length} bez loginu v userdb; vlastníci: ${Object.entries(owners).map(([k, v]) => `${k} ${v}`).join(', ') || '—'}`);
-      return send(res, 200, { total: ips.length, toScan: entries.length, existing: existing.length, missingLogin, owners, discovery: discovery.status(req.user.id) });
+      audit(req, ownerMe ? 'import z RB-DB (pod sebe)' : 'import z RB-DB', `${ips.length} IP: ${entries.length} nových ke skenu, ${existing.length} už v seznamu, ${dupSkipped} dalších IP téhož routeru, ${missingLogin.length} bez loginu v userdb; vlastníci: ${Object.entries(owners).map(([k, v]) => `${k} ${v}`).join(', ') || '—'}`);
+      return send(res, 200, { total: ips.length, toScan: entries.length, existing: existing.length, dupSkipped, missingLogin, owners, discovery: discovery.status(req.user.id) });
     }
     return send(res, 404, { error: 'neznámá akce' });
   }
@@ -1239,7 +1243,7 @@ const server = http.createServer(async (req, res) => {
           if (!u) { unknown.push({ ip: x.ip, version: x.version }); continue; }
           const k = u.areaId || u.area;
           if (!areas.has(k)) areas.set(k, { area: u.area, areaId: u.areaId, rows: [] });
-          areas.get(k).rows.push({ ip: x.ip, version: x.version, ap: u.ap, member: !!u.member });
+          areas.get(k).rows.push({ ip: x.ip, dups: x.dups || [], version: x.version, ap: u.ap, member: !!u.member });
         }
         const ipKey = ip => ip.split('.').map(n => n.padStart(3, '0')).join('.');
         const list = [...areas.values()].map(a => ({ ...a, count: a.rows.length, rows: a.rows.sort((x, y) => x.ap.localeCompare(y.ap, 'cs') || ipKey(x.ip).localeCompare(ipKey(y.ip))) })).sort((x, y) => y.count - x.count || x.area.localeCompare(y.area, 'cs'));
