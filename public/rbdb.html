@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<!--
+  MikroTik upgrader — neaktuální RouterOS podle oblastí (kusy z nezávislého scanneru sítě RB-DB spárované s evidencí userdb).
+  Veřejná stránka bez přihlášení: jen IP, verze, APčko a oblast.
+  Autor: Pavel Vlček, hkfree.org, 2026.
+-->
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="author" content="Pavel Vlček (hkfree.org)">
+<title>Neaktuální RouterOS po oblastech — MikroTik upgrader</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .wrap{max-width:1000px;margin:0 auto;padding:18px 16px 40px}
+  h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:22px 0 8px}
+  .top{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px}
+  .sum{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}
+  .sum .stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:8px 14px;min-width:110px}
+  .sum .stat b{display:block;font-size:22px;line-height:1.1}.sum .stat span{color:var(--muted);font-size:12px}
+  .sum .stat.warn b{color:var(--warn)}.sum .stat.err b{color:var(--err)}.sum .stat.info b{color:var(--info)}
+  .ctl{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0}
+  .ctl input[type=search]{padding:5px 8px;border:1px solid var(--line2);border-radius:var(--r);background:var(--panel);min-width:220px}
+  .ctl button{padding:4px 10px;border:1px solid var(--line2);background:var(--panel);border-radius:var(--r);cursor:pointer;color:inherit}
+  .area{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);margin:10px 0;overflow:hidden}
+  .area>summary{padding:8px 12px;cursor:pointer;background:var(--panel2);font-weight:600;list-style:none;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+  .area>summary::-webkit-details-marker{display:none}.area>summary .arrow{color:var(--muted);font-weight:400;width:12px;display:inline-block}
+  .area>summary .cnt{margin-left:auto;font-weight:400;color:var(--warn)}
+  .tw{overflow-x:auto}.tw table{min-width:420px}
+  td.v6{color:var(--v6);font-weight:600}
+  #msg{display:none;margin:20px 0;padding:12px 14px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
+  .legend{font-size:12px;color:var(--muted);margin:6px 0 14px}
+  @media print{.ctl,.top a{display:none}.area{break-inside:avoid}details>summary{background:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><h1>Neaktuální RouterOS po oblastech</h1><span class="muted"><a href="./">← MikroTik upgrader</a> · <span id="stamp"></span></span></div>
+  <div class="legend">Kusy, které nezávislý scanner sítě (RB-DB) hlásí jako kriticky neaktuální, spárované s evidencí userdb podle IP. Verze je ta, kterou scanner viděl naposledy; po upgradu zmizí z výpisu při dalším skenu.</div>
+  <div id="msg"></div>
+  <div id="main"></div>
+</div>
+<script>
+'use strict';
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let data = null, q = '', openAll = null;
+
+async function load() {
+  let r;
+  try { r = await fetch('api/verejne/rbdb', { cache: 'no-store' }); } catch { msg('Server neodpovídá, zkus to za chvíli.'); return; }
+  if (!r.ok) { let e = ''; try { e = (await r.json()).error || ''; } catch {} msg(e || `chyba ${r.status}`); return; }
+  data = await r.json(); $('#msg').style.display = 'none'; render();
+}
+function msg(t) { const m = $('#msg'); m.style.display = 'block'; m.textContent = t; $('#main').innerHTML = ''; }
+
+function row(d) {
+  return `<tr><td class="mono">${esc(d.ip)}</td><td class="mono ${/^6\./.test(d.version) ? 'v6' : ''}">${esc(d.version)}</td><td>${esc(d.ap)}${d.member ? ' <span class="badge b-muted">člen</span>' : ''}</td></tr>`;
+}
+function render() {
+  if (!data) return;
+  const s = data.sum, st = data.stats || {};
+  $('#stamp').textContent = `výpis RB-DB z ${new Date(data.rbdbAt).toLocaleString('cs-CZ')}`;
+  const stat = (v, l, c) => `<div class="stat ${c || ''}"><b>${v}</b><span>${l}</span></div>`;
+  let h = `<div class="sum">
+    ${stat(s.total, 'kriticky neaktuálních kusů', 'warn')}
+    ${stat(s.paired, 'z nich zná userdb', 'info')}
+    ${stat(s.areas, 'oblastí', 'info')}
+    ${stat(s.unknown, 'nezná userdb', s.unknown ? 'err' : '')}
+    ${st.found ? stat(st.found, 'kusů RouterOS scanner zná celkem') : ''}
+  </div>
+  ${st.versions ? `<div class="legend">aktuální verze podle RB-DB: <b>${esc(st.versions)}</b></div>` : ''}
+  <div class="ctl"><input type="search" id="q" placeholder="hledat oblast / AP / IP / verzi…" value="${esc(q)}"><button id="expand">rozbalit vše</button><button id="collapse">sbalit vše</button></div>`;
+  const qq = q.trim().toLowerCase();
+  const hit = (a) => !qq || a.area.toLowerCase().includes(qq) || a.rows.some(d => [d.ip, d.version, d.ap].join(' ').toLowerCase().includes(qq));
+  let shown = 0;
+  for (const a of data.areas) {
+    if (!hit(a)) continue;
+    const rows = qq && !a.area.toLowerCase().includes(qq) ? a.rows.filter(d => [d.ip, d.version, d.ap].join(' ').toLowerCase().includes(qq)) : a.rows;
+    shown++;
+    const open = openAll !== null ? openAll : !!qq;
+    h += `<details class="area" ${open ? 'open' : ''}><summary><span class="arrow">▸</span>${esc(a.area)}<span class="cnt">${rows.length} zařízení</span></summary>
+      <div class="tw"><table><thead><tr><th>IP</th><th>verze RouterOS</th><th>APčko</th></tr></thead><tbody>${rows.map(row).join('')}</tbody></table></div></details>`;
+  }
+  if (!shown) h += `<p class="muted">${data.areas.length ? 'nic neodpovídá hledání' : 'žádný kus z RB-DB se nepodařilo spárovat s userdb'}</p>`;
+  if (data.unknown.length) {
+    const un = qq ? data.unknown.filter(d => `${d.ip} ${d.version}`.toLowerCase().includes(qq)) : data.unknown;
+    if (un.length) h += `<details class="area" ${openAll || qq ? 'open' : ''}><summary><span class="arrow">▸</span><span class="muted">mimo userdb (IP v evidenci není)</span><span class="cnt">${un.length} zařízení</span></summary>
+      <div class="tw"><table><thead><tr><th>IP</th><th>verze RouterOS</th><th></th></tr></thead><tbody>${un.map(d => `<tr><td class="mono">${esc(d.ip)}</td><td class="mono ${/^6\./.test(d.version) ? 'v6' : ''}">${esc(d.version)}</td><td class="muted">—</td></tr>`).join('')}</tbody></table></div></details>`;
+  }
+  if (!data.userdb) h += '<p class="muted">Napojení na userdb právě neodpovídá — kusy nejdou rozdělit do oblastí.</p>';
+  $('#main').innerHTML = h;
+  $('#q').oninput = (e) => { q = e.target.value; render(); const i = $('#q'); i.focus(); i.setSelectionRange(q.length, q.length); };
+  $('#expand').onclick = () => { openAll = true; render(); };
+  $('#collapse').onclick = () => { openAll = false; render(); };
+  document.querySelectorAll('details.area').forEach(d => { const set = () => { d.querySelector('.arrow').textContent = d.open ? '▾' : '▸'; }; d.ontoggle = set; set(); });
+}
+load();
+setInterval(load, 300000);
+</script>
+</body>
+</html>

@@ -19,6 +19,7 @@ for p in /api/whoami /api/state /api/stats /api/progress /api/settings /api/jobs
   [ "$code" = 200 ] || { echo "API $p → HTTP $code"; head -c 300 "$T/out"; echo; cat "$T/server.log"; exit 1; }
 done
 curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:28999/mikrotik/prehled.html | grep -q 200 || { echo "prehled.html se nepodává"; exit 1; }
+curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:28999/mikrotik/rbdb.html | grep -q 200 || { echo "rbdb.html se nepodává"; exit 1; }
 curl -s -X PUT -b "$J" -H 'content-type: application/json' -d '{"min_uptime_min":11}' http://127.0.0.1:28999/mikrotik/api/settings/mine | grep -q '"min_uptime_min":11' || { echo "uložení nastavení selhalo"; exit 1; }
 grep -iE "error|TypeError|ReferenceError" "$T/server.log" | grep -v ExperimentalWarning && { echo "chyby v logu serveru"; exit 1; }
 echo "3/4 vykreslení UI v opravdovém DOM (jsdom) proti serveru nanečisto"

@@ -59,6 +59,7 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
 - **RB-DB (správce):** záložka s výpisem kriticky neaktuálních kusů z nezávislého scanneru sítě („RouterOS scanner“,
   `MTU_RBDB_URL`) proti upgraderu: u každé IP stav v upgraderu a APčko/oblast z userdb. Chybějící kusy jde natáhnout
   z userdb i s loginy (vlastník jako při importu celé sítě) a načtené poslat k upgradu.
+  Veřejná stránka `rbdb.html` (bez přihlášení) ukazuje tytéž kusy spárované s userdb po oblastech: jen IP, verze a APčko.
 - **Obnova mrtvého zařízení:** postup v nápovědě (záložní bootloader → Netinstall se stejnou verzí jako záloha →
   obnova z binární zálohy nebo exportu; od 7.24 Netinstall ze sousedního MikroTiku).
 

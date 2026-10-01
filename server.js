@@ -532,6 +532,7 @@ async function runUserdbImport({ acct, allMode, ownerMe, onlyAps, key, prog, byN
 }
 const SERVER_STARTED_AT = Date.now(); // pro UI: kdy se služba naposledy (re)startovala
 const userdbImports = new Map(); // userId -> souhrn posledního importu z userdb (jen v paměti)
+let rbdbPublicCache = null; // veřejná stránka rbdb.html: kusy z RB-DB po oblastech (keš 5 min)
 /** účet ↔ správce v userdb (podle uid, e-mailu nebo přezdívky); vrací záznam správce nebo null */
 async function linkUserdb(userId, who) {
   if (!userdb.enabled()) return null;
@@ -1224,6 +1225,28 @@ const server = http.createServer(async (req, res) => {
       const on = url.searchParams.get('on');
       if (on != null) { runner.setDraining(on === '1'); console.log(`drain ${on === '1' ? 'zapnut' : 'vypnut'} (deploy)`); }
       return send(res, 200, { draining: runner.draining, jobs: runner.running().length });
+    }
+    // veřejné (bez přihlášení i bez tokenu): kusy z RB-DB spárované s userdb pro stránku rbdb.html — jen IP, verze, APčko a oblast
+    // (bez jmen routerů z RB-DB a bez správců: ty jsou pro přihlášené v záložce RB-DB); výsledek se drží 5 min, ať veřejný odkaz nezatěžuje userdb
+    if (method === 'GET' && p === '/api/verejne/rbdb') {
+      if (!rbdb.enabled()) return send(res, 404, { error: 'napojení na RB-DB není nakonfigurováno' });
+      if (!rbdbPublicCache || Date.now() - rbdbPublicCache.at > 300000) {
+        const r = await rbdb.list();
+        let idx = null; if (userdb.enabled()) { try { idx = await userdb.ipIndex(); } catch {} }
+        const areas = new Map(); const unknown = [];
+        for (const x of r.rows) {
+          const u = idx ? idx.get(x.ip) : null;
+          if (!u) { unknown.push({ ip: x.ip, version: x.version }); continue; }
+          const k = u.areaId || u.area;
+          if (!areas.has(k)) areas.set(k, { area: u.area, areaId: u.areaId, rows: [] });
+          areas.get(k).rows.push({ ip: x.ip, version: x.version, ap: u.ap, member: !!u.member });
+        }
+        const ipKey = ip => ip.split('.').map(n => n.padStart(3, '0')).join('.');
+        const list = [...areas.values()].map(a => ({ ...a, count: a.rows.length, rows: a.rows.sort((x, y) => x.ap.localeCompare(y.ap, 'cs') || ipKey(x.ip).localeCompare(ipKey(y.ip))) })).sort((x, y) => y.count - x.count || x.area.localeCompare(y.area, 'cs'));
+        unknown.sort((x, y) => ipKey(x.ip).localeCompare(ipKey(y.ip)));
+        rbdbPublicCache = { at: Date.now(), rbdbAt: r.at, stats: r.stats, userdb: !!idx, areas: list, unknown, sum: { total: r.rows.length, paired: r.rows.length - unknown.length, areas: list.length, unknown: unknown.length } };
+      }
+      return send(res, 200, rbdbPublicCache, { 'Cache-Control': 'public, max-age=120' });
     }
     // tajný odkaz (bez přihlášení): neupgradovaná zařízení po APčkách pro stránku zbyva.html
     if (method === 'GET' && p === '/api/verejne/zbyva') {
