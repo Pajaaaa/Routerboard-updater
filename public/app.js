@@ -12,7 +12,7 @@ const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
 let VF = ''; try { VF = localStorage.getItem('mtu_vf') || ''; } catch {}
 // řazení se nepamatuje: po každém načtení stránky je výchozí strom topologie (jiné řazení platí jen do obnovení stránky)
 let SORT = 'tree', SORTDIR = 'asc'; try { localStorage.removeItem('mtu_sort'); } catch {}
-const state = { vf: VF, scanProg: null, checkProg: null, sortDir: SORTDIR, owner: 0, authed: false, auth: { sso: false, passwordLogin: true, user: null }, view: 'devices', advanced: ADV, devices: [], jobs: [], latest: { versions: {} }, settings: {}, runner: {}, tracks: [], selected: new Set(), filter: '', group: '', sort: SORT, modal: null, job: null, jobLog: [], detail: null, scanning: [] };
+const state = { vf: VF, scanProg: null, checkProg: null, sortDir: SORTDIR, owner: 0, authed: false, auth: { sso: false, passwordLogin: true, user: null }, view: 'devices', advanced: ADV, devices: [], jobs: [], latest: { versions: {} }, settings: {}, runner: {}, tracks: [], selected: new Set(), filter: '', group: '', sort: SORT, modal: null, job: null, jobLog: [], detail: null, scanning: [], rbdb: null, rbdbLoading: false, rbdbSel: new Set(), rbdbFilter: '' };
 
 async function api(path, opts = {}) {
   const r = await fetch(BASE + '/api' + path, { headers: { 'Content-Type': 'application/json' }, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
@@ -136,7 +136,7 @@ function render() {
   const navBtn = (v, ico, label) => `<button class="${state.view === v ? 'active' : ''}" data-view="${v}"><span class="ico">${ico}</span>${label}</button>`;
   app.innerHTML = `<div class="shell"><aside class="side">
     <div class="brand"><div class="mark">ROS</div><div><b>MikroTik upgrader</b><small>správa RouterOS</small></div></div>
-    <nav>${navBtn('devices', '▤', 'Zařízení')}${navBtn('jobs', '▶', 'Upgrady')}<a class="navlink" href="prehled.html" target="_blank" title="postup upgradu po oblastech a APčkách (otevře se vedle)"><span class="ico">▦</span>Postup</a>${navBtn('help', '?', 'Nápověda')}${navBtn('settings', '⚙', 'Nastavení')}${state.admin ? navBtn('admin', '🛠', 'Správa') : ''}</nav>
+    <nav>${navBtn('devices', '▤', 'Zařízení')}${navBtn('jobs', '▶', 'Upgrady')}<a class="navlink" href="prehled.html" target="_blank" title="postup upgradu po oblastech a APčkách (otevře se vedle)"><span class="ico">▦</span>Postup</a>${navBtn('help', '?', 'Nápověda')}${navBtn('settings', '⚙', 'Nastavení')}${state.admin ? navBtn('rbdb', '⌁', 'RB-DB') : ''}${state.admin ? navBtn('admin', '🛠', 'Správa') : ''}</nav>
     <div class="versions">${latestBar()}</div>
     <div class="spacer"></div>
     <div class="runner-pill ${running ? 'live' : ''}" id="runnerpill">${running ? ownRuns.map(({ r, job, dev }) => `<div class="clickable" data-job="${r.jobId}"><span class="pulse"></span><b>job #${r.jobId}</b>${job ? ` ${esc(job.name).slice(0, 40)}` : ''}${dev ? `<br><span class="hint">${esc(devName(dev))}</span>` : ''}</div>`).join('') : 'žádný tvůj job neběží'}${(state.runner.others || []).length ? `<div class="hint" style="margin-top:6px;line-height:1.4">${state.runner.others.map(o => `<b>${esc(o.user || 'jiný uživatel')}</b>: ${o.jobs > 1 ? `${o.jobs} joby, ` : ''}upgrade ${o.total} zařízení${o.done ? `, hotovo ${o.done}` : ''}`).join('<br>')}</div>` : ''}</div>
@@ -163,6 +163,7 @@ function render() {
   else if (state.view === 'jobs') renderJobs(m);
   else if (state.view === 'help') renderHelp(m);
   else if (state.view === 'admin' && state.admin) renderSettings(m, true);
+  else if (state.view === 'rbdb' && state.admin) renderRbdb(m);
   else renderSettings(m);
   m.insertAdjacentHTML('afterbegin', statsStrip());
   renderModal();
@@ -520,6 +521,67 @@ try { window.addEventListener('scroll', () => { LOGFOLLOW = window.innerHeight +
 let LOGIMP = false; try { LOGIMP = localStorage.getItem('mtu_logimp') === '1'; } catch {}
 async function openJob(id) { if (!state.job || state.job.job.id !== id) { state.logOpen = undefined; state.logDev = 0; LOGFOLLOW = false; } state.job = await api(`/jobs/${id}`); state.jobLog = state.job.log; state.view = 'jobs'; render(); }
 
+/** RB-DB (jen správce): výpis kriticky neaktuálních kusů z nezávislého scanneru sítě proti upgraderu a userdb.
+ * Stav „v upgraderu“ se bere živě ze state.devices podle IP (po skenu se tabulka sama aktualizuje), vazba na userdb ze serveru. */
+async function loadRbdb(force) {
+  if (state.rbdbLoading) return;
+  state.rbdbLoading = true;
+  try { state.rbdb = await api('/rbdb' + (force ? '?refresh=1' : '')); const have = new Set(state.devices.map(d => d.host)); state.rbdbSel = new Set((state.rbdb.rows || []).filter(x => !have.has(x.ip) && x.userdb).map(x => x.ip)); }
+  catch (e) { state.rbdb = { error: e.message }; }
+  state.rbdbLoading = false;
+  if (state.view === 'rbdb') render();
+}
+function renderRbdb(m) {
+  const r = state.rbdb;
+  if (!r) { m.innerHTML = `<h1>RB-DB</h1><div class="panel"><span class="muted">⏳ načítám výpis z RB-DB a dohledávám adresy v userdb (poprvé to trvá pár sekund)…</span></div>`; loadRbdb(); return; }
+  if (r.error) { m.innerHTML = `<h1>RB-DB</h1><div class="panel"><div class="banner err">${esc(r.error)}</div><button id="rbdbreload">↻ Zkusit znovu</button></div>`; on('#rbdbreload', () => { state.rbdb = null; loadRbdb(true); }); return; }
+  const byHost = new Map(); for (const d of state.devices) if (!byHost.has(d.host)) byHost.set(d.host, d);
+  const rows = (r.rows || []).map(x => ({ ...x, dev: byHost.get(x.ip) || null }));
+  const sel = state.rbdbSel, f = state.rbdbFilter;
+  const shown = rows.filter(x => f === 'new' ? !x.dev : f === 'in' ? !!x.dev : f === 'need' ? (x.dev && needsUpgrade(x.dev)) : f === 'nowhere' ? (!x.dev && !x.userdb) : true);
+  const importable = rows.filter(x => sel.has(x.ip) && !x.dev && x.userdb), selNoUdb = rows.filter(x => sel.has(x.ip) && !x.dev && !x.userdb).length;
+  const upg = rows.filter(x => sel.has(x.ip) && x.dev && x.dev.managed), upgNeed = upg.filter(x => needsUpgrade(x.dev));
+  const sum = { total: rows.length, inUpgrader: rows.filter(x => x.dev).length, need: rows.filter(x => x.dev && needsUpgrade(x.dev)).length, importable: rows.filter(x => !x.dev && x.userdb).length, nowhere: rows.filter(x => !x.dev && !x.userdb).length };
+  const st = r.stats || {};
+  const disc = state.discovery, discRunning = disc && !disc.finishedAt;
+  m.innerHTML = `<h1>RB-DB <span class="muted" style="font-size:13px;font-weight:400">nezávislý scanner RouterOS v síti</span></h1>
+    <div class="panel"><div class="row">
+      <div>${st.found ? `Scanner zná <b>${st.found}</b> kusů, z toho <b>${st.critical}</b> kriticky neaktuálních a ${st.latest} na poslední verzi.` : ''} ${st.versions ? `<span class="muted" title="verze, které RB-DB považuje za aktuální">(aktuální podle RB-DB: ${esc(st.versions)})</span>` : ''}
+        <div class="hint">Výpis z ${esc(new Date(r.at).toLocaleString('cs-CZ'))}${r.url ? ` · <a href="${esc(r.url)}" target="_blank" rel="noopener">otevřít RB-DB</a>` : ''}${r.userdbError ? ` · <span class="err">userdb: ${esc(r.userdbError)}</span>` : (!r.userdb ? ' · <span class="err">userdb není napojená, natáhnout přístupy nejde</span>' : '')}</div></div>
+      <div style="flex:1"></div><button class="small" id="rbdbrefresh" title="stáhnout výpis z RB-DB znovu (jinak se drží 10 minut)">↻ Obnovit z RB-DB</button></div>
+    <div class="row" style="margin-top:10px">
+      <span>Ve výpisu <b>${sum.total}</b> kusů: <b>${sum.inUpgrader}</b> už v upgraderu (${sum.need} k upgradu), <b>${sum.importable}</b> jde natáhnout z userdb, <b>${sum.nowhere}</b> nezná ani userdb.</span>
+      <label>zobrazit <select id="rbdbf"><option value="" ${f === '' ? 'selected' : ''}>vše (${sum.total})</option><option value="new" ${f === 'new' ? 'selected' : ''}>jen chybějící v upgraderu (${sum.importable + sum.nowhere})</option><option value="in" ${f === 'in' ? 'selected' : ''}>jen v upgraderu (${sum.inUpgrader})</option><option value="need" ${f === 'need' ? 'selected' : ''}>v upgraderu a k upgradu (${sum.need})</option><option value="nowhere" ${f === 'nowhere' ? 'selected' : ''}>nezná ani userdb (${sum.nowhere})</option></select></label></div>
+    <div class="row" style="margin-top:10px">
+      <button class="primary" id="rbdbimport" ${!importable.length || discRunning || !r.userdb ? 'disabled' : ''} title="k vybraným IP, které v upgraderu chybí, se z userdb stáhnou loginy a zařízení se založí skenem (ověření přes SSH)">⇩ Natáhnout přístupy z userdb a přidat (${importable.length})</button>
+      <label class="check" title="zařízení dostaneš ty, ne správce oblasti z userdb; účty správců se nezakládají"><input type="checkbox" id="rbdbme"> přiřadit mně (ne správci oblasti)</label>
+      <label class="check">kanál pro nová <select id="rbdbtrack"><option value="v7-long-term" ${state.settings.default_track !== 'v7-stable' ? 'selected' : ''}>v7 long-term</option><option value="v7-stable" ${state.settings.default_track === 'v7-stable' ? 'selected' : ''}>v7 stable</option></select></label>
+      <button id="rbdbupgrade" ${!upg.length ? 'disabled' : ''} title="z vybraných zařízení, která už v upgraderu jsou, založit upgrade job (vlastníkem jobu jsi ty)">▶ Poslat k upgradu (${upgNeed.length}${upg.length > upgNeed.length ? ` + ${upg.length - upgNeed.length} nic nepotřebuje` : ''})</button>
+      ${selNoUdb ? `<span class="hint">${selNoUdb} vybraných nezná ani userdb — bez loginu je přidej ručně skenem</span>` : ''}</div>
+    ${disc && disc.total !== undefined ? `<div id="discres" style="margin-top:10px">${discoveryHtml(disc)}</div>` : ''}
+    </div>
+    <div class="panel"><div class="tablewrap"><table class="grid">
+      <thead><tr><th><input type="checkbox" id="rbdball" title="vybrat vše zobrazené / nic"></th><th>IP</th><th>verze (RB-DB)</th><th>jméno (RB-DB)</th><th>viděno</th><th>sken</th><th>userdb</th><th>v upgraderu</th></tr></thead>
+      <tbody>${shown.map(x => { const d = x.dev; const ps = d ? plainStatus(d) : null; return `<tr><td><input type="checkbox" class="rbsel" value="${esc(x.ip)}" ${sel.has(x.ip) ? 'checked' : ''}></td><td class="mono">${esc(x.ip)}</td><td class="mono">${esc(x.version)}</td><td>${esc(x.name)}${x.stp && x.stp !== '---' ? ` <span class="chip" title="bridge s protocol-mode=none / bridge celkem">STP ${esc(x.stp)}</span>` : ''}</td><td class="muted">${esc(x.seen)}</td><td class="muted">${esc(x.how)}</td><td>${x.userdb ? `${esc(x.userdb.ap)} <span class="muted">· ${esc(x.userdb.area)}</span>${x.userdb.member ? ' <span class="badge b-muted">člen</span>' : ''}` : '<span class="muted">—</span>'}</td><td>${d ? `<span class="badge ${ps.cls}">${esc(ps.txt)}</span> <span class="muted">${esc(d.version || '?')}${d.board_name ? ` · ${esc(d.board_name)}` : ''}${x.device && x.device.owner ? ` · ${esc(x.device.owner)}` : ''}</span>` : '<span class="muted">ne</span>'}</td></tr>`; }).join('') || `<tr><td colspan="8" class="muted">nic k zobrazení</td></tr>`}</tbody></table></div>
+    <div class="hint" style="margin-top:6px">zobrazeno ${shown.length} z ${rows.length} · vybráno ${sel.size}</div></div>`;
+  on('#rbdbrefresh', () => { state.rbdb = null; render(); loadRbdb(true); });
+  const fs = $('#rbdbf'); if (fs) fs.onchange = (e) => { state.rbdbFilter = e.target.value; render(); };
+  const all = $('#rbdball'); if (all) all.onchange = (e) => { for (const x of shown) { if (e.target.checked) sel.add(x.ip); else sel.delete(x.ip); } render(); };
+  m.querySelectorAll('.rbsel').forEach(c => c.onchange = () => { if (c.checked) sel.add(c.value); else sel.delete(c.value); render(); });
+  on('#rbdbimport', async () => {
+    const ownerMe = !!($('#rbdbme') && $('#rbdbme').checked);
+    if (!confirm(`Natáhnout z userdb přístupy k ${importable.length} zařízením a přidat je do upgraderu?\n\nZařízení se založí skenem (ověření loginu přes SSH) a připadnou ${ownerMe ? 'tobě' : 'správcům oblastí podle userdb (kdo účet nemá, dostane ho založený dopředu)'}.`)) return;
+    $('#rbdbimport').disabled = true;
+    try {
+      const res = await api('/rbdb/import', { method: 'POST', body: { ips: importable.map(x => x.ip), owner_me: ownerMe, track: ($('#rbdbtrack') || {}).value || undefined } });
+      if (res.discovery) state.discovery = res.discovery;
+      toast(`RB-DB: ${res.toScan} zařízení jde do skenu${res.existing ? `, ${res.existing} už v seznamu` : ''}${res.missingLogin.length ? `, ${res.missingLogin.length} bez loginu v userdb` : ''}`, !res.toScan);
+      for (const x of importable) sel.delete(x.ip);
+      render();
+    } catch (e) { toast(e.message, true); render(); }
+  });
+  on('#rbdbupgrade', () => { if (!upg.length) return; openModal({ type: 'newjob', ids: upg.map(x => x.dev.id) }); });
+}
 function renderHelp(m) {
   m.innerHTML = `<h1>Nápověda</h1>
   <div class="panel help"><h2>K čemu to je</h2>
@@ -530,7 +592,7 @@ function renderHelp(m) {
     <li><b>Přihlášení</b> je přes hkfree SSO, stejným účtem jako do userdb. Účet v upgraderu vznikne sám při prvním přihlášení a podle e-mailu se naváže na tvoje oblasti v userdb. Odhlásit se dá tlačítkem vlevo dole. Přihlášení vydrží 30 dní.</li>
     <li><b>Co vidíš:</b> jen svoje zařízení, upgrady, zálohy a logy. Každé zařízení má jednoho vlastníka; adresu, kterou už má někdo jiný, ti sken nepřidá a napíše, kdo ji má. Předat zařízení může jen správce (tužka ✎ → vlastník, nebo ⇄ Přesunout vybrané).</li>
     <li><b>Nastavení:</b> každý má „Moje nastavení“ (kanál RouterOS pro nová zařízení: v7 stable nebo long-term, „zůstat na v6“ pro všechna zařízení běžící na šestce, limity kontrol, čekání po restartu, prahy rádia, hardening služeb, syslog, NTP a časová zóna…), které platí pro jeho upgrady, kontroly a plány. Předvyplněné jsou společné hodnoty; po uložení se používají vlastní, „Vrátit na společné“ je zahodí.</li>
-    <li><b>Správce</b> vidí všechno. Seznam má nahoře výběr vlastníka, výchozí je jeho vlastní pohled. V záložce Správa spravuje účty (vazba na userdb, role, vypnutí, smazání), společné nastavení výchozí pro všechny, může spustit kontrolu všech načtených zařízení naráz (i cizích, s volbou rozsahu a paralelnosti, se souhrnem změn po skončení) a vidí audit „kdo co dělal“.</li>
+    <li><b>Správce</b> vidí všechno. Seznam má nahoře výběr vlastníka, výchozí je jeho vlastní pohled. V záložce Správa spravuje účty (vazba na userdb, role, vypnutí, smazání), společné nastavení výchozí pro všechny, může spustit kontrolu všech načtených zařízení naráz (i cizích, s volbou rozsahu a paralelnosti, se souhrnem změn po skončení) a vidí audit „kdo co dělal“. V záložce <b>RB-DB</b> vidí výpis kriticky neaktuálních kusů z nezávislého scanneru sítě (RouterOS scanner) proti upgraderu: u každé IP, jestli už je načtená a v jakém je stavu, a pod kterým APčkem ji zná userdb. Chybějící kusy jde jedním tlačítkem natáhnout z userdb i s loginy (připadnou správci oblasti jako při importu celé sítě) a ty načtené poslat k upgradu.</li>
   </ul></div>
 
   <div class="panel help"><h2>Postup krok za krokem</h2>

@@ -13,9 +13,9 @@ global.fetch = async () => ({ ok: true, status: 200, json: async () => [], text:
 global.MutationObserver = function () { this.observe = () => {}; };
 global.confirm = () => false; global.prompt = () => null; global.alert = () => {}; global.setInterval = () => 0; global.setTimeout = () => 0; global.requestAnimationFrame = () => 0;
 let m = { exports: {} };
-try { new Function('module', src + '\nmodule.exports = { state, renderDevices, renderSettings, renderJobs, renderHelp, renderJobDetail };')(m); }
+try { new Function('module', src + '\nmodule.exports = { state, renderDevices, renderSettings, renderJobs, renderHelp, renderJobDetail, renderRbdb };')(m); }
 catch (e) { console.error('app.js se nenačetl:', e.message); process.exit(1); }
-const { state: S, renderDevices, renderSettings, renderJobs, renderHelp, renderJobDetail } = m.exports;
+const { state: S, renderDevices, renderSettings, renderJobs, renderHelp, renderJobDetail, renderRbdb } = m.exports;
 const dev = (id, extra) => ({ id, host: `10.0.0.${id}`, port: 22, name: `d${id}`, identity: `d${id}`, version: '7.24.2', board_name: 'RB', arch: 'arm', scan_status: 'ok', enabled: true, managed: true, track: 'v7-stable', owner_id: 1, flags: { uplink: { gateway: '10.0.0.1', iface: 'ether1', neighbor: null }, poe_children: [] }, parent_id: 0, packages: [], priority: 100, fw_current: '7.24.2', fw_upgrade: '7.24.2', total_hdd: 16e6, free_hdd: 2e6, total_mem: 64e6, free_mem: 30e6, last_seen_at: 1, last_scan_at: 1, ...extra });
 const job = (id, extra) => ({ id, name: `job ${id}`, status: 'running', status_note: '', options: {}, counts: {}, total: 1, owner_id: 1, owner_name: 'x', created_at: 1, ...extra });
 Object.assign(S, { authed: true, admin: true, auth: { sso: true, passwordLogin: false, user: { id: 1, name: 'x' }, userdb: { enabled: true, uid: 1, nick: 'n' }, serverStartedAt: Date.now(), sourceIp: '192.0.2.10', draining: false }, users: [{ id: 1, name: 'x', role: 'admin', userdb_uid: 1, userdb_nick: 'n' }], settings: { min_uptime_min: 10, default_track: 'v7-stable', allow_registration: false }, settingsOwn: {}, settingsGlobal: { min_uptime_min: 10, default_track: 'v7-stable' }, tracks: ['v7-stable', 'v7-long-term', 'v6-long-term', 'hold'], stats: { total: 3, upToDate: 1, needs: 1, stayV6: 0, unreachable: 1, upgrading: 0, hold: 0, never: 0, dead: 0, upgradedToday: 0, upgradedTotal: 0, failedTotal: 0, failedToday: 0, jobsRunning: 0, users: 1 }, runner: { running: false, busy: [], jobs: [], others: [{ uid: 5, user: 'u', total: 3, done: 1, jobs: 1 }] }, scanning: [], selected: new Set(), latest: { versions: { 'v7-stable': { version: '7.24.2' }, 'v7-long-term': { version: '7.23.5' }, 'v6-long-term': { version: '6.49.21' } } } });
@@ -33,6 +33,13 @@ for (const adv of [false, true]) {
   run(`správa adv=${adv}`, (el) => renderSettings(el, true));
 }
 run('nápověda', renderHelp);
+// RB-DB (správce): načítání, chyba, výpis s kusem v upgraderu / v userdb / nikde, všechny filtry, výběr
+run('rbdb načítání', renderRbdb);
+S.rbdb = { error: 'x' }; run('rbdb chyba', renderRbdb);
+S.rbdb = { at: Date.now(), url: 'http://x/', stats: { found: 3, critical: 2, latest: 1, versions: '7.24.2' }, userdb: true, userdbError: '', rows: [{ ip: '10.0.0.2', version: '6.49.10', stp: '1/2', name: 'a', seen: '1. 1.', how: 'snmp', device: { id: 2, owner: 'x' }, userdb: { ap: 'AP', area: 'O', apId: 1, areaId: 1, member: true } }, { ip: '10.0.0.9', version: '6.42', stp: '---', name: 'b', seen: '', how: '', device: null, userdb: { ap: 'AP', area: 'O', apId: 1, areaId: 1, member: false } }, { ip: '10.0.0.8', version: '7.1', stp: '---', name: 'c', seen: '', how: '', device: null, userdb: null }, { ip: '10.0.0.3', version: '6.1', stp: '---', name: 'd', seen: '', how: '', device: { id: 3, owner: 'x' }, userdb: null }] };
+S.rbdbSel = new Set(['10.0.0.2', '10.0.0.9', '10.0.0.8', '10.0.0.3']); S.discovery = { total: 2, done: 1, open: 1, added: 0, existing: 0, foreign: [], authFailed: [], errors: [], found: [], finishedAt: 0 };
+for (const f of ['', 'new', 'in', 'need', 'nowhere']) { S.rbdbFilter = f; run(`rbdb filtr=${f || 'vše'}`, (el) => { renderRbdb(el); if (f === '' && !el.innerHTML.includes('10.0.0.9')) throw new Error('chybí řádek'); if (f === 'nowhere' && el.innerHTML.includes('10.0.0.9')) throw new Error('filtr nefunguje'); }); }
+S.rbdbFilter = ''; S.discovery = undefined;
 // detail jobu s položkami a logem (prefix zařízení, filtr důležitých řádků, filtr podle zařízení)
 {
   const items = [{ id: 1, job_id: 1, device_id: 1, status: 'done', host: '10.0.0.1', dev_name: 'd1', identity: 'd1', board_name: 'RB', from_version: '7.23.1', to_version: '7.24.2', warnings: ['w'], plan: { canary: true } }, { id: 2, job_id: 1, device_id: 2, status: 'reboot', host: '10.0.0.2', dev_name: '', identity: 'd2', board_name: 'RB', step: 'restart', warnings: [] }];

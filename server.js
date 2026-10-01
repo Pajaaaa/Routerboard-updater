@@ -100,6 +100,7 @@ bus.on('event', (ev) => { if (ev.type === 'discovery-done' && ev.state) { const 
 
 const { suggestParent } = require('./lib/topology');
 const userdb = require('./lib/userdb');
+const rbdb = require('./lib/rbdb');
 /** do seznamu zařízení jdou jen příznaky, které UI používá; velké struktury (sousedé, rádia, balíčky) zůstávají v detailu zařízení */
 const SLIM_FLAG_KEYS = ['bgp', 'caps_client', 'capsman', 'device_mode', 'vlan_mgmt', 'flash_dir', 'mpls', 'ospf', 'platform', 'poe_ports', 'routing_filter', 'wifi', 'wireless', 'partitions', 'partitions_list', 'routerboard', 'w60g', 'wifiwave2', 'protected_routerboot', 'voltage', 'temperature', 'user_policy_missing', 'log_symptoms'];
 function slimFlags(f) {
@@ -453,17 +454,12 @@ function assignedOwner(apId, so) {
   if (!hits.length) return null;
   return (so && hits.find(u => u.userdb_uid === Number(so.id))) || hits[0];
 }
-/** import z userdb na pozadí (viz POST /api/userdb/import): stažení loginů, doplnění existujících, nové do fronty skenu */
-async function runUserdbImport({ acct, allMode, ownerMe, onlyAps, key, prog, byName, isAdm, ip, track }) {
-  void isAdm; void ip;
-  let r;
-  if (allMode) { if (!onlyAps) throw new Error('vyber APčka'); prog.phase = `stahuji loginy pro ${onlyAps.size} APček`; r = await userdb.devicesForAps([...onlyAps]); r.admin = { nick: `správce ${acct.userdb_nick || acct.name} (celá síť)`, apCount: onlyAps.size }; }
-  else { prog.phase = 'stahuji loginy'; const ua = await userAreas(acct); if (!ua) throw new Error('účet nemá v userdb žádnou oblast ani přidělené APčko'); r = await userdb.devicesFor(ua, { apIds: onlyAps ? [...onlyAps] : null }); if (!r.admin) throw new Error('správce v userdb nenalezen'); }
-  prog.phase = 'zakládám';
-  // vlastník: v běžném importu účet uživatele; při importu celé sítě účet správce oblasti (SO, jinak ZSO) podle vazby na userdb —
-  // když účet ještě nemá, založí se dopředu (jméno = e-mail, při SSO přihlášení se napojí); oblast bez správce připadne importujícímu
+/** komu připadne zařízení z userdb: v běžném importu účet uživatele; při importu celé sítě (allMode) účet správce oblasti (SO, jinak ZSO)
+ * podle vazby na userdb — když účet ještě nemá, založí se dopředu (jméno = e-mail, při SSO přihlášení se napojí); APčko přidělené účtu
+ * ve Správě má přednost; oblast bez správce (nebo ownerMe) připadne importujícímu. Vrací funkci (d: { apId, areaAdmins }) → id účtu. */
+function userdbOwnerResolver({ acct, allMode, ownerMe, byName }) {
   const ownerCache = new Map();
-  const ownerFor = (d) => {
+  return (d) => {
     if (!allMode || ownerMe) return acct.id; // ownerMe: správce chce zařízení celé sítě přiřadit sobě, ne správci oblasti z userdb
     const so = (d.areaAdmins || []).find(x => x.role === 'SO') || (d.areaAdmins || [])[0];
     const asg = assignedOwner(d.apId, so); if (asg) return asg.id; // APčko přidělené účtu ve Správě (users.userdb_aps) má přednost před správcem oblasti
@@ -475,6 +471,17 @@ async function runUserdbImport({ acct, allMode, ownerMe, onlyAps, key, prog, byN
     ownerCache.set(so.id, u ? u.id : acct.id);
     return u ? u.id : acct.id;
   };
+}
+/** import z userdb na pozadí (viz POST /api/userdb/import): stažení loginů, doplnění existujících, nové do fronty skenu */
+async function runUserdbImport({ acct, allMode, ownerMe, onlyAps, key, prog, byName, isAdm, ip, track }) {
+  void isAdm; void ip;
+  let r;
+  if (allMode) { if (!onlyAps) throw new Error('vyber APčka'); prog.phase = `stahuji loginy pro ${onlyAps.size} APček`; r = await userdb.devicesForAps([...onlyAps]); r.admin = { nick: `správce ${acct.userdb_nick || acct.name} (celá síť)`, apCount: onlyAps.size }; }
+  else { prog.phase = 'stahuji loginy'; const ua = await userAreas(acct); if (!ua) throw new Error('účet nemá v userdb žádnou oblast ani přidělené APčko'); r = await userdb.devicesFor(ua, { apIds: onlyAps ? [...onlyAps] : null }); if (!r.admin) throw new Error('správce v userdb nenalezen'); }
+  prog.phase = 'zakládám';
+  // vlastník: v běžném importu účet uživatele; při importu celé sítě účet správce oblasti (SO, jinak ZSO) podle vazby na userdb —
+  // když účet ještě nemá, založí se dopředu (jméno = e-mail, při SSO přihlášení se napojí); oblast bez správce připadne importujícímu
+  const ownerFor = userdbOwnerResolver({ acct, allMode, ownerMe, byName });
   const sum = { at: Date.now(), by: byName, running: false, aps: 0, total: 0, updated: 0, foreign: [], takeover: [], missingLogin: r.missing.filter(d => !onlyAps || onlyAps.has(d.apId)).map(d => `${d.ip} (${d.name || d.ap})`), entries: 0, owners: {} };
   const entries = [];
   for (const d of r.devices) {
@@ -689,6 +696,66 @@ async function api(req, res, method, p, url) {
   // zařízení
   if (method === 'GET' && p === '/api/devices') return send(res, 200, withSuggestions(visDevices(req)));
   // sken rozsahů
+  // ---- RB-DB (nezávislý scanner RouterOS v síti): výpis kriticky neaktuálních kusů proti upgraderu a userdb; jen správce ----
+  if (seg[0] === 'rbdb') {
+    if (!adminOnly(req, res)) return;
+    if (!rbdb.enabled()) return send(res, 404, { error: 'napojení na RB-DB není nakonfigurováno (MTU_RBDB_URL)' });
+    // výpis: každý řádek RB-DB + co o té IP ví upgrader (zařízení podle hosta, i s jiným portem) a userdb (APčko/oblast přes ipIndex)
+    if (method === 'GET' && p === '/api/rbdb') {
+      const r = await rbdb.list(!!url.searchParams.get('refresh'));
+      const byHost = new Map(); for (const d of db.listDevices()) if (!byHost.has(d.host)) byHost.set(d.host, d);
+      let idx = null, udbErr = '';
+      if (userdb.enabled()) { try { idx = await userdb.ipIndex(); } catch (e) { udbErr = e.message; } }
+      const users = new Map(db.listUsers().map(u => [u.id, u.userdb_nick || u.name]));
+      const rows = r.rows.map(x => {
+        const d = byHost.get(x.ip), u = idx ? idx.get(x.ip) : null;
+        return { ...x, device: d ? { id: d.id, owner: users.get(d.owner_id) || '', version: d.version, scan_status: d.scan_status } : null, userdb: u ? { ap: u.ap, apId: u.apId, area: u.area, areaId: u.areaId, member: u.member } : null };
+      });
+      const sum = { total: rows.length, inUpgrader: rows.filter(x => x.device).length, inUserdb: rows.filter(x => x.userdb).length, importable: rows.filter(x => !x.device && x.userdb).length, nowhere: rows.filter(x => !x.device && !x.userdb).length };
+      return send(res, 200, { at: r.at, url: rbdb.cfg.url, stats: r.stats, rows, sum, userdb: userdb.enabled(), userdbError: udbErr });
+    }
+    // natáhnout přístupy z userdb k vybraným IP (1 dotaz na IP) a založit je skenem — stejně jako import celé sítě z userdb:
+    // vlastník = správce oblasti podle APčka z ipIndexu (účet se založí dopředu), owner_me = pod sebe; IP bez loginu v userdb se jen vypíšou
+    if (method === 'POST' && p === '/api/rbdb/import') {
+      if (!userdb.enabled()) throw new Error('napojení na userdb není nakonfigurováno (MTU_USERDB_USER/PASS)');
+      const b = await readBody(req).catch(() => ({}));
+      const ips = [...new Set((Array.isArray(b.ips) ? b.ips : []).map(x => String(x).trim()).filter(x => /^\d+\.\d+\.\d+\.\d+$/.test(x)))];
+      if (!ips.length) throw new Error('vyber aspoň jedno zařízení');
+      if (ips.length > 2000) throw new Error('max. 2000 adres najednou');
+      if (discovery.status(req.user.id) && !discovery.status(req.user.id).finishedAt) throw new Error('tvůj sken ještě běží, počkej na jeho dokončení');
+      const ownerMe = !!b.owner_me;
+      const track = ['v7-stable', 'v7-long-term'].includes(b.track) ? b.track : '';
+      const r = await rbdb.list(); const names = new Map(r.rows.map(x => [x.ip, x.name]));
+      let idx = null; try { idx = await userdb.ipIndex(); } catch {}
+      const areaById = new Map((await userdb.areas()).map(a => [a.id, a]));
+      const byHost = new Map(); for (const d of db.listDevices()) if (!byHost.has(d.host)) byHost.set(d.host, d);
+      const creds = new Map(); let qi = 0;
+      await Promise.all(Array.from({ length: 6 }, async () => { while (qi < ips.length) { const ip = ips[qi++]; creds.set(ip, await userdb.getCredentials(ip).catch(() => null)); } }));
+      const ownerFor = userdbOwnerResolver({ acct: req.user, allMode: true, ownerMe, byName: req.user.name });
+      const entries = [], existing = [], missingLogin = [], owners = {};
+      for (const ip of ips) {
+        if (byHost.has(ip)) { existing.push(ip); continue; }
+        const c = creds.get(ip); if (!c) { missingLogin.push(ip); continue; }
+        const u = idx ? idx.get(ip) : null, a = u ? areaById.get(u.areaId) : null;
+        const ownerId = ownerFor({ apId: u ? u.apId : 0, areaAdmins: a ? a.admins : [] });
+        const ou = db.getUser(ownerId); const on = ou ? (ou.userdb_nick || ou.name) : String(ownerId); owners[on] = (owners[on] || 0) + 1;
+        entries.push({ host: ip, port: 0, username: c.login, password: c.password, name: names.get(ip) || '', group_name: u ? u.ap : 'RB-DB', extra: u ? { userdb_ap_id: u.apId, userdb_ap: u.ap, userdb_member: u.member ? u.userId : 0 } : {}, ownerId });
+      }
+      const errors = missingLogin.map(ip => `${ip} (${names.get(ip) || 'RB-DB'}): v userdb chybí login/heslo — doplň je v userdb a načti znovu`);
+      if (entries.length) {
+        const CH = 2000;
+        for (let i = 0; i < entries.length; i += CH) {
+          const o = { entries: entries.slice(i, i + CH), creds: [], port: 22, track: track || db.getSettings(req.user.id).default_track || 'v7-long-term', parallel: 24, ownerId: req.user.id, label: 'z RB-DB', errors: i === 0 ? errors : [] };
+          discovery.prepare(o);
+          discovery.run(o).catch(e => bus.emit('event', { type: 'discovery-error', error: e.message }));
+        }
+        await new Promise(r2 => setTimeout(r2, 50));
+      } else { discovery.setResult({ ownerId: req.user.id, foreign: [], errors, takeover: [] }); bus.emit('event', { type: 'devices-changed' }); }
+      audit(req, ownerMe ? 'import z RB-DB (pod sebe)' : 'import z RB-DB', `${ips.length} IP: ${entries.length} nových ke skenu, ${existing.length} už v seznamu, ${missingLogin.length} bez loginu v userdb; vlastníci: ${Object.entries(owners).map(([k, v]) => `${k} ${v}`).join(', ') || '—'}`);
+      return send(res, 200, { total: ips.length, toScan: entries.length, existing: existing.length, missingLogin, owners, discovery: discovery.status(req.user.id) });
+    }
+    return send(res, 404, { error: 'neznámá akce' });
+  }
   // ---- userdb (evidence hkfree): oblasti/APčka správce a import zařízení včetně loginů ----
   if (seg[0] === 'userdb') {
     if (!userdb.enabled()) return send(res, 404, { error: 'napojení na userdb není nakonfigurováno (MTU_USERDB_USER/PASS)' });

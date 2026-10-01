@@ -56,6 +56,9 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
   → import zařízení APček i zařízení členů pod nimi včetně loginů. Typ zařízení z evidence se ignoruje, co je RouterOS
   rozhodne sken po SSH. Správce může natáhnout celou síť; zařízení připadnou účtům správců oblastí (založí se dopředu
   podle e-mailu). Ruční sken (seznam `ip uživatel heslo` nebo rozsahy) zůstává.
+- **RB-DB (správce):** záložka s výpisem kriticky neaktuálních kusů z nezávislého scanneru sítě („RouterOS scanner“,
+  `MTU_RBDB_URL`) proti upgraderu: u každé IP stav v upgraderu a APčko/oblast z userdb. Chybějící kusy jde natáhnout
+  z userdb i s loginy (vlastník jako při importu celé sítě) a načtené poslat k upgradu.
 - **Obnova mrtvého zařízení:** postup v nápovědě (záložní bootloader → Netinstall se stejnou verzí jako záloha →
   obnova z binární zálohy nebo exportu; od 7.24 Netinstall ze sousedního MikroTiku).
 
@@ -76,6 +79,7 @@ lib/topology.js    určení rodiče (rádio, PoE, CAPsMAN, brána)
 lib/poe-models.js  tabulka PoE-out portů podle modelu RouterBOARDu (pro kontrolu PoE prvku nad zařízením)
 lib/discovery.js   sken adres a rozsahů ve frontě (víc uživatelů naráz), zakládání zařízení
 lib/userdb.js      klient evidence sítě (oblasti, správci, zařízení APček, loginy)
+lib/rbdb.js        klient RB-DB (nezávislý scanner RouterOS: výpis IP + verze, tolerantní dekódování)
 lib/sso.js         OpenID Connect (authorization code + PKCE)
 lib/versions.js    verze z upgrade.mikrotik.com, katalog a cache balíčků
 lib/db.js          SQLite schéma a přístup k datům
