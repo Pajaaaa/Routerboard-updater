@@ -93,6 +93,7 @@ th{color:var(--muted);font-weight:500;font-size:12px;position:sticky;top:0;backg
 tbody tr:hover td{background:#0f1a2a05}
 tr.selected td{background:var(--accent-soft)}
 tr.muted td{opacity:.55}
+tr.ctx td{opacity:.5;font-style:italic}tr.ctx td.name b{font-weight:400}
 .mono{font-family:var(--mono);font-size:12px}
 .muted{color:var(--muted)}
 
@@ -168,14 +169,8 @@ td.acts{white-space:nowrap}
 .tree{color:var(--line2);white-space:pre;font-size:12px;margin-right:2px;letter-spacing:-1px}
 .rootmark{display:inline-block;color:var(--accent);margin-right:6px;font-size:12px}
 tr.root-row td{border-top:2px solid var(--line2)}
-/* hlavička APčka v seznamu zařízení (seskupení „po APčkách“) */
-tr.grp td{background:var(--panel2);border-top:2px solid var(--line2);border-bottom:1px solid var(--line);padding:5px 6px;white-space:normal}
-tbody tr.grp:hover td{background:var(--panel2)}
-tr.grp td.grph{font-size:13px}tr.grp .grpmark{color:var(--muted);margin-right:6px}tr.grp .cnt{color:var(--muted);font-weight:400;margin-left:8px;font-size:12px}tr.grp .cnt .need{color:var(--warn)}
-tr.grp .gup{margin-left:10px;padding:1px 8px}
 /* RB-DB: další adresy téhož routeru pod IP se zalamují (sériové číslo, viděno a způsob skenu jsou v tooltipu IP) */
 td.rbip{white-space:normal}td.rbip .rbdups{font-size:11px;color:var(--muted);line-height:1.35;min-width:200px;max-width:360px}td.rbip .rbdups span{white-space:nowrap}
-tr.grp+tr.root-row td{border-top:none}
 .help p,.help li{max-width:78ch;line-height:1.55}.help ol{padding-left:22px}.help ol li{margin:6px 0}.help details{border-top:1px solid var(--line);padding:8px 0}.help details summary{color:var(--ink);font-weight:500}.help details p{margin:6px 0 0;color:var(--ink2)}.help code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-family:var(--mono);font-size:12px}
 .ssobtn{display:block;text-align:center;background:var(--accent);color:var(--accent-ink);font-weight:600;padding:10px;border-radius:var(--r);text-decoration:none;margin:8px 0}
 .ssobtn:hover{filter:brightness(1.06)}
@@ -220,6 +215,7 @@ details.warnbox{border:1px solid var(--err);border-radius:var(--r);padding:6px 1
   table.cards tbody{display:block}
   table.cards tr{display:block;border:1px solid var(--line);border-radius:var(--r);margin:8px 0;padding:8px 10px;background:var(--panel)}
   table.cards tr.selected{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+  table.cards tr.ctx{opacity:.7}
   table.cards td{display:block;overflow:hidden;border:none;padding:3px 0;white-space:normal;max-width:none!important;text-align:left;overflow-wrap:anywhere}
   table.cards td::before{content:attr(data-l);float:left;width:96px;color:var(--muted);font-size:12px;line-height:1.5}
   table.cards td:not([data-l])::before{content:none}
@@ -232,14 +228,11 @@ details.warnbox{border:1px solid var(--err);border-radius:var(--r);padding:6px 1
   table.cards td .sub{display:inline;margin-left:6px}
   table.cards td.parent select,table.cards td select{max-width:60%}
   table.cards tr.root-row td{border-top:none}
-  table.cards tr.grp{display:flex;align-items:center;gap:8px;background:var(--panel2);border:none;margin:16px 0 4px;padding:6px 10px}
-  table.cards tr.grp td{display:block;padding:0;background:none;border:none}
-  table.cards tr.grp td.cardsel{flex:0 0 auto}table.cards tr.grp td.grph{flex:1;font-size:14px}
-  table.cards tr.grp .gup{display:inline-block;margin:4px 0 0}
   .stats .stat{padding:8px 10px}
   .stats .stat b{font-size:18px}
   /* v kartách nemá stromová kresba význam (řádky nejsou pod sebou jako strom) a kontextové řádky rodičů jsou jen šum */
   table.cards .tree{display:none}
+  table.cards tr.ctx{display:none}
   /* dlouhé texty: popisek nad hodnotu, ať se text neláme do úzkého sloupce */
   table.cards td[data-l="poznámka"]::before,table.cards td[data-l="krok"]::before{float:none;display:block;width:auto}
   /* nástrojová lišta: dvě položky na řádek místo deseti řádků pod sebou */
