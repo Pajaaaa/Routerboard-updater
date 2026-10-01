@@ -704,12 +704,14 @@ async function api(req, res, method, p, url) {
     // výpis: každý řádek RB-DB + co o té IP ví upgrader (zařízení podle hosta, i s jiným portem) a userdb (APčko/oblast přes ipIndex)
     if (method === 'GET' && p === '/api/rbdb') {
       const r = await rbdb.list(!!url.searchParams.get('refresh'));
-      const byHost = new Map(); for (const d of db.listDevices()) if (!byHost.has(d.host)) byHost.set(d.host, d);
+      const all = db.listDevices(), byHost = new Map(), byId = new Map(all.map(d => [d.id, d])); for (const d of all) if (!byHost.has(d.host)) byHost.set(d.host, d);
+      // zařízení podle IP, nebo podle další adresy téhož routeru (RB-DB duplicates); vedlejší záznam (dup_of) → hlavní kus
+      const devFor = (x) => { let d = byHost.get(x.ip) || (x.dups || []).map(ip => byHost.get(typeof ip === 'string' ? ip : ip && ip.ip)).find(Boolean) || null; if (d && d.dup_of && byId.has(d.dup_of)) d = byId.get(d.dup_of); return d; };
       let idx = null, udbErr = '';
       if (userdb.enabled()) { try { idx = await userdb.ipIndex(); } catch (e) { udbErr = e.message; } }
       const users = new Map(db.listUsers().map(u => [u.id, u.userdb_nick || u.name]));
       const rows = r.rows.map(x => {
-        const d = byHost.get(x.ip), u = idx ? idx.get(x.ip) : null;
+        const d = devFor(x), u = idx ? idx.get(x.ip) : null;
         return { ...x, device: d ? { id: d.id, owner: users.get(d.owner_id) || '', version: d.version, scan_status: d.scan_status } : null, userdb: u ? { ap: u.ap, apId: u.apId, area: u.area, areaId: u.areaId, member: u.member } : null };
       });
       const sum = { total: rows.length, inUpgrader: rows.filter(x => x.device).length, inUserdb: rows.filter(x => x.userdb).length, importable: rows.filter(x => !x.device && x.userdb && !x.swos).length, nowhere: rows.filter(x => !x.device && !x.userdb).length, swos: rows.filter(x => x.swos).length };

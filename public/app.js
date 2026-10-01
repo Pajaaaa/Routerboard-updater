@@ -13,7 +13,7 @@ let VF = ''; try { VF = localStorage.getItem('mtu_vf') || ''; } catch {}
 let RBGRP = true; try { RBGRP = localStorage.getItem('mtu_rbdbgrp') !== '0'; } catch {} // RB-DB: výpis seskupený po APčkách z userdb
 // řazení se nepamatuje: po každém načtení stránky je výchozí strom topologie (jiné řazení platí jen do obnovení stránky)
 let SORT = 'tree', SORTDIR = 'asc'; try { localStorage.removeItem('mtu_sort'); } catch {}
-const state = { vf: VF, scanProg: null, checkProg: null, sortDir: SORTDIR, owner: 0, authed: false, auth: { sso: false, passwordLogin: true, user: null }, view: 'devices', advanced: ADV, devices: [], jobs: [], latest: { versions: {} }, settings: {}, runner: {}, tracks: [], selected: new Set(), filter: '', group: '', sort: SORT, modal: null, job: null, jobLog: [], detail: null, scanning: [], rbdb: null, rbdbLoading: false, rbdbSel: new Set(), rbdbFilter: '', rbdbGrp: RBGRP, rbdbDiscOpen: false };
+const state = { vf: VF, scanProg: null, checkProg: null, sortDir: SORTDIR, owner: 0, authed: false, auth: { sso: false, passwordLogin: true, user: null }, view: 'devices', advanced: ADV, devices: [], jobs: [], latest: { versions: {} }, settings: {}, runner: {}, tracks: [], selected: new Set(), filter: '', group: '', sort: SORT, modal: null, job: null, jobLog: [], detail: null, scanning: [], rbdb: null, rbdbLoading: false, rbdbSel: new Set(), rbdbFilter: '', rbdbGrp: RBGRP, rbdbDiscOpen: false, rbdbPending: null };
 
 async function api(path, opts = {}) {
   const r = await fetch(BASE + '/api' + path, { headers: { 'Content-Type': 'application/json' }, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
@@ -547,7 +547,10 @@ function renderRbdb(m) {
   if (!r) { m.innerHTML = `<h1>RB-DB</h1><div class="panel"><span class="muted">⏳ načítám výpis z RB-DB a dohledávám adresy v userdb (poprvé to trvá pár sekund)…</span></div>`; loadRbdb(); return; }
   if (r.error) { m.innerHTML = `<h1>RB-DB</h1><div class="panel"><div class="banner err">${esc(r.error)}</div><button id="rbdbreload">↻ Zkusit znovu</button></div>`; on('#rbdbreload', () => { state.rbdb = null; loadRbdb(true); }); return; }
   const byHost = new Map(); for (const d of state.devices) if (!byHost.has(d.host)) byHost.set(d.host, d);
-  const rows = (r.rows || []).map(x => ({ ...x, dev: byHost.get(x.ip) || null }));
+  const byId = new Map(state.devices.map(d => [d.id, d]));
+  // zařízení v upgraderu: podle IP, nebo podle další adresy téhož routeru z RB-DB; vedlejší záznam (dup_of) → hlavní kus
+  const devFor = (x) => { let d = byHost.get(x.ip) || (x.dups || []).map(ip => byHost.get(ip)).find(Boolean) || null; if (d && d.dup_of && byId.has(d.dup_of)) d = byId.get(d.dup_of); return d; };
+  const rows = (r.rows || []).map(x => ({ ...x, dev: devFor(x) }));
   const sel = state.rbdbSel, f = state.rbdbFilter;
   const shown = rows.filter(x => f === 'new' ? !x.dev : f === 'in' ? !!x.dev : f === 'need' ? (x.dev && needsUpgrade(x.dev)) : f === 'nowhere' ? (!x.dev && !x.userdb) : f === 'swos' ? !!x.swos : true);
   const importable = rows.filter(x => sel.has(x.ip) && !x.dev && x.userdb && !x.swos), selNoUdb = rows.filter(x => sel.has(x.ip) && !x.dev && !x.userdb && !x.swos).length, selSwos = rows.filter(x => sel.has(x.ip) && x.swos).length;
@@ -567,9 +570,9 @@ function renderRbdb(m) {
     <div class="row" style="margin-top:10px">
       <button class="primary" id="rbdbimport" ${!importable.length || discRunning || !r.userdb ? 'disabled' : ''} title="k vybraným IP, které v upgraderu chybí, se z userdb stáhnou loginy a zařízení se založí skenem (ověření přes SSH)">⇩ Natáhnout přístupy z userdb a přidat (${importable.length})</button>
       <label class="check" title="zařízení dostaneš ty, ne správce oblasti z userdb; účty správců se nezakládají"><input type="checkbox" id="rbdbme"> přiřadit mně (ne správci oblasti)</label>
-      <label class="check">kanál pro nová <select id="rbdbtrack"><option value="v7-long-term" ${state.settings.default_track !== 'v7-stable' ? 'selected' : ''}>v7 long-term</option><option value="v7-stable" ${state.settings.default_track === 'v7-stable' ? 'selected' : ''}>v7 stable</option></select></label>
-      <button id="rbdbupgrade" ${!upg.length ? 'disabled' : ''} title="z vybraných zařízení, která už v upgraderu jsou, založit upgrade job (vlastníkem jobu jsi ty)">▶ Poslat k upgradu (${upgNeed.length}${upg.length > upgNeed.length ? ` + ${upg.length - upgNeed.length} nic nepotřebuje` : ''})</button>
-      ${selNoUdb ? `<span class="hint">${selNoUdb} vybraných nezná ani userdb — bez loginu je přidej ručně skenem</span>` : ''}${selSwos ? `<span class="hint">${selSwos} vybraných je SwOS — přeskočí se</span>` : ''}</div>
+      <label class="check">kanál pro nová <select id="rbdbtrack"><option value="v7-long-term" selected>v7 long-term</option><option value="v7-stable">v7 stable</option></select></label>
+      <button id="rbdbupgrade" class="${importable.length ? 'primary' : 'ok'}" ${(!upg.length && !importable.length) || (importable.length && (discRunning || !r.userdb)) ? 'disabled' : ''} title="${importable.length ? 'vybraná zařízení, která v upgraderu chybí, se nejdřív natáhnou z userdb (loginy + sken přes SSH); jakmile natažení doběhne, otevře se upgrade pro všechna vybraná' : 'z vybraných zařízení, která už v upgraderu jsou, založit upgrade job (vlastníkem jobu jsi ty)'}">▶ ${importable.length ? `Natáhnout a poslat k upgradu (${importable.length} nových${upg.length ? ` + ${upg.length} v upgraderu` : ''})` : `Poslat k upgradu (${upgNeed.length}${upg.length > upgNeed.length ? ` + ${upg.length - upgNeed.length} nic nepotřebuje` : ''})`}</button>
+      ${state.rbdbPending ? '<span class="hint">⏳ po dokončení natažení se otevře upgrade vybraných</span>' : ''}${!sel.size ? '<span class="hint">zaškrtni kusy nebo celé APčko v hlavičce</span>' : ''}${selNoUdb ? `<span class="hint">${selNoUdb} vybraných nezná ani userdb — bez loginu je přidej ručně skenem</span>` : ''}${selSwos ? `<span class="hint">${selSwos} vybraných je SwOS — přeskočí se</span>` : ''}</div>
     ${disc && disc.total !== undefined ? `<details id="rbdbdisc" style="margin-top:10px" ${state.rbdbDiscOpen ? 'open' : ''}><summary class="clickable" title="rozbalit / sbalit podrobný výpis natažení">${discRunning ? '⏳' : '✔'} výpis natažení${disc.label ? ` (${esc(disc.label)})` : ''}: ${disc.done}/${disc.total} adres, ${disc.added || 0} nových založeno${disc.existing ? `, ${disc.existing} už v seznamu` : ''}${(disc.authFailed || []).length ? `, ${disc.authFailed.length} bez loginu` : ''}${(disc.errors || []).length ? `, ${disc.errors.length} chyb` : ''} <span class="muted">— ${state.rbdbDiscOpen ? 'sbalit' : 'rozbalit'}</span></summary><div id="discres" style="margin-top:8px">${discoveryHtml(disc)}</div></details>` : ''}
     </div>
     <div class="panel"><div class="tablewrap"><table class="grid">
@@ -583,19 +586,34 @@ function renderRbdb(m) {
   m.querySelectorAll('.rbsel').forEach(c => c.onchange = () => { if (c.checked) sel.add(c.value); else sel.delete(c.value); render(); });
   on('#rbdbgrp', () => { state.rbdbGrp = !state.rbdbGrp; try { localStorage.setItem('mtu_rbdbgrp', state.rbdbGrp ? '1' : '0'); } catch {} render(); });
   m.querySelectorAll('.rbgsel').forEach(c => { if (c.dataset.ind) c.indeterminate = true; c.onchange = (e) => { const g = rbdbGroups(shown).find(x => x.key === c.dataset.key); if (!g) return; for (const x of g.rows) e.target.checked ? sel.add(x.ip) : sel.delete(x.ip); render(); }; });
-  on('#rbdbimport', async () => {
+  const doImport = async (thenUpgrade) => {
     const ownerMe = !!($('#rbdbme') && $('#rbdbme').checked);
-    if (!confirm(`Natáhnout z userdb přístupy k ${importable.length} zařízením a přidat je do upgraderu?\n\nZařízení se založí skenem (ověření loginu přes SSH) a připadnou ${ownerMe ? 'tobě' : 'správcům oblastí podle userdb (kdo účet nemá, dostane ho založený dopředu)'}.`)) return;
-    $('#rbdbimport').disabled = true;
+    if (!confirm(`Natáhnout z userdb přístupy k ${importable.length} zařízením a přidat je do upgraderu?\n\nZařízení se založí skenem (ověření loginu přes SSH) a připadnou ${ownerMe ? 'tobě' : 'správcům oblastí podle userdb (kdo účet nemá, dostane ho založený dopředu)'}.${thenUpgrade ? `\n\nAž natažení doběhne, otevře se upgrade pro vybraná zařízení (${importable.length} nových${upg.length ? ` + ${upg.length} už v upgraderu` : ''}).` : ''}`)) return;
+    $('#rbdbimport').disabled = true; $('#rbdbupgrade').disabled = true;
+    // po dokončení natažení (událost discovery-done) se otevře nový upgrade pro natažené + už přítomné vybrané kusy
+    state.rbdbPending = thenUpgrade ? { hosts: new Set(importable.flatMap(x => [x.ip, ...(x.dups || [])])), ids: upg.map(x => x.dev.id) } : null;
     try {
       const res = await api('/rbdb/import', { method: 'POST', body: { ips: importable.map(x => x.ip), owner_me: ownerMe, track: ($('#rbdbtrack') || {}).value || undefined } });
       if (res.discovery) state.discovery = res.discovery;
       toast(`RB-DB: ${res.toScan} zařízení jde do skenu${res.existing ? `, ${res.existing} už v seznamu` : ''}${res.dupSkipped ? `, ${res.dupSkipped} dalších IP téhož routeru` : ''}${res.swosSkipped ? `, ${res.swosSkipped} SwOS přeskočeno` : ''}${res.missingLogin.length ? `, ${res.missingLogin.length} bez loginu v userdb` : ''}`, !res.toScan);
+      if (!res.toScan && state.rbdbPending) { state.rbdbPending = null; if (upg.length) openModal({ type: 'newjob', ids: upg.map(x => x.dev.id) }); }
       for (const x of importable) sel.delete(x.ip);
       render();
-    } catch (e) { toast(e.message, true); render(); }
-  });
-  on('#rbdbupgrade', () => { if (!upg.length) return; openModal({ type: 'newjob', ids: upg.map(x => x.dev.id) }); });
+    } catch (e) { state.rbdbPending = null; toast(e.message, true); render(); }
+  };
+  on('#rbdbimport', () => doImport(false));
+  on('#rbdbupgrade', () => { if (importable.length) return doImport(true); if (upg.length) openModal({ type: 'newjob', ids: upg.map(x => x.dev.id) }); });
+}
+/** RB-DB „Natáhnout a poslat k upgradu“: po doběhnutí natažení otevře nový upgrade pro natažené kusy (podle IP, i dalších adres routeru) + kusy, které už v upgraderu byly */
+function rbdbAfterImport(st) {
+  const pd = state.rbdbPending; if (!pd || !st || st.queued) return;
+  state.rbdbPending = null;
+  const ids = new Set(pd.ids);
+  for (const d of state.devices) if (pd.hosts.has(d.host) && d.managed && d.enabled && !d.dup_of) ids.add(d.id);
+  const list = [...ids].filter(id => state.devices.some(d => d.id === id));
+  if (!list.length) return toast('natažení z RB-DB doběhlo, ale žádné z vybraných zařízení se nepodařilo založit (bez loginu, nedostupné nebo není RouterOS) — podrobnosti ve výpisu natažení', true);
+  toast(`natažení z RB-DB hotové — otevírám upgrade pro ${list.length} zařízení`);
+  openModal({ type: 'newjob', ids: list });
 }
 function renderHelp(m) {
   m.innerHTML = `<h1>Nápověda</h1>
@@ -1179,7 +1197,7 @@ function connectSSE() {
     else if (ev.type === 'log' && state.job && ev.log.job_id === state.job.job.id) { state.jobLog.push(ev.log); const l = $('#joblog'); if (l) { const p = $('#joblogprog'); if (p) p.remove(); const atBottom = LOGFOLLOW; l.insertAdjacentHTML('beforeend', logLine(ev.log, logNames(state.job.items))); const d = +l.dataset.dev || 0; if (d && ev.log.device_id && ev.log.device_id !== d) l.lastElementChild.classList.add('od'); if (atBottom) window.scrollTo(0, document.documentElement.scrollHeight); } }
     else if (ev.type === 'progress' && state.job && ev.job_id === state.job.job.id) { const l = $('#joblog'); if (l) { let p = $('#joblogprog'); if (!p) { p = document.createElement('div'); p.id = 'joblogprog'; p.className = 'info'; l.appendChild(p); } p.textContent = `${new Date().toLocaleTimeString('cs-CZ')} ${ev.text}`; const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 200; if (atBottom) window.scrollTo(0, document.documentElement.scrollHeight); } }
     else if (ev.type === 'runner') { scheduleReload(false); }
-    else if (ev.type === 'discovery' || ev.type === 'discovery-done') { state.discovery = ev.state; const r = $('#discres'); if (r) r.innerHTML = discoveryHtml(ev.state); if (ev.type === 'discovery-done') { toast(`sken rozsahu hotov: ${ev.state.added} nových zařízení`); loadState().then(() => { if (state.modal && state.modal.type === 'discover') renderModal(); else render(); }); } }
+    else if (ev.type === 'discovery' || ev.type === 'discovery-done') { state.discovery = ev.state; const r = $('#discres'); if (r) r.innerHTML = discoveryHtml(ev.state); if (ev.type === 'discovery-done') { toast(`sken rozsahu hotov: ${ev.state.added} nových zařízení`); loadState().then(() => { if (state.modal && state.modal.type === 'discover') renderModal(); else render(); rbdbAfterImport(ev.state); }); } }
     else if (ev.type === 'discovery-error') toast('sken rozsahu: ' + ev.error, true);
     else if (ev.type === 'scan-progress' && ev.tag === 'check') { state.checkProg = { ...(state.checkProg || {}), done: ev.done, total: ev.total, startedAt: ev.startedAt || (state.checkProg && state.checkProg.startedAt) || Date.now(), finishedAt: 0, label: ev.label || (state.checkProg && state.checkProg.label) || '', summary: undefined }; if (state.view === 'admin') { const el = $('#checkprog'), box = $('#adminprog'); if (el) el.outerHTML = checkProgHtml(); else if (box) box.innerHTML = checkProgHtml(); } else renderSoon(); }
     else if (ev.type === 'scan-done' && ev.tag === 'check') { if (state.checkProg) state.checkProg = { ...state.checkProg, done: ev.cancelled ? ev.count : state.checkProg.total, finishedAt: Date.now(), cancelled: !!ev.cancelled, summary: ev.summary }; toast(ev.cancelled ? `kontrola zrušena (${ev.count} zařízení hotových)` : `kontrola hotová (${ev.count} zařízení)`); scheduleReload(); if (state.view === 'admin') renderSoon(); }
