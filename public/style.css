@@ -93,7 +93,6 @@ th{color:var(--muted);font-weight:500;font-size:12px;position:sticky;top:0;backg
 tbody tr:hover td{background:#0f1a2a05}
 tr.selected td{background:var(--accent-soft)}
 tr.muted td{opacity:.55}
-tr.ctx td{opacity:.5;font-style:italic}tr.ctx td.name b{font-weight:400}
 .mono{font-family:var(--mono);font-size:12px}
 .muted{color:var(--muted)}
 
@@ -219,7 +218,6 @@ details.warnbox{border:1px solid var(--err);border-radius:var(--r);padding:6px 1
   table.cards tbody{display:block}
   table.cards tr{display:block;border:1px solid var(--line);border-radius:var(--r);margin:8px 0;padding:8px 10px;background:var(--panel)}
   table.cards tr.selected{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
-  table.cards tr.ctx{opacity:.7}
   table.cards td{display:block;overflow:hidden;border:none;padding:3px 0;white-space:normal;max-width:none!important;text-align:left;overflow-wrap:anywhere}
   table.cards td::before{content:attr(data-l);float:left;width:96px;color:var(--muted);font-size:12px;line-height:1.5}
   table.cards td:not([data-l])::before{content:none}
@@ -240,7 +238,6 @@ details.warnbox{border:1px solid var(--err);border-radius:var(--r);padding:6px 1
   .stats .stat b{font-size:18px}
   /* v kartách nemá stromová kresba význam (řádky nejsou pod sebou jako strom) a kontextové řádky rodičů jsou jen šum */
   table.cards .tree{display:none}
-  table.cards tr.ctx{display:none}
   /* dlouhé texty: popisek nad hodnotu, ať se text neláme do úzkého sloupce */
   table.cards td[data-l="poznámka"]::before,table.cards td[data-l="krok"]::before{float:none;display:block;width:auto}
   /* nástrojová lišta: dvě položky na řádek místo deseti řádků pod sebou */

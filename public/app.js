@@ -230,8 +230,7 @@ function filteredDevices() {
   const f = state.filter.toLowerCase();
   const { vfMatch } = vfInfo();
   const list = state.devices.filter(d => vfMatch(d) && (!state.owner || d.owner_id === state.owner) && (!state.group || d.group_name === state.group) && (!f || [d.host, d.name, d.identity, d.board_name, d.model, d.version, d.group_name, d.userdb_ap, d.notes].join(' ').toLowerCase().includes(f)));
-  const filtered = !!(f || state.vf || state.group || state.owner);
-  if (!state.grpAp) return orderDevices(list, filtered);
+  if (!state.grpAp) return orderDevices(list);
   // seskupení po APčkách: každé APčko má hlavičkový řádek ({ _grp }) a uvnitř platí zvolené řazení (strom jen v rámci APčka);
   // zařízení bez APčka i skupiny jsou nakonec pod „bez APčka“
   const groups = new Map();
@@ -239,26 +238,19 @@ function filteredDevices() {
   const keys = [...groups.keys()].sort((a, b) => (a === '') - (b === '') || a.localeCompare(b, 'cs', { numeric: true }));
   const out = [];
   for (const k of keys) {
-    const items = orderDevices(groups.get(k), filtered);
-    const real = items.filter(d => !d._ctx);
-    const sample = real[0] || items[0];
+    const items = orderDevices(groups.get(k));
+    const real = items;
+    const sample = items[0];
     out.push({ _grp: true, id: 'g:' + k, key: k, label: k || 'bez APčka', fromUserdb: !!(sample && sample.userdb_ap), total: real.length, need: real.filter(needsUpgrade).length, ids: real.map(d => d.id) });
     out.push(...items);
   }
   return out;
 }
-function orderDevices(list, filtered) {
+function orderDevices(list) {
   const s = state.sort;
+  // strom jen z toho, co je ve výpisu: rodič mimo filtr nebo mimo APčko se nedokresluje (dřív šedý kontextový řádek),
+  // zařízení bez rodiče ve výpisu je kořen
   if (s === 'tree') {
-    // strom se má kreslit i při filtru (text, verze, skupina, vlastník): nadřazené prvky, které filtrem vypadly, se přidají jako
-    // kontext (šedě, bez zaškrtávátka), aby zůstala vidět struktura rodič → potomek
-    if (filtered && list.length) {
-      const all = new Map(state.devices.map(d => [d.id, d]));
-      const inList = new Set(list.map(d => d.id));
-      const ctx = new Map();
-      for (const d of list) { let p = d.parent_id, guard = 0; while (p && all.has(p) && !inList.has(p) && !ctx.has(p) && guard++ < 20) { const pd = all.get(p); ctx.set(p, { ...pd, _ctx: true }); p = pd.parent_id; } }
-      if (ctx.size) list = [...list, ...ctx.values()];
-    }
     return treeOrder(list);
   }
   const dir = state.sortDir === 'desc' ? -1 : 1;
@@ -292,7 +284,7 @@ function renderDevices(m) {
   for (const d of devs) { if (!d.managed) { cnt.hold++; continue; } if (d.scan_status !== 'ok' && d.scan_status !== 'never') { cnt.unreachable++; continue; } cnt[verStatus(d).key]++; }
   const groups = [...new Set(devs.map(d => d.group_name).filter(Boolean))].sort();
   const list = filteredDevices();
-  const real = list.filter(d => !d._ctx && !d._grp); // bez kontextových řádků stromu a hlaviček APček
+  const real = list.filter(d => !d._grp); // bez hlaviček APček
   const cols = 6 + (adv ? 5 + (state.admin && state.users ? 1 : 0) : 0); // počet sloupců tabulky (hlavička APčka přes všechny)
   const allSel = real.length && real.every(d => state.selected.has(d.id));
   // kontrola stavu: vybraná zařízení → jen ta; jinak při aktivním filtru (text, stav, skupina/AP, vlastník) jen zobrazená; bez filtru všechna
@@ -329,8 +321,8 @@ function renderDevices(m) {
     <input id="filter" placeholder="hledat…" value="${esc(state.filter)}" style="width:170px"></div>
   <div class="tablewrap"><table class="cards devs"><thead><tr><th><input type="checkbox" id="selall" ${allSel ? 'checked' : ''}></th>${th('name', 'Zařízení')}${th('model', 'Model')}${th('version', 'RouterOS')}${th('status', 'Stav')}${adv ? th('firmware', 'Firmware') + '<th class="c-flash">Flash · RAM volné</th><th class="c-parent">Nadřazený</th>' + th('track', 'Track') + '<th class="c-scan">Sken</th>' + (state.admin && state.users ? th('owner', 'Vlastník') : '') : ''}<th></th></tr></thead><tbody>
   ${(state.renderedIds = new Set(real.map(d => d.id)), '')}${list.map(d => { if (d._grp) { const selN = d.ids.filter(id => state.selected.has(id)).length; return `<tr class="grp" data-key="${esc(d.key)}"><td class="cardsel">${d.ids.length ? `<input type="checkbox" class="gsel" data-key="${esc(d.key)}" ${selN && selN === d.ids.length ? 'checked' : ''} ${selN && selN < d.ids.length ? 'data-ind="1"' : ''} title="vybrat / zrušit výběr všech zařízení tohoto APčka">` : ''}</td><td class="cardhead grph" colspan="${cols - 1}"><span class="grpmark" title="${d.fromUserdb ? 'APčko z userdb' : d.key ? 'skupina (zařízení bez vazby na APčko v userdb)' : 'zařízení bez APčka i skupiny'}">${d.fromUserdb ? '◈' : '▤'}</span><b>${esc(d.label)}</b><span class="cnt">${d.total} zařízení${d.need ? ` · <b class="need">k upgradu: ${d.need}</b>` : ''}${selN ? ` · vybráno ${selN}` : ''}</span>${d.need && !running ? ` <button class="small ok gup" data-key="${esc(d.key)}" title="otevře nový upgrade jen pro zařízení tohoto APčka, která čekají na upgrade (${d.need})">▶ Upgradovat APčko (${d.need})</button>` : ''}</td></tr>`; } const ps = plainStatus(d); const sc = STATUS_LABEL[d.scan_status] || ['b-muted', d.scan_status]; const scanning = state.scanning.includes(d.id); const busy = (state.runner.busy || []).includes(d.id);
-    return `<tr class="${state.selected.has(d.id) ? 'selected' : ''} ${d.enabled ? '' : 'muted'} ${d._ctx ? 'ctx' : ''} ${state.sort === 'tree' && d._depth === 0 && d._kids ? 'root-row' : ''}" data-id="${d.id}" ${d._ctx ? 'title="nadřazený prvek mimo filtr — jen pro strukturu stromu"' : ''}>
-    <td class="cardsel">${d._ctx ? '' : `<input type="checkbox" class="sel" data-id="${d.id}" ${state.selected.has(d.id) ? 'checked' : ''}>`}</td>
+    return `<tr class="${state.selected.has(d.id) ? 'selected' : ''} ${d.enabled ? '' : 'muted'} ${state.sort === 'tree' && d._depth === 0 && d._kids ? 'root-row' : ''}" data-id="${d.id}">
+    <td class="cardsel"><input type="checkbox" class="sel" data-id="${d.id}" ${state.selected.has(d.id) ? 'checked' : ''}></td>
     <td class="clickable detail name cardhead" data-id="${d.id}">${d._depth > 0 ? `<span class="tree mono">${esc(d._prefix)}${d._last ? '└─' : '├─'}</span>` : ''}${d._depth === 0 && d._kids ? '<span class="rootmark" title="hlavní prvek — napájí/připojuje podřízené">▣</span>' : ''}<b>${esc(devLabel(d))}</b>${d._kids ? ` <span class="muted" title="počet přímo podřízených">(${d._kids})</span>` : ''}${foreignChip(d)}${schedIcon(d)}${busy ? ' <span class="badge b-info">právě se upgraduje</span>' : ''}${d.enabled ? '' : ' <span class="badge b-muted">vypnuto</span>'}${d.track === 'v6-long-term' ? ' <span class="chip" title="zůstává na v6, na sedmičku se neupgraduje">zůstává na v6</span>' : trackOf(d) === 'v6-long-term' ? ((d.no_v7 || []).length ? ` <span class="chip" title="hardware bez v7 (${esc(String((d.no_v7 || [])[0] || '').split(':')[0])}) — cíl je poslední v6; v7 jde povolit tužkou u zařízení">zůstává na v6 (HW)</span>` : ' <span class="chip" title="nastavení „zůstat na v6“: zařízení na RouterOS 6 jdou jen na poslední v6 long-term">zůstává na v6 (nastavení)</span>') : d.track === 'hold' ? ' <span class="chip" title="nikdy neupgradovat">hold</span>' : ''}${d.userdb_member ? ` <span class="chip" title="zařízení člena (userdb uživatel ${d.userdb_member}) pod APčkem ${esc(d.userdb_ap)}">člen</span>` : ''}${d.parent_foreign ? ` <span class="chip" title="nadřazený prvek patří jinému uživateli — pořadí i zámky se hlídají i přes hranici účtů">pod: ${esc(d.parent_foreign.name)}${d.parent_foreign.user ? ` (${esc(d.parent_foreign.user)})` : ''}</span>` : ''}${d.dup_of ? ` <span class="chip" title="stejné sériové číslo jako ${esc((state.devices.find(x => x.id === d.dup_of) || {}).host || '#' + d.dup_of)} — jeden fyzický kus pod více IP, upgraduje se jen hlavní záznam">stejný kus jako ${esc((state.devices.find(x => x.id === d.dup_of) || {}).name || (state.devices.find(x => x.id === d.dup_of) || {}).host || '#' + d.dup_of)}</span>` : ''}<span class="sub"><span class="mono">${esc(d.host)}${d.port !== 22 ? ':' + d.port : ''}</span>${d.group_name ? ` · ${esc(d.group_name)}` : ''}${d.name && d.identity && d.name !== d.identity ? ` · ${esc(devLabel(d) === d.identity ? d.name : d.identity)}` : ''}</span></td>
     <td data-l="model">${esc(d.board_name || d.model)}${adv && d.arch ? `<span class="sub">${esc(d.arch)}</span>` : ''}</td>
     <td class="mono" data-l="RouterOS">${d.dup_of ? '<span class="muted" title="stejný kus jako hlavní záznam — verze je u něj">viz hlavní</span>' : `<b>${esc(d.version || '—')}</b>${adv && d.channel ? ` <span class="muted">${esc(d.channel)}</span>` : ''}${adv && d.uptime_sec ? `<span class="sub" title="uptime">${upt(d.uptime_sec)}</span>` : ''}`}</td>
