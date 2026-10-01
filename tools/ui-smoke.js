@@ -57,6 +57,8 @@ S.linksQ = 'd2'; run('spoje hledání', (el) => { renderLinks(el); if (el.innerH
 S.linksGrp = false; run('spoje bez seskupení', (el) => { renderLinks(el); if (el.innerHTML.includes('class="grp"')) throw new Error('seskupeno'); }); S.linksGrp = true;
 S.links.rows.push({ kind: 'sta', status: 'ok', sta: B(7, 'AP'), iface: 'wlan1', ssid: 'z', ap: { label: 'cizí sektor', owner: 'jiný', foreign: true, at: 1 }, apIface: 'wlan2', apMac: 'CC', signal: -60, ccq: 95, apSignal: null, apCcq: null, uptime: '1h', peerVersion: '', at: B(7).at, apAt: 1 });
 run('spoje cizí protistrana', (el) => { renderLinks(el); if (!el.innerHTML.includes('cizí sektor') || !el.innerHTML.includes('(jiný)')) throw new Error('chybí cizí protistrana'); });
+for (const [k, d] of [['signal', 'asc'], ['signal', 'desc'], ['ccq', 'asc'], ['uptime', 'desc'], ['at', 'asc'], ['sta', 'asc'], ['ap', 'desc'], ['status', 'asc']]) { S.linksSort = k; S.linksDir = d; S.linksGrp = false; run(`spoje řazení ${k} ${d}`, (el) => { renderLinks(el); const h = el.innerHTML; if (!h.includes(`data-sort="${k}"`) || !h.includes(d === 'desc' ? '▼' : '▲')) throw new Error('chybí značka řazení'); if (k === 'signal' && d === 'asc') { const i1 = h.indexOf('-81 dBm'), i2 = h.indexOf('-72 dBm'), i3 = h.indexOf('nespojeno'); if (!(i1 < i2 && i2 < i3)) throw new Error('špatné pořadí podle signálu'); } }); }
+S.linksSort = 'status'; S.linksDir = 'asc'; S.linksGrp = true;
 run('spoje po APčkách', (el) => { renderLinks(el); if (!el.innerHTML.includes('mimo userdb')) throw new Error('chybí skupina mimo userdb'); });
 // detail jobu s položkami a logem (prefix zařízení, filtr důležitých řádků, filtr podle zařízení)
 {
