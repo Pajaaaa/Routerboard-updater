@@ -709,10 +709,14 @@ async function api(req, res, method, p, url) {
   if (method === 'GET' && p === '/api/links') {
     const all = db.listDevices();
     const { rows, thresholds } = linksQ.buildLinks(all, db.getSettings());
-    const mine = isAdmin(req) ? rows : rows.filter(r => (r.sta && r.sta.owner_id === req.user.id) || (r.ap && r.ap.owner_id === req.user.id));
+    // hlavní správce (role admin) vidí vše; správce oblasti jen spoje svých kusů — protistrana jiného správce se ukáže jen jako název + kdo ji má (bez IP, bez odkazu),
+    // stejně jako cizí nadřazený prvek v seznamu zařízení
+    const adm = isAdmin(req), uid = req.user.id;
+    const mine = adm ? rows : rows.filter(r => (r.sta && r.sta.owner_id === uid) || (r.ap && r.ap.owner_id === uid));
     const users = new Map(db.listUsers().map(u => [u.id, u.userdb_nick || u.name]));
-    const strip = (b) => b ? { ...b, owner: users.get(b.owner_id) || '', owner_id: undefined } : null;
-    return send(res, 200, { at: db.now(), thresholds, rows: mine.map(r => ({ ...r, sta: strip(r.sta), ap: strip(r.ap) })), scanned: all.filter(d => d.managed && !d.dup_of && d.flags && d.flags.links).length, total: all.filter(d => d.managed && !d.dup_of).length });
+    const strip = (b) => !b ? null : (adm || b.owner_id === uid) ? { ...b, owner: users.get(b.owner_id) || '', owner_id: undefined } : { label: b.label, owner: users.get(b.owner_id) || '', foreign: true, at: b.at };
+    const scope = adm ? all : all.filter(d => d.owner_id === uid);
+    return send(res, 200, { at: db.now(), thresholds, rows: mine.map(r => ({ ...r, sta: strip(r.sta), ap: strip(r.ap) })), scanned: scope.filter(d => d.managed && !d.dup_of && d.flags && d.flags.links).length, total: scope.filter(d => d.managed && !d.dup_of).length });
   }
   // ---- RB-DB (nezávislý scanner RouterOS v síti): výpis kriticky neaktuálních kusů proti upgraderu a userdb; jen správce ----
   if (seg[0] === 'rbdb') {

@@ -568,7 +568,7 @@ function renderLinks(m) {
     && (k === 'sta' ? x.kind === 'sta' : k === 'client' ? x.kind === 'client' : k === 'w60' ? x.kind === 'w60' : true) && (!q || txt(x).includes(q)));
   const cnt = {}; for (const x of r.rows || []) cnt[x.status] = (cnt[x.status] || 0) + 1;
   const vis = new Set(state.devices.map(d => d.id));
-  const devCell = (b, iface, extra) => b ? `<div>${vis.has(b.id) ? `<span class="clickable detail" data-id="${b.id}"><b>${esc(b.label)}</b></span>` : `<b>${esc(b.label)}</b>`} <span class="mono muted">${esc(b.host)}</span></div><div class="sub">${esc(iface || '')}${extra ? ` · ${esc(extra)}` : ''}${b.ap ? ` · <span class="muted">${esc(b.ap)}</span>` : ''}${state.admin && b.owner ? ` · <span class="muted">${esc(b.owner)}</span>` : ''}</div>` : '';
+  const devCell = (b, iface, extra) => !b ? '' : b.foreign ? `<div><b>${esc(b.label)}</b> <span class="muted" title="zařízení jiného správce — vidíš jen název a kdo ho má">(${esc(b.owner || 'jiný správce')})</span></div><div class="sub">${esc(iface || '')}${extra ? ` · ${esc(extra)}` : ''}</div>` : `<div>${vis.has(b.id) ? `<span class="clickable detail" data-id="${b.id}"><b>${esc(b.label)}</b></span>` : `<b>${esc(b.label)}</b>`} <span class="mono muted">${esc(b.host)}</span></div><div class="sub">${esc(iface || '')}${extra ? ` · ${esc(extra)}` : ''}${b.ap ? ` · <span class="muted">${esc(b.ap)}</span>` : ''}${state.admin && b.owner ? ` · <span class="muted">${esc(b.owner)}</span>` : ''}</div>`;
   const dbm = (v) => v === null || v === undefined ? '—' : `${v} dBm`, pct = (v) => v === null || v === undefined ? '—' : `${v} %`;
   const pair = (a, b, fmt, title) => `<span title="${esc(title)}">${fmt(a)}${b !== null && b !== undefined ? ` <span class="muted">/ ${fmt(b)}</span>` : ''}</span>`;
   const row = (x) => {
@@ -584,7 +584,7 @@ function renderLinks(m) {
   const sel = (id, opts, cur) => `<select id="${id}">${opts.map(([v, l]) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
   m.innerHTML = `<h1>Spoje <span class="muted" style="font-size:13px;font-weight:400">kvalita rádiových spojů z poslední kontroly</span></h1>
     <div class="panel"><div class="row">
-      <div>Snímek rádií má <b>${r.scanned}</b> z ${r.total} kusů (z poslední kontroly každého zařízení, historie se neukládá). Spojů <b>${(r.rows || []).length}</b>:
+      <div>Snímek rádií má <b>${r.scanned}</b> z ${r.total} ${state.admin ? 'kusů' : 'tvých kusů'} (z poslední kontroly každého zařízení, historie se neukládá).${state.admin ? '' : ' Vidíš spoje svých zařízení; protistrana jiného správce je jen jménem.'} Spojů <b>${(r.rows || []).length}</b>:
         <span class="badge b-err">${cnt.bad || 0} špatných</span> <span class="badge b-err">${cnt.down || 0} nespojených</span> <span class="badge b-warn">${cnt.warn || 0} slabších</span> <span class="badge b-ok">${cnt.ok || 0} v pořádku</span> <span class="badge b-muted">${cnt.unknown || 0} bez údaje</span>
         <div class="hint">limity${state.admin ? ' (Nastavení → Rádia)' : ''}: signál pod ${t.minSig} dBm, CCQ pod ${t.minCcq} %, 60 GHz kvalita pod ${t.minSig60} % nebo PER nad ${t.maxPer} % = špatný; „slabší“ = do 5 dB / 10 % nad limitem. Hodnoty „a / b“ = jak to vidí anténa / jak to vidí sektor; anténa se se sektorem páruje přes MAC rádia.</div></div>
       <div style="flex:1"></div><button class="small" id="linksrefresh" title="složit výpis znovu z aktuálních dat (nová čísla přinese až kontrola zařízení)">↻ Obnovit</button></div>

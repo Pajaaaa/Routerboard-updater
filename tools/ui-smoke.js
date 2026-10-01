@@ -55,6 +55,8 @@ for (const f of ['prob', 'bad', 'down', '']) { S.linksFilter = f; run(`spoje fil
 S.linksFilter = ''; for (const k of ['sta', 'client', 'w60']) { S.linksKind = k; run(`spoje druh=${k}`, renderLinks); } S.linksKind = '';
 S.linksQ = 'd2'; run('spoje hledání', (el) => { renderLinks(el); if (el.innerHTML.includes('klient mimo upgrader')) throw new Error('hledání nefiltruje'); }); S.linksQ = '';
 S.linksGrp = false; run('spoje bez seskupení', (el) => { renderLinks(el); if (el.innerHTML.includes('class="grp"')) throw new Error('seskupeno'); }); S.linksGrp = true;
+S.links.rows.push({ kind: 'sta', status: 'ok', sta: B(7, 'AP'), iface: 'wlan1', ssid: 'z', ap: { label: 'cizí sektor', owner: 'jiný', foreign: true, at: 1 }, apIface: 'wlan2', apMac: 'CC', signal: -60, ccq: 95, apSignal: null, apCcq: null, uptime: '1h', peerVersion: '', at: B(7).at, apAt: 1 });
+run('spoje cizí protistrana', (el) => { renderLinks(el); if (!el.innerHTML.includes('cizí sektor') || !el.innerHTML.includes('(jiný)')) throw new Error('chybí cizí protistrana'); });
 run('spoje po APčkách', (el) => { renderLinks(el); if (!el.innerHTML.includes('mimo userdb')) throw new Error('chybí skupina mimo userdb'); });
 // detail jobu s položkami a logem (prefix zařízení, filtr důležitých řádků, filtr podle zařízení)
 {
