@@ -712,8 +712,8 @@ async function api(req, res, method, p, url) {
         const d = byHost.get(x.ip), u = idx ? idx.get(x.ip) : null;
         return { ...x, device: d ? { id: d.id, owner: users.get(d.owner_id) || '', version: d.version, scan_status: d.scan_status } : null, userdb: u ? { ap: u.ap, apId: u.apId, area: u.area, areaId: u.areaId, member: u.member } : null };
       });
-      const sum = { total: rows.length, inUpgrader: rows.filter(x => x.device).length, inUserdb: rows.filter(x => x.userdb).length, importable: rows.filter(x => !x.device && x.userdb).length, nowhere: rows.filter(x => !x.device && !x.userdb).length };
-      return send(res, 200, { at: r.at, url: rbdb.cfg.url, stats: r.stats, rows, sum, userdb: userdb.enabled(), userdbError: udbErr });
+      const sum = { total: rows.length, inUpgrader: rows.filter(x => x.device).length, inUserdb: rows.filter(x => x.userdb).length, importable: rows.filter(x => !x.device && x.userdb && !x.swos).length, nowhere: rows.filter(x => !x.device && !x.userdb).length, swos: rows.filter(x => x.swos).length };
+      return send(res, 200, { at: r.at, url: rbdb.pageUrl(), api: r.api, stats: r.stats, rows, sum, userdb: userdb.enabled(), userdbError: udbErr });
     }
     // natáhnout přístupy z userdb k vybraným IP (1 dotaz na IP) a založit je skenem — stejně jako import celé sítě z userdb:
     // vlastník = správce oblasti podle APčka z ipIndexu (účet se založí dopředu), owner_me = pod sebe; IP bez loginu v userdb se jen vypíšou
@@ -726,15 +726,16 @@ async function api(req, res, method, p, url) {
       if (discovery.status(req.user.id) && !discovery.status(req.user.id).finishedAt) throw new Error('tvůj sken ještě běží, počkej na jeho dokončení');
       const ownerMe = !!b.owner_me;
       const track = ['v7-stable', 'v7-long-term'].includes(b.track) ? b.track : '';
-      const r = await rbdb.list(); const names = new Map(r.rows.map(x => [x.ip, x.name])), dupsOf = new Map(r.rows.map(x => [x.ip, x.dups || []]));
+      const r = await rbdb.list(); const names = new Map(r.rows.map(x => [x.ip, x.name])), dupsOf = new Map(r.rows.map(x => [x.ip, x.dups || []])), swosIps = new Set(r.rows.filter(x => x.swos).map(x => x.ip));
       let idx = null; try { idx = await userdb.ipIndex(); } catch {}
       const areaById = new Map((await userdb.areas()).map(a => [a.id, a]));
       const byHost = new Map(); for (const d of db.listDevices()) if (!byHost.has(d.host)) byHost.set(d.host, d);
       const creds = new Map(); let qi = 0;
       await Promise.all(Array.from({ length: 6 }, async () => { while (qi < ips.length) { const ip = ips[qi++]; creds.set(ip, await userdb.getCredentials(ip).catch(() => null)); } }));
       const ownerFor = userdbOwnerResolver({ acct: req.user, allMode: true, ownerMe, byName: req.user.name });
-      const entries = [], existing = [], missingLogin = [], owners = {}; const queued = new Set(); let dupSkipped = 0;
+      const entries = [], existing = [], missingLogin = [], owners = {}; const queued = new Set(); let dupSkipped = 0, swosSkipped = 0;
       for (const ip of ips) {
+        if (swosIps.has(ip)) { swosSkipped++; continue; } // SwOS switch: bez SSH, upgrader ho neumí
         // RBDB² zná u routeru i jeho další adresy: stejný kus pod jinou IP se nezakládá podruhé (ani když tu druhou IP upgrader už má)
         const dups = dupsOf.get(ip) || [];
         if (byHost.has(ip) || dups.some(d => byHost.has(d))) { existing.push(ip); continue; }
@@ -756,8 +757,8 @@ async function api(req, res, method, p, url) {
         }
         await new Promise(r2 => setTimeout(r2, 50));
       } else { discovery.setResult({ ownerId: req.user.id, foreign: [], errors, takeover: [] }); bus.emit('event', { type: 'devices-changed' }); }
-      audit(req, ownerMe ? 'import z RB-DB (pod sebe)' : 'import z RB-DB', `${ips.length} IP: ${entries.length} nových ke skenu, ${existing.length} už v seznamu, ${dupSkipped} dalších IP téhož routeru, ${missingLogin.length} bez loginu v userdb; vlastníci: ${Object.entries(owners).map(([k, v]) => `${k} ${v}`).join(', ') || '—'}`);
-      return send(res, 200, { total: ips.length, toScan: entries.length, existing: existing.length, dupSkipped, missingLogin, owners, discovery: discovery.status(req.user.id) });
+      audit(req, ownerMe ? 'import z RB-DB (pod sebe)' : 'import z RB-DB', `${ips.length} IP: ${entries.length} nových ke skenu, ${existing.length} už v seznamu, ${dupSkipped} dalších IP téhož routeru, ${swosSkipped} SwOS, ${missingLogin.length} bez loginu v userdb; vlastníci: ${Object.entries(owners).map(([k, v]) => `${k} ${v}`).join(', ') || '—'}`);
+      return send(res, 200, { total: ips.length, toScan: entries.length, existing: existing.length, dupSkipped, swosSkipped, missingLogin, owners, discovery: discovery.status(req.user.id) });
     }
     return send(res, 404, { error: 'neznámá akce' });
   }
@@ -1240,15 +1241,15 @@ const server = http.createServer(async (req, res) => {
         const areas = new Map(); const unknown = [];
         for (const x of r.rows) {
           const u = idx ? idx.get(x.ip) : null;
-          if (!u) { unknown.push({ ip: x.ip, version: x.version }); continue; }
+          if (!u) { unknown.push({ ip: x.ip, version: x.version, swos: !!x.swos }); continue; }
           const k = u.areaId || u.area;
           if (!areas.has(k)) areas.set(k, { area: u.area, areaId: u.areaId, rows: [] });
-          areas.get(k).rows.push({ ip: x.ip, dups: x.dups || [], version: x.version, ap: u.ap, member: !!u.member });
+          areas.get(k).rows.push({ ip: x.ip, dups: x.dups || [], version: x.version, ap: u.ap, member: !!u.member, swos: !!x.swos });
         }
         const ipKey = ip => ip.split('.').map(n => n.padStart(3, '0')).join('.');
         const list = [...areas.values()].map(a => ({ ...a, count: a.rows.length, rows: a.rows.sort((x, y) => x.ap.localeCompare(y.ap, 'cs') || ipKey(x.ip).localeCompare(ipKey(y.ip))) })).sort((x, y) => y.count - x.count || x.area.localeCompare(y.area, 'cs'));
         unknown.sort((x, y) => ipKey(x.ip).localeCompare(ipKey(y.ip)));
-        rbdbPublicCache = { at: Date.now(), rbdbAt: r.at, stats: r.stats, userdb: !!idx, areas: list, unknown, sum: { total: r.rows.length, paired: r.rows.length - unknown.length, areas: list.length, unknown: unknown.length } };
+        rbdbPublicCache = { at: Date.now(), rbdbAt: r.at, stats: r.stats, userdb: !!idx, areas: list, unknown, sum: { total: r.rows.length, paired: r.rows.length - unknown.length, areas: list.length, unknown: unknown.length, swos: r.rows.filter(x => x.swos).length, scanned: r.stats.found || 0 } };
       }
       return send(res, 200, rbdbPublicCache, { 'Cache-Control': 'public, max-age=120' });
     }

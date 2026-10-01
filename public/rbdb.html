@@ -37,7 +37,7 @@
 <body>
 <div class="wrap">
   <div class="top"><h1>Neaktuální RouterOS po oblastech</h1><span class="muted"><a href="./">← MikroTik upgrader</a> · <span id="stamp"></span></span></div>
-  <div class="legend">Kusy, které nezávislý scanner sítě (RB-DB) hlásí jako napadnutelné (kriticky neaktuální RouterOS), spárované s evidencí userdb podle IP. Router s více adresami je uveden u každé z nich. Verze je ta, kterou scanner viděl naposledy; po upgradu zmizí z výpisu při dalším skenu.</div>
+  <div class="legend">Kusy, které nezávislý scanner sítě (RB-DB) hlásí jako napadnutelné (kriticky neaktuální RouterOS), spárované s evidencí userdb podle IP. Router s více adresami je uveden u každé z nich. Switche se SwOS (verze 1.x/2.x) scanner neodlišuje — nemají SSH a zranitelnost RouterOS se jich netýká. Verze je ta, kterou scanner viděl naposledy; po upgradu zmizí z výpisu při dalším skenu.</div>
   <div id="msg"></div>
   <div id="main"></div>
 </div>
@@ -56,7 +56,7 @@ async function load() {
 function msg(t) { const m = $('#msg'); m.style.display = 'block'; m.textContent = t; $('#main').innerHTML = ''; }
 
 function row(d) {
-  return `<tr><td class="mono">${esc(d.ip)}${(d.dups || []).length ? `<div class="muted" style="font-size:11px" title="další adresy téhož routeru">= ${d.dups.map(esc).join(', ')}</div>` : ''}</td><td class="mono ${/^6\./.test(d.version) ? 'v6' : ''}">${esc(d.version)}</td><td>${esc(d.ap)}${d.member ? ' <span class="badge b-muted">člen</span>' : ''}</td></tr>`;
+  return `<tr><td class="mono">${esc(d.ip)}${(d.dups || []).length ? `<div class="muted" style="font-size:11px" title="další adresy téhož routeru">= ${d.dups.map(esc).join(', ')}</div>` : ''}</td><td class="mono ${/^6\./.test(d.version) ? 'v6' : ''}">${esc(d.version)}${d.swos ? ' <span class="badge b-muted" title="switch se SwOS: bez SSH, zranitelnost RouterOS se ho netýká">SwOS</span>' : ''}</td><td>${esc(d.ap)}${d.member ? ' <span class="badge b-muted">člen</span>' : ''}</td></tr>`;
 }
 function render() {
   if (!data) return;
@@ -68,7 +68,8 @@ function render() {
     ${stat(s.paired, 'z nich zná userdb', 'info')}
     ${stat(s.areas, 'oblastí', 'info')}
     ${stat(s.unknown, 'nezná userdb', s.unknown ? 'err' : '')}
-    ${st.found ? stat(st.found, 'kusů RouterOS scanner zná celkem') : ''}
+    ${s.swos ? stat(s.swos, 'z toho SwOS switchů (netýká se)') : ''}
+    ${st.found ? stat(st.found, 'kusů scanner zná celkem') : ''}
   </div>
   ${st.versions ? `<div class="legend">aktuální verze podle RB-DB: <b>${esc(st.versions)}</b></div>` : ''}
   <div class="ctl"><input type="search" id="q" placeholder="hledat oblast / AP / IP / verzi…" value="${esc(q)}"><button id="expand">rozbalit vše</button><button id="collapse">sbalit vše</button></div>`;

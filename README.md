@@ -80,7 +80,7 @@ lib/topology.js    určení rodiče (rádio, PoE, CAPsMAN, brána)
 lib/poe-models.js  tabulka PoE-out portů podle modelu RouterBOARDu (pro kontrolu PoE prvku nad zařízením)
 lib/discovery.js   sken adres a rozsahů ve frontě (víc uživatelů naráz), zakládání zařízení
 lib/userdb.js      klient evidence sítě (oblasti, správci, zařízení APček, loginy)
-lib/rbdb.js        klient RB-DB (nezávislý scanner RouterOS: výpis IP + verze, tolerantní dekódování)
+lib/rbdb.js        klient RB-DB/RBDB² (nezávislý scanner RouterOS: JSON API, nouzově HTML tabulka; SwOS se pozná podle verze)
 lib/sso.js         OpenID Connect (authorization code + PKCE)
 lib/versions.js    verze z upgrade.mikrotik.com, katalog a cache balíčků
 lib/db.js          SQLite schéma a přístup k datům
