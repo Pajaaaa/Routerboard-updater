@@ -129,16 +129,19 @@ function withSuggestions(devs) {
   const visible = new Set(devs.map(d => d.id));
   const byId = new Map(devs.map(d => [d.id, d]));
   let allMap = null; const userNames = new Map();
-  const foreignParent = (d) => {
-    if (!d.parent_id || visible.has(d.parent_id)) return null;
+  const foreignRef = (id) => {
+    if (!id || visible.has(id)) return null;
     if (!allMap) allMap = new Map(db.listDevices().map(x => [x.id, x]));
-    const p = allMap.get(d.parent_id); if (!p) return null;
+    const p = allMap.get(id); if (!p) return null;
     if (!userNames.has(p.owner_id)) { const u = db.getUser(p.owner_id); userNames.set(p.owner_id, u ? (u.userdb_nick || u.name) : ''); }
-    return { name: devLabel(p), user: userNames.get(p.owner_id) };
+    return { name: devLabel(p), host: p.host, user: userNames.get(p.owner_id) };
   };
+  const foreignParent = (d) => foreignRef(d.parent_id);
+  // dup_foreign: hlavní záznam téhož kusu (stejné S/N) je u jiného správce — duplicity se slučují napříč účty
+  const foreignDup = (d) => foreignRef(d.dup_of);
   void byId;
   const sc = settingsByOwner();
-  return devs.map(d => { const rules = NO_V7.filter(r => { try { return r.test(d); } catch { return false; } }); const eff = effectiveTrack(d, sc(d.owner_id)); return { ...slimDevice(d), suggested_parent: d.parent_id ? null : suggestParent(d, devs), parent_foreign: foreignParent(d), no_v7: rules.map(r => r.why), no_v7_hard: rules.some(r => r.hard), eff_track: eff }; });
+  return devs.map(d => { const rules = NO_V7.filter(r => { try { return r.test(d); } catch { return false; } }); const eff = effectiveTrack(d, sc(d.owner_id)); return { ...slimDevice(d), suggested_parent: d.parent_id ? null : suggestParent(d, devs), parent_foreign: foreignParent(d), dup_foreign: foreignDup(d), no_v7: rules.map(r => r.why), no_v7_hard: rules.some(r => r.hard), eff_track: eff }; });
 }
 
 const { targetFor } = require('./lib/planner');
@@ -261,23 +264,25 @@ async function networkProgress() {
 let remainingCache = { at: 0, value: null };
 // zařízení přidaná ručně podle IP (ne přes „Natáhnout z userdb“) nemají vazbu na APčko → dohledat podle IP v userdb a uložit,
 // ať sedí zbyva.html, přehled po APčkách i přebírání správci oblasti (30.9.2026: 117 ze 126 kusů bez vazby šlo dohledat, TAPO - Plácky u cekra).
-// Jen doplňuje prázdné, vazbu z importu nepřepisuje. Běží po startu, každých 30 min a na pozadí při načtení zbyva.html (nejvýš 1× za 10 min).
+// Doplňuje prázdné a od 1.10.2026 i přepisuje, když userdb vede IP pod jiným APčkem (kus přesunutý v userdb, nebo natažený ručně pod špatné APčko;
+// bylo 7 takových) — userdb je zdroj pravdy. Kusy, jejichž IP userdb nezná, se nechávají být. Běží po startu, každých 30 min a na pozadí při načtení
+// zbyva.html (nejvýš 1× za 10 min).
 let resolveApsAt = 0, resolveApsRunning = null;
 function resolveUserdbAps(reason) {
   if (!userdb.enabled()) return Promise.resolve(0);
   if (resolveApsRunning) return resolveApsRunning;
   resolveApsRunning = (async () => {
     try {
-      const todo = db.listDevices().filter(d => !d.userdb_ap_id);
-      if (!todo.length) return 0;
       const idx = await userdb.ipIndex();
-      let n = 0;
-      for (const d of todo) {
-        const h = idx.get(d.host); if (!h) continue;
+      let n = 0, moved = 0, missing = 0;
+      for (const d of db.listDevices()) {
+        const h = idx.get(d.host); if (!h) { if (!d.userdb_ap_id) missing++; continue; }
+        if (Number(d.userdb_ap_id) === h.apId) continue;
+        if (d.userdb_ap_id) { moved++; console.log(`userdb: ${d.host} přesunuto z APčka ${d.userdb_ap || d.userdb_ap_id} na ${h.ap} (${h.apId})`); }
         db.updateDevice(d.id, { userdb_ap_id: h.apId, userdb_ap: h.ap, userdb_member: h.member ? h.userId : 0, ...(d.group_name ? {} : { group_name: h.ap }) });
         n++;
       }
-      if (n) { console.log(`userdb: doplněna vazba na APčko u ${n} z ${todo.length} zařízení bez vazby (${reason})`); remainingCache.at = 0; bus.emit('event', { type: 'devices-changed' }); }
+      if (n) { console.log(`userdb: vazba na APčko doplněna u ${n - moved} a opravena u ${moved} zařízení, ${missing} kusů userdb nezná (${reason})`); remainingCache.at = 0; bus.emit('event', { type: 'devices-changed' }); }
       return n;
     } catch (e) { console.error('userdb vazba na APčko:', e.message); return 0; }
     finally { resolveApsAt = Date.now(); resolveApsRunning = null; }
@@ -1317,6 +1322,7 @@ server.listen(cfg.port, cfg.host, () => {
   // předehřát keš seznamu zařízení pro správce hned po startu (skládá se ~1 s a blokuje smyčku) — dřív než se rozjedou joby a SSH spojení
   setTimeout(() => { try { adminDevicesJson({ user: { role: 'admin' } }); } catch (e) { console.error('keš zařízení:', e.message); } }, 300);
   scanner.startPeriodic();
+  setTimeout(() => { try { const r = db.dedupeAllSerials(); if (r.linked) { console.log(`duplicity: sloučeno ${r.linked} záznamů (${r.serials} sériových čísel na víc záznamech)`); bus.emit('event', { type: 'devices-changed' }); } } catch (e) { console.error('duplicity:', e.message); } }, 2000);
   setTimeout(() => resolveUserdbAps('po startu').catch(() => {}), 20000);
   setInterval(() => resolveUserdbAps('pravidelně').catch(() => {}), 30 * 60e3);
 });

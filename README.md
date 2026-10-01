@@ -15,7 +15,7 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
   bezdrátových spojů a potomků, upgrade RouterBOOT s dalším restartem. Bez ověřených balíčků se nikdy nerestartuje.
 - **Topologie:** rodič se určí ze skenu (stanice → sektor podle registrace, 60 GHz protějšek, napájení z PoE portu,
   CAPsMAN, brána i na jiné IP téhož routeru), i napříč účty. Rodič podle brány je jen slabý odhad a přepíše se, jakmile
-  je znám lepší; ručně nastavený rodič se nemění. Stejný kus pod více IP (podle sériového čísla) má jen jeden hlavní záznam.
+  je znám lepší; ručně nastavený rodič se nemění. Stejný kus pod více IP (podle sériového čísla) má jen jeden hlavní záznam, i když ho mají různí správci — vedlejší záznam ukazuje „viz hlavní (u X)“ a k upgradu jde jen jednou. Vazba zařízení na APčko se dohledává a opravuje podle userdb (zdroj pravdy).
 - **Pořadí a zámky:** nadřazený prvek se nerestartuje, dokud jeho potomci v jobu neskončí; chyba potomka rodiče
   zablokuje. Jobů může běžet víc naráz (každý po jednom zařízení), zařízení nesmí být ve dvou jobech a před restartem
   se čeká na cizí job na sousedícím zařízení. PoE watchdog na napájecím rodiči se na dobu položky vypne.
@@ -56,9 +56,13 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
   → import zařízení APček i zařízení členů pod nimi včetně loginů. Typ zařízení z evidence se ignoruje, co je RouterOS
   rozhodne sken po SSH. Správce může natáhnout celou síť; zařízení připadnou účtům správců oblastí (založí se dopředu
   podle e-mailu). Ruční sken (seznam `ip uživatel heslo` nebo rozsahy) zůstává.
-- **RB-DB (správce):** záložka s výpisem kriticky neaktuálních kusů z nezávislého scanneru sítě („RouterOS scanner“, Tlačítko „Přeskenovat vybrané v RB-DB“ požádá scanner o nový SNMP sken vybraných adres (POST …/api/scan), aby upgradovaný kus z výpisu napadnutelných zmizel dřív než při pravidelném skenu; v hlavičce jsou živé fronty scanneru (GET …/api/queues).
-  `MTU_RBDB_URL`) proti upgraderu: u každé IP stav v upgraderu a APčko/oblast z userdb. Chybějící kusy jde natáhnout
-  z userdb i s loginy (vlastník jako při importu celé sítě) a načtené poslat k upgradu.
+- **RB-DB (správce):** záložka s výpisem kriticky neaktuálních kusů z nezávislého scanneru sítě („RouterOS scanner“,
+  `MTU_RBDB_URL`) proti upgraderu: u každé IP stav v upgraderu a APčko/oblast z userdb (párování i přes další adresy
+  téhož routeru). Chybějící kusy jde natáhnout z userdb i s loginy (vlastník jako při importu celé sítě) a načtené poslat
+  k upgradu. Když RB-DB hlásí starší verzi než vlastní sken upgraderu (údaj ze sousedů nebo z dřívějška), řádek to ukáže
+  a rozhoduje sken. Tlačítko „Přeskenovat vybrané v RB-DB“ požádá scanner o nový SNMP sken vybraných adres
+  (POST …/api/scan), aby upgradovaný kus z výpisu napadnutelných zmizel dřív než při pravidelném skenu; v hlavičce jsou
+  živé fronty scanneru (GET …/api/queues).
   Veřejná stránka `rbdb.html` (bez přihlášení) ukazuje tytéž kusy spárované s userdb po oblastech: jen IP, verze a APčko.
 - **Obnova mrtvého zařízení:** postup v nápovědě (záložní bootloader → Netinstall se stejnou verzí jako záloha →
   obnova z binární zálohy nebo exportu; od 7.24 Netinstall ze sousedního MikroTiku).
