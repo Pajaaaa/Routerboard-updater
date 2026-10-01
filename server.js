@@ -715,10 +715,22 @@ async function api(req, res, method, p, url) {
         return { ...x, device: d ? { id: d.id, owner: users.get(d.owner_id) || '', version: d.version, scan_status: d.scan_status } : null, userdb: u ? { ap: u.ap, apId: u.apId, area: u.area, areaId: u.areaId, member: u.member } : null };
       });
       const sum = { total: rows.length, inUpgrader: rows.filter(x => x.device).length, inUserdb: rows.filter(x => x.userdb).length, importable: rows.filter(x => !x.device && x.userdb && !x.swos).length, nowhere: rows.filter(x => !x.device && !x.userdb).length, swos: rows.filter(x => x.swos).length };
-      return send(res, 200, { at: r.at, url: rbdb.pageUrl(), api: r.api, stats: r.stats, rows, sum, userdb: userdb.enabled(), userdbError: udbErr });
+      const queues = await rbdb.queues().catch(() => null); // živé fronty skeneru (mimo keš výpisu)
+      return send(res, 200, { at: r.at, url: rbdb.pageUrl(), api: r.api, stats: r.stats, queues, rows, sum, userdb: userdb.enabled(), userdbError: udbErr });
     }
     // natáhnout přístupy z userdb k vybraným IP (1 dotaz na IP) a založit je skenem — stejně jako import celé sítě z userdb:
     // vlastník = správce oblasti podle APčka z ipIndexu (účet se založí dopředu), owner_me = pod sebe; IP bez loginu v userdb se jen vypíšou
+    // požádat scanner o nový sken vybraných adres (po upgradu zmizí z výpisu napadnutelných až po přeskenování); každá IP jako /32
+    if (method === 'POST' && p === '/api/rbdb/rescan') {
+      const b = await readBody(req).catch(() => ({}));
+      const ips = [...new Set((Array.isArray(b.ips) ? b.ips : []).map(x => String(x || '').trim()).filter(x => /^\d+\.\d+\.\d+\.\d+$/.test(x)))].slice(0, 500);
+      if (!ips.length) return send(res, 400, { error: 'žádné platné IP' });
+      if (!rbdb.apiBase()) return send(res, 400, { error: 'RB-DB je napojená jen přes HTML výpis, požadavek na sken potřebuje JSON API' });
+      const failed = []; let accepted = 0;
+      for (let i = 0; i < ips.length; i += 4) await Promise.all(ips.slice(i, i + 4).map(async ip => { try { await rbdb.enqueueScan(ip + '/32'); accepted++; } catch (e) { failed.push({ ip, error: e.message }); } }));
+      audit(req, 'RB-DB: žádost o sken', `${ips.length} IP, přijato ${accepted}, chyb ${failed.length}`);
+      return send(res, 200, { requested: ips.length, accepted, failed });
+    }
     if (method === 'POST' && p === '/api/rbdb/import') {
       if (!userdb.enabled()) throw new Error('napojení na userdb není nakonfigurováno (MTU_USERDB_USER/PASS)');
       const b = await readBody(req).catch(() => ({}));

@@ -56,7 +56,7 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
   → import zařízení APček i zařízení členů pod nimi včetně loginů. Typ zařízení z evidence se ignoruje, co je RouterOS
   rozhodne sken po SSH. Správce může natáhnout celou síť; zařízení připadnou účtům správců oblastí (založí se dopředu
   podle e-mailu). Ruční sken (seznam `ip uživatel heslo` nebo rozsahy) zůstává.
-- **RB-DB (správce):** záložka s výpisem kriticky neaktuálních kusů z nezávislého scanneru sítě („RouterOS scanner“,
+- **RB-DB (správce):** záložka s výpisem kriticky neaktuálních kusů z nezávislého scanneru sítě („RouterOS scanner“, Tlačítko „Přeskenovat vybrané v RB-DB“ požádá scanner o nový SNMP sken vybraných adres (POST …/api/scan), aby upgradovaný kus z výpisu napadnutelných zmizel dřív než při pravidelném skenu; v hlavičce jsou živé fronty scanneru (GET …/api/queues).
   `MTU_RBDB_URL`) proti upgraderu: u každé IP stav v upgraderu a APčko/oblast z userdb. Chybějící kusy jde natáhnout
   z userdb i s loginy (vlastník jako při importu celé sítě) a načtené poslat k upgradu.
   Veřejná stránka `rbdb.html` (bez přihlášení) ukazuje tytéž kusy spárované s userdb po oblastech: jen IP, verze a APčko.
