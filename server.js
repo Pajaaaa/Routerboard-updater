@@ -573,6 +573,8 @@ const audit = (req, action, detail) => db.audit(who(req), action, detail, client
 function adminOnly(req, res) { if (isAdmin(req)) return true; send(res, 403, { error: 'tuhle akci smí jen správce' }); return false; }
 
 // ---------- API ----------
+/** userdb záznam pro kus z RB-DB: podle IP, jinak podle další adresy téhož routeru (RBDB² duplicate_ips) — router bývá v userdb jen pod jednou IP */
+const udbFor = (idx, x) => idx ? (idx.get(x.ip) || (x.dups || []).map(ip => idx.get(ip)).find(Boolean) || null) : null;
 async function api(req, res, method, p, url) {
   const parts = p.split('/').filter(Boolean); // ['api', ...]
   const q = url.searchParams;
@@ -711,7 +713,7 @@ async function api(req, res, method, p, url) {
       if (userdb.enabled()) { try { idx = await userdb.ipIndex(); } catch (e) { udbErr = e.message; } }
       const users = new Map(db.listUsers().map(u => [u.id, u.userdb_nick || u.name]));
       const rows = r.rows.map(x => {
-        const d = devFor(x), u = idx ? idx.get(x.ip) : null;
+        const d = devFor(x), u = udbFor(idx, x);
         return { ...x, device: d ? { id: d.id, owner: users.get(d.owner_id) || '', version: d.version, scan_status: d.scan_status } : null, userdb: u ? { ap: u.ap, apId: u.apId, area: u.area, areaId: u.areaId, member: u.member } : null };
       });
       const sum = { total: rows.length, inUpgrader: rows.filter(x => x.device).length, inUserdb: rows.filter(x => x.userdb).length, importable: rows.filter(x => !x.device && x.userdb && !x.swos).length, nowhere: rows.filter(x => !x.device && !x.userdb).length, swos: rows.filter(x => x.swos).length };
@@ -745,7 +747,9 @@ async function api(req, res, method, p, url) {
       const areaById = new Map((await userdb.areas()).map(a => [a.id, a]));
       const byHost = new Map(); for (const d of db.listDevices()) if (!byHost.has(d.host)) byHost.set(d.host, d);
       const creds = new Map(); let qi = 0;
-      await Promise.all(Array.from({ length: 6 }, async () => { while (qi < ips.length) { const ip = ips[qi++]; creds.set(ip, await userdb.getCredentials(ip).catch(() => null)); } }));
+      // login z userdb: podle IP, jinak podle další adresy téhož routeru (v userdb bývá router jen pod jednou IP)
+      const credsFor = async (ip) => { for (const cand of [ip, ...(dupsOf.get(ip) || [])]) { const c = await userdb.getCredentials(cand).catch(() => null); if (c) return c; } return null; };
+      await Promise.all(Array.from({ length: 6 }, async () => { while (qi < ips.length) { const ip = ips[qi++]; creds.set(ip, await credsFor(ip)); } }));
       const ownerFor = userdbOwnerResolver({ acct: req.user, allMode: true, ownerMe, byName: req.user.name });
       const entries = [], existing = [], missingLogin = [], owners = {}; const queued = new Set(); let dupSkipped = 0, swosSkipped = 0;
       for (const ip of ips) {
@@ -756,7 +760,7 @@ async function api(req, res, method, p, url) {
         if (dups.some(d => queued.has(d))) { dupSkipped++; continue; }
         queued.add(ip);
         const c = creds.get(ip); if (!c) { missingLogin.push(ip); continue; }
-        const u = idx ? idx.get(ip) : null, a = u ? areaById.get(u.areaId) : null;
+        const u = udbFor(idx, { ip, dups }), a = u ? areaById.get(u.areaId) : null;
         const ownerId = ownerFor({ apId: u ? u.apId : 0, areaAdmins: a ? a.admins : [] });
         const ou = db.getUser(ownerId); const on = ou ? (ou.userdb_nick || ou.name) : String(ownerId); owners[on] = (owners[on] || 0) + 1;
         entries.push({ host: ip, port: 0, username: c.login, password: c.password, name: names.get(ip) || '', group_name: u ? u.ap : 'RB-DB', extra: u ? { userdb_ap_id: u.apId, userdb_ap: u.ap, userdb_member: u.member ? u.userId : 0 } : {}, ownerId });
@@ -1254,7 +1258,7 @@ const server = http.createServer(async (req, res) => {
         let idx = null; if (userdb.enabled()) { try { idx = await userdb.ipIndex(); } catch {} }
         const areas = new Map(); const unknown = [];
         for (const x of r.rows) {
-          const u = idx ? idx.get(x.ip) : null;
+          const u = udbFor(idx, x);
           if (!u) { unknown.push({ ip: x.ip, version: x.version, swos: !!x.swos }); continue; }
           const k = u.areaId || u.area;
           if (!areas.has(k)) areas.set(k, { area: u.area, areaId: u.areaId, rows: [] });
