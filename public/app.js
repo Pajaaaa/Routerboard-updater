@@ -7,13 +7,14 @@ const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const MB = 1048576;
 let ADV = false; try { ADV = localStorage.getItem('mtu_adv') === '1'; } catch {}
+let LF = 'prob', LGRP = true; try { LF = localStorage.getItem('mtu_lf') ?? 'prob'; LGRP = localStorage.getItem('mtu_lgrp') !== '0'; } catch {}
 /** připojí klik na prvek, když existuje (helper používaný napříč pohledy) */
 const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
 let VF = ''; try { VF = localStorage.getItem('mtu_vf') || ''; } catch {}
 let RBGRP = true; try { RBGRP = localStorage.getItem('mtu_rbdbgrp') !== '0'; } catch {} // RB-DB: výpis seskupený po APčkách z userdb
 // řazení se nepamatuje: po každém načtení stránky je výchozí strom topologie (jiné řazení platí jen do obnovení stránky)
 let SORT = 'tree', SORTDIR = 'asc'; try { localStorage.removeItem('mtu_sort'); } catch {}
-const state = { vf: VF, scanProg: null, checkProg: null, sortDir: SORTDIR, owner: 0, authed: false, auth: { sso: false, passwordLogin: true, user: null }, view: 'devices', advanced: ADV, devices: [], jobs: [], latest: { versions: {} }, settings: {}, runner: {}, tracks: [], selected: new Set(), filter: '', group: '', sort: SORT, modal: null, job: null, jobLog: [], detail: null, scanning: [], rbdb: null, rbdbLoading: false, rbdbSel: new Set(), rbdbFilter: '', rbdbGrp: RBGRP, rbdbDiscOpen: false, rbdbPending: null };
+const state = { vf: VF, scanProg: null, checkProg: null, sortDir: SORTDIR, owner: 0, authed: false, auth: { sso: false, passwordLogin: true, user: null }, view: 'devices', advanced: ADV, devices: [], jobs: [], latest: { versions: {} }, settings: {}, runner: {}, tracks: [], selected: new Set(), filter: '', group: '', sort: SORT, modal: null, job: null, jobLog: [], detail: null, scanning: [], rbdb: null, rbdbLoading: false, links: null, linksLoading: false, linksFilter: LF, linksKind: '', linksQ: '', linksGrp: LGRP, rbdbSel: new Set(), rbdbFilter: '', rbdbGrp: RBGRP, rbdbDiscOpen: false, rbdbPending: null };
 
 async function api(path, opts = {}) {
   const r = await fetch(BASE + '/api' + path, { headers: { 'Content-Type': 'application/json' }, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
@@ -137,7 +138,7 @@ function render() {
   const navBtn = (v, ico, label) => `<button class="${state.view === v ? 'active' : ''}" data-view="${v}"><span class="ico">${ico}</span>${label}</button>`;
   app.innerHTML = `<div class="shell"><aside class="side">
     <div class="brand"><div class="mark">ROS</div><div><b>MikroTik upgrader</b><small>správa RouterOS</small></div></div>
-    <nav>${navBtn('devices', '▤', 'Zařízení')}${navBtn('jobs', '▶', 'Upgrady')}<a class="navlink" href="prehled.html" target="_blank" title="postup upgradu po oblastech a APčkách (otevře se vedle)"><span class="ico">▦</span>Postup</a>${navBtn('help', '?', 'Nápověda')}${navBtn('settings', '⚙', 'Nastavení')}${state.admin ? navBtn('rbdb', '⌁', 'RB-DB') : ''}${state.admin ? navBtn('admin', '🛠', 'Správa') : ''}</nav>
+    <nav>${navBtn('devices', '▤', 'Zařízení')}${navBtn('jobs', '▶', 'Upgrady')}${navBtn('links', '⇆', 'Spoje')}<a class="navlink" href="prehled.html" target="_blank" title="postup upgradu po oblastech a APčkách (otevře se vedle)"><span class="ico">▦</span>Postup</a>${navBtn('help', '?', 'Nápověda')}${navBtn('settings', '⚙', 'Nastavení')}${state.admin ? navBtn('rbdb', '⌁', 'RB-DB') : ''}${state.admin ? navBtn('admin', '🛠', 'Správa') : ''}</nav>
     <div class="versions">${latestBar()}</div>
     <div class="spacer"></div>
     <div class="runner-pill ${running ? 'live' : ''}" id="runnerpill">${running ? ownRuns.map(({ r, job, dev }) => `<div class="clickable" data-job="${r.jobId}"><span class="pulse"></span><b>job #${r.jobId}</b>${job ? ` ${esc(job.name).slice(0, 40)}` : ''}${dev ? `<br><span class="hint">${esc(devName(dev))}</span>` : ''}</div>`).join('') : 'žádný tvůj job neběží'}${(state.runner.others || []).length ? `<div class="hint" style="margin-top:6px;line-height:1.4">${state.runner.others.map(o => `<b>${esc(o.user || 'jiný uživatel')}</b>: ${o.jobs > 1 ? `${o.jobs} joby, ` : ''}upgrade ${o.total} zařízení${o.done ? `, hotovo ${o.done}` : ''}`).join('<br>')}</div>` : ''}</div>
@@ -164,6 +165,7 @@ function render() {
   else if (state.view === 'jobs') renderJobs(m);
   else if (state.view === 'help') renderHelp(m);
   else if (state.view === 'admin' && state.admin) renderSettings(m, true);
+  else if (state.view === 'links') renderLinks(m);
   else if (state.view === 'rbdb' && state.admin) renderRbdb(m);
   else renderSettings(m);
   m.insertAdjacentHTML('afterbegin', statsStrip());
@@ -544,6 +546,63 @@ function rbdbProblems(st) {
   for (const t of st.foreign || []) put(t, 'b-warn', 'u jiného uživatele', t);
   for (const t of st.errors || []) { const m = String(t); put(m, /chybí login/i.test(m) ? 'b-warn' : 'b-err', /chybí login/i.test(m) ? 'bez loginu v userdb' : /neodpovídá|timeout|unreachable|EHOSTUNREACH|ETIMEDOUT|ECONNREFUSED/i.test(m) ? 'nedostupné (SSH neodpovídá)' : 'chyba při natažení', m); }
   return out;
+}
+/** Spoje: kvalita rádiových spojů z posledního snímku rádií (API /links); bez historie — jen stav z poslední kontroly každého kusu */
+async function loadLinks() {
+  if (state.linksLoading) return;
+  state.linksLoading = true;
+  try { state.links = await api('/links'); } catch (e) { state.links = { error: e.message }; }
+  state.linksLoading = false;
+  if (state.view === 'links') render();
+}
+const LINK_ST = { bad: ['b-err', 'špatný', 'pod limitem z nastavení (signál / CCQ / 60 GHz kvalita / PER)'], down: ['b-err', 'nespojeno', 'rádio běží, ale není registrované k žádnému sektoru / protistraně'], warn: ['b-warn', 'slabší', 'do 5 dB / 10 % nad limitem — při upgradu by prošel, ale moc rezervy nemá'], unknown: ['b-muted', 'bez údaje', 'protistrana nehlásí signál ani CCQ'], ok: ['b-ok', 'v pořádku', ''] };
+const agoStr = (ts) => { if (!ts) return '—'; const m = Math.round((Date.now() / 1000 - ts) / 60); return m < 2 ? 'teď' : m < 60 ? `${m} min` : m < 2880 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} d`; };
+function renderLinks(m) {
+  const r = state.links;
+  if (!r) { m.innerHTML = `<h1>Spoje</h1><div class="panel"><span class="muted">⏳ skládám výpis spojů z posledních kontrol…</span></div>`; loadLinks(); return; }
+  if (r.error) { m.innerHTML = `<h1>Spoje</h1><div class="panel"><div class="banner err">${esc(r.error)}</div><button id="linksreload">↻ Zkusit znovu</button></div>`; on('#linksreload', () => { state.links = null; loadLinks(); }); return; }
+  const t = r.thresholds || {};
+  const f = state.linksFilter, k = state.linksKind, q = (state.linksQ || '').trim().toLowerCase();
+  const txt = (x) => [x.sta && x.sta.label, x.sta && x.sta.host, x.sta && x.sta.ap, x.ap && x.ap.label, x.ap && x.ap.host, x.ap && x.ap.ap, x.ssid, x.staMac, x.apMac, x.iface, x.apIface].filter(Boolean).join(' ').toLowerCase();
+  const rows = (r.rows || []).filter(x => (f === 'prob' ? x.status !== 'ok' && x.status !== 'unknown' : f === 'bad' ? x.status === 'bad' : f === 'down' ? x.status === 'down' : true)
+    && (k === 'sta' ? x.kind === 'sta' : k === 'client' ? x.kind === 'client' : k === 'w60' ? x.kind === 'w60' : true) && (!q || txt(x).includes(q)));
+  const cnt = {}; for (const x of r.rows || []) cnt[x.status] = (cnt[x.status] || 0) + 1;
+  const vis = new Set(state.devices.map(d => d.id));
+  const devCell = (b, iface, extra) => b ? `<div>${vis.has(b.id) ? `<span class="clickable detail" data-id="${b.id}"><b>${esc(b.label)}</b></span>` : `<b>${esc(b.label)}</b>`} <span class="mono muted">${esc(b.host)}</span></div><div class="sub">${esc(iface || '')}${extra ? ` · ${esc(extra)}` : ''}${b.ap ? ` · <span class="muted">${esc(b.ap)}</span>` : ''}${state.admin && b.owner ? ` · <span class="muted">${esc(b.owner)}</span>` : ''}</div>` : '';
+  const dbm = (v) => v === null || v === undefined ? '—' : `${v} dBm`, pct = (v) => v === null || v === undefined ? '—' : `${v} %`;
+  const pair = (a, b, fmt, title) => `<span title="${esc(title)}">${fmt(a)}${b !== null && b !== undefined ? ` <span class="muted">/ ${fmt(b)}</span>` : ''}</span>`;
+  const row = (x) => {
+    const st = LINK_ST[x.status] || LINK_ST.unknown;
+    const left = x.kind === 'client' ? (x.sta ? devCell(x.sta, x.iface, '') : `<div><b class="mono">${esc(x.staMac)}</b> <span class="muted">klient mimo upgrader</span></div><div class="sub">${x.peerVersion ? `RouterOS ${esc(x.peerVersion)}` : 'neznámý kus'}</div>`) : devCell(x.sta, x.iface, x.kind === 'w60' ? (x.mode || '60 GHz') : '');
+    const right = x.ap ? devCell(x.ap, x.apIface, '') : (x.apMac ? `<div><b class="mono">${esc(x.apMac)}</b> <span class="muted">${x.kind === 'w60' ? 'protistrana mimo upgrader' : 'sektor mimo upgrader'}</span></div><div class="sub">${x.peerVersion ? `RouterOS ${esc(x.peerVersion)}` : ''}</div>` : '<span class="muted">—</span>');
+    const q1 = x.kind === 'w60' ? pair(x.signal, x.peerSignal, pct, 'kvalita 60 GHz (signal) z této strany / z protistrany') : x.kind === 'client' ? `<span title="signál klienta, jak ho vidí sektor">${dbm(x.apSignal)}</span>` : pair(x.signal, x.apSignal, dbm, 'signál: jak ho vidí anténa / jak ho vidí sektor');
+    const q2 = x.kind === 'w60' ? `<span title="MCS z této strany / protistrany · chybovost paketů (PER)">MCS ${x.mcs ?? '—'}${x.peerMcs !== null && x.peerMcs !== undefined ? ` <span class="muted">/ ${x.peerMcs}</span>` : ''}${x.per !== null && x.per !== undefined ? ` · PER ${x.per} %` : ''}${x.rssi !== null && x.rssi !== undefined ? ` · RSSI ${x.rssi}` : ''}</span>` : x.kind === 'client' ? `<span title="tx-CCQ klienta, jak ho vidí sektor">${pct(x.apCcq)}</span>` : pair(x.ccq, x.apCcq, pct, 'CCQ: ze strany antény / ze strany sektoru');
+    return `<tr><td data-l="stav"><span class="badge ${st[0]}" title="${esc(st[2])}">${st[1]}</span></td><td data-l="anténa">${left}</td><td data-l="sektor">${right}${x.ssid ? `<div class="sub mono">${esc(x.ssid)}${x.frequency ? ` · ${esc(x.frequency)} MHz` : ''}</div>` : ''}</td><td class="mono" data-l="signál">${q1}</td><td class="mono" data-l="CCQ">${q2}</td><td class="mono" data-l="spojeno">${esc(x.uptime || '—')}</td><td class="mono muted" data-l="snímek" title="stáří poslední kontroly antény / sektoru">${agoStr(x.at)}${x.apAt ? ` / ${agoStr(x.apAt)}` : ''}</td></tr>`;
+  };
+  const grpKey = (x) => (x.sta && x.sta.ap) || (x.ap && x.ap.ap) || '';
+  const groups = state.linksGrp ? (() => { const g = new Map(); for (const x of rows) { const key = grpKey(x); if (!g.has(key)) g.set(key, []); g.get(key).push(x); } return [...g.entries()].sort((a, b) => (!a[0]) - (!b[0]) || a[0].localeCompare(b[0], 'cs', { numeric: true })).map(([key, rs]) => ({ key, rows: rs })); })() : [{ key: undefined, rows }];
+  const sel = (id, opts, cur) => `<select id="${id}">${opts.map(([v, l]) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+  m.innerHTML = `<h1>Spoje <span class="muted" style="font-size:13px;font-weight:400">kvalita rádiových spojů z poslední kontroly</span></h1>
+    <div class="panel"><div class="row">
+      <div>Snímek rádií má <b>${r.scanned}</b> z ${r.total} kusů (z poslední kontroly každého zařízení, historie se neukládá). Spojů <b>${(r.rows || []).length}</b>:
+        <span class="badge b-err">${cnt.bad || 0} špatných</span> <span class="badge b-err">${cnt.down || 0} nespojených</span> <span class="badge b-warn">${cnt.warn || 0} slabších</span> <span class="badge b-ok">${cnt.ok || 0} v pořádku</span> <span class="badge b-muted">${cnt.unknown || 0} bez údaje</span>
+        <div class="hint">limity${state.admin ? ' (Nastavení → Rádia)' : ''}: signál pod ${t.minSig} dBm, CCQ pod ${t.minCcq} %, 60 GHz kvalita pod ${t.minSig60} % nebo PER nad ${t.maxPer} % = špatný; „slabší“ = do 5 dB / 10 % nad limitem. Hodnoty „a / b“ = jak to vidí anténa / jak to vidí sektor; anténa se se sektorem páruje přes MAC rádia.</div></div>
+      <div style="flex:1"></div><button class="small" id="linksrefresh" title="složit výpis znovu z aktuálních dat (nová čísla přinese až kontrola zařízení)">↻ Obnovit</button></div>
+    <div class="row" style="margin-top:10px">
+      <label>stav ${sel('linksf', [['prob', `jen problémy (${(cnt.bad || 0) + (cnt.down || 0) + (cnt.warn || 0)})`], ['bad', `jen špatné (${cnt.bad || 0})`], ['down', `jen nespojené (${cnt.down || 0})`], ['', `vše (${(r.rows || []).length})`]], f)}</label>
+      <label>druh ${sel('linksk', [['', 'vše'], ['sta', 'anténa ↔ sektor (oba v upgraderu)'], ['client', 'klienti sektorů mimo upgrader'], ['w60', '60 GHz']], k)}</label>
+      <input type="search" id="linksq" placeholder="hledat: název, IP, SSID, MAC, APčko" value="${esc(state.linksQ || '')}" style="min-width:220px">
+      <label class="check" title="seskupit po APčkách z userdb (podle antény, u klientů mimo upgrader podle sektoru)"><input type="checkbox" id="linksgrp" ${state.linksGrp ? 'checked' : ''}> po APčkách</label></div></div>
+    <div class="panel"><div class="tablewrap"><table class="grid cards links">
+      <thead><tr><th>stav</th><th>anténa (stanice)</th><th>sektor / protistrana</th><th>signál</th><th>CCQ</th><th>spojeno</th><th>snímek</th></tr></thead>
+      <tbody>${groups.map(g => (g.key === undefined ? '' : `<tr class="grp"><td colspan="7" class="grph"><span class="grpmark">▸</span>${g.key ? esc(g.key) : 'mimo userdb'}<span class="cnt">${g.rows.length} ${g.rows.length === 1 ? 'spoj' : g.rows.length < 5 ? 'spoje' : 'spojů'}${g.rows.some(x => x.status === 'bad' || x.status === 'down') ? ` · <span class="need">${g.rows.filter(x => x.status === 'bad' || x.status === 'down').length} špatných</span>` : ''}</span></td></tr>`) + g.rows.map(row).join('')).join('') || `<tr><td colspan="7" class="muted">${(r.rows || []).length ? 'nic neodpovídá filtru' : 'žádné rádiové spoje — snímek rádií vzniká při kontrole zařízení'}</td></tr>`}</tbody></table></div>
+    <div class="hint" style="margin-top:6px">zobrazeno ${rows.length} z ${(r.rows || []).length} · výpis z ${esc(new Date(r.at * 1000).toLocaleString('cs-CZ'))}</div></div>`;
+  on('#linksrefresh', () => { state.links = null; render(); loadLinks(); });
+  const lf = $('#linksf'); if (lf) lf.onchange = (e) => { state.linksFilter = e.target.value; try { localStorage.setItem('mtu_lf', state.linksFilter); } catch {} render(); };
+  const lk = $('#linksk'); if (lk) lk.onchange = (e) => { state.linksKind = e.target.value; render(); };
+  on('#linksgrp', () => { state.linksGrp = !state.linksGrp; try { localStorage.setItem('mtu_lgrp', state.linksGrp ? '1' : '0'); } catch {} render(); });
+  const qi = $('#linksq'); if (qi) { let tm = 0; qi.oninput = () => { clearTimeout(tm); tm = setTimeout(() => { const pos = qi.selectionStart; state.linksQ = qi.value; render(); const n = $('#linksq'); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch {} } }, 250); }; }
+  m.querySelectorAll('.detail').forEach(c => c.onclick = () => openDetail(+c.dataset.id));
 }
 /** RB-DB: řádky seskupené po APčkách z userdb (oblast › APčko, česky abecedně), kusy bez userdb nakonec pod „mimo userdb“ */
 function rbdbGroups(rows) {
@@ -1229,6 +1288,7 @@ function connectSSE() {
     else if (ev.type === 'devices-changed') scheduleReload();
     else if (ev.type === 'latest') { api('/versions').then(l => { state.latest = l; renderLive(); }).catch(() => {}); } // cíl je per uživatel (vlastní připnutí nad společným) → každý si stáhne svůj
     else if (ev.type === 'scan-done') { toast(`sken hotov (${ev.count} zařízení)`); scheduleReload(); }
+    if ((ev.type === 'scan-done' || ev.type === 'devices-changed') && state.view === 'links' && state.links && !state.linksLoading) loadLinks(); // nová čísla po kontrole
   };
   es.onerror = () => { setTimeout(() => { if (state.authed) connectSSE(); }, 5000); };
 }

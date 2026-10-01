@@ -174,6 +174,7 @@ tr.grp td{background:var(--panel2);border-top:2px solid var(--line2);border-bott
 tbody tr.grp:hover td{background:var(--panel2)}
 tr.grp td.grph{font-size:13px}tr.grp .grpmark{color:var(--muted);margin-right:6px}tr.grp .cnt{color:var(--muted);font-weight:400;margin-left:8px;font-size:12px}tr.grp .cnt .need{color:var(--warn)}
 /* RB-DB: další adresy téhož routeru pod IP se zalamují (sériové číslo, viděno a způsob skenu jsou v tooltipu IP) */
+table.links td{white-space:normal;vertical-align:top}table.links td.mono{white-space:nowrap}table.links .sub{white-space:normal}
 td.rbip{white-space:normal}td.rbip .rbdups{font-size:11px;color:var(--muted);line-height:1.35;min-width:200px;max-width:360px}td.rbip .rbdups span{white-space:nowrap}
 .help p,.help li{max-width:78ch;line-height:1.55}.help ol{padding-left:22px}.help ol li{margin:6px 0}.help details{border-top:1px solid var(--line);padding:8px 0}.help details summary{color:var(--ink);font-weight:500}.help details p{margin:6px 0 0;color:var(--ink2)}.help code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-family:var(--mono);font-size:12px}
 .ssobtn{display:block;text-align:center;background:var(--accent);color:var(--accent-ink);font-weight:600;padding:10px;border-radius:var(--r);text-decoration:none;margin:8px 0}

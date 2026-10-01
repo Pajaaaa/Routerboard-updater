@@ -101,6 +101,7 @@ bus.on('event', (ev) => { if (ev.type === 'discovery-done' && ev.state) { const 
 const { suggestParent } = require('./lib/topology');
 const userdb = require('./lib/userdb');
 const rbdb = require('./lib/rbdb');
+const linksQ = require('./lib/links');
 /** do seznamu zařízení jdou jen příznaky, které UI používá; velké struktury (sousedé, rádia, balíčky) zůstávají v detailu zařízení */
 const SLIM_FLAG_KEYS = ['bgp', 'caps_client', 'capsman', 'device_mode', 'vlan_mgmt', 'flash_dir', 'mpls', 'ospf', 'platform', 'poe_ports', 'routing_filter', 'wifi', 'wireless', 'partitions', 'partitions_list', 'routerboard', 'w60g', 'wifiwave2', 'protected_routerboot', 'voltage', 'temperature', 'user_policy_missing', 'log_symptoms'];
 function slimFlags(f) {
@@ -709,6 +710,15 @@ async function api(req, res, method, p, url) {
     if (!adminOnly(req, res)) return;
     if (!rbdb.enabled()) return send(res, 404, { error: 'napojení na RB-DB není nakonfigurováno (MTU_RBDB_URL)' });
     // výpis: každý řádek RB-DB + co o té IP ví upgrader (zařízení podle hosta, i s jiným portem) a userdb (APčko/oblast přes ipIndex)
+    // kvalita rádiových spojů z posledního snímku rádií (stanice ↔ sektor, klienti sektorů, 60 GHz); správce vše, uživatel spoje svých kusů
+    if (method === 'GET' && p === '/api/links') {
+      const all = db.listDevices();
+      const { rows, thresholds } = linksQ.buildLinks(all, db.getSettings());
+      const mine = isAdmin(req) ? rows : rows.filter(r => (r.sta && r.sta.owner_id === req.user.id) || (r.ap && r.ap.owner_id === req.user.id));
+      const users = new Map(db.listUsers().map(u => [u.id, u.userdb_nick || u.name]));
+      const strip = (b) => b ? { ...b, owner: users.get(b.owner_id) || '', owner_id: undefined } : null;
+      return send(res, 200, { at: db.now(), thresholds, rows: mine.map(r => ({ ...r, sta: strip(r.sta), ap: strip(r.ap) })), scanned: all.filter(d => d.managed && !d.dup_of && d.flags && d.flags.links).length, total: all.filter(d => d.managed && !d.dup_of).length });
+    }
     if (method === 'GET' && p === '/api/rbdb') {
       const r = await rbdb.list(!!url.searchParams.get('refresh'));
       const all = db.listDevices(), byHost = new Map(), byId = new Map(all.map(d => [d.id, d])); for (const d of all) if (!byHost.has(d.host)) byHost.set(d.host, d);

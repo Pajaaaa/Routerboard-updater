@@ -56,6 +56,11 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
   → import zařízení APček i zařízení členů pod nimi včetně loginů. Typ zařízení z evidence se ignoruje, co je RouterOS
   rozhodne sken po SSH. Správce může natáhnout celou síť; zařízení připadnou účtům správců oblastí (založí se dopředu
   podle e-mailu). Ruční sken (seznam `ip uživatel heslo` nebo rozsahy) zůstává.
+- **Spoje:** záložka s kvalitou rádiových spojů z posledního snímku rádií každého kusu (vzniká při kontrole zařízení, historie
+  se neukládá): anténa ↔ sektor spárované přes MAC rádia s hodnotami z obou stran (signál, CCQ), klienti sektorů mimo upgrader
+  (jen pohled ze sektoru + verze RouterOS, kterou hlásí), 60 GHz spoje (kvalita, MCS, PER, RSSI) a stanice bez registrace.
+  Stav podle limitů z nastavení rádií (špatný / slabší do 5 dB či 10 % nad limitem / nespojeno), řazeno od nejhoršího, filtr,
+  hledání a seskupení po APčkách z userdb. Správce vidí vše, uživatel spoje svých kusů (`GET /api/links`, lib/links.js).
 - **RB-DB (správce):** záložka s výpisem kriticky neaktuálních kusů z nezávislého scanneru sítě („RouterOS scanner“,
   `MTU_RBDB_URL`) proti upgraderu: u každé IP stav v upgraderu a APčko/oblast z userdb (párování i přes další adresy
   téhož routeru). Chybějící kusy jde natáhnout z userdb i s loginy (vlastník jako při importu celé sítě) a načtené poslat
