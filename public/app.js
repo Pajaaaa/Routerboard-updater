@@ -565,7 +565,7 @@ function renderLinks(m) {
   const f = state.linksFilter, k = state.linksKind, q = (state.linksQ || '').trim().toLowerCase();
   const txt = (x) => [x.sta && x.sta.label, x.sta && x.sta.host, x.sta && x.sta.ap, x.ap && x.ap.label, x.ap && x.ap.host, x.ap && x.ap.ap, x.ssid, x.staMac, x.apMac, x.iface, x.apIface].filter(Boolean).join(' ').toLowerCase();
   const rows = (r.rows || []).filter(x => (f === 'prob' ? x.status !== 'ok' && x.status !== 'unknown' : f === 'bad' ? x.status === 'bad' : f === 'down' ? x.status === 'down' : true)
-    && (k === 'sta' ? x.kind === 'sta' : k === 'client' ? x.kind === 'client' : k === 'w60' ? x.kind === 'w60' : true) && (!q || txt(x).includes(q)));
+    && (k === 'sta' ? x.kind === 'sta' : k === 'client' ? x.kind === 'client' : k === 'w60' ? x.kind === 'w60' : k === '5g' ? (x.kind !== 'w60' && !/2ghz|2\.4/i.test(x.band || '')) : k === '2g' ? (x.kind !== 'w60' && /2ghz|2\.4/i.test(x.band || '')) : true) && (!q || txt(x).includes(q)));
   // řazení kliknutím na hlavičku: číselné sloupce berou horší ze stran (signál / CCQ / kvalita), nespojené a bez údaje jdou vždy na konec
   const RANKS = { bad: 0, down: 1, warn: 2, unknown: 3, ok: 4 };
   const upSec = (u) => { const m = String(u || '').match(/(?:(\d+)w)?(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?/); return m ? (+m[1] || 0) * 604800 + (+m[2] || 0) * 86400 + (+m[3] || 0) * 3600 + (+m[4] || 0) * 60 + (+m[5] || 0) : 0; };
@@ -605,7 +605,7 @@ function renderLinks(m) {
       <div style="flex:1"></div><button class="small" id="linksrefresh" title="složit výpis znovu z aktuálních dat (nová čísla přinese až kontrola zařízení)">↻ Obnovit</button></div>
     <div class="row" style="margin-top:10px">
       <label>stav ${sel('linksf', [['prob', `jen problémy (${(cnt.bad || 0) + (cnt.down || 0) + (cnt.warn || 0)})`], ['bad', `jen špatné (${cnt.bad || 0})`], ['down', `jen nespojené (${cnt.down || 0})`], ['', `vše (${(r.rows || []).length})`]], f)}</label>
-      <label>druh ${sel('linksk', [['', 'vše'], ['sta', 'anténa ↔ sektor (oba v upgraderu)'], ['client', 'klienti sektorů mimo upgrader'], ['w60', '60 GHz']], k)}</label>
+      <label>druh ${sel('linksk', [['', 'vše'], ['5g', 'jen 5 GHz (antény i klienti)'], ['sta', 'anténa ↔ sektor (oba v upgraderu)'], ['client', 'klienti sektorů mimo upgrader'], ['2g', 'jen 2,4 GHz'], ['w60', '60 GHz']], k)}</label>
       <input type="search" id="linksq" placeholder="hledat: název, IP, SSID, MAC, APčko" value="${esc(state.linksQ || '')}" style="min-width:220px">
       <label class="check" title="seskupit po APčkách z userdb (podle antény, u klientů mimo upgrader podle sektoru)"><input type="checkbox" id="linksgrp" ${state.linksGrp ? 'checked' : ''}> po APčkách</label></div></div>
     <div class="panel"><div class="tablewrap"><table class="grid cards links">
