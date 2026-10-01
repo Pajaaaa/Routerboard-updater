@@ -28,6 +28,7 @@ for (const adv of [false, true]) {
   for (const srt of ['tree', 'priority', 'name', 'version', 'model', 'seen', 'status', 'firmware', 'track', 'owner', 'host']) for (const dir of ['asc', 'desc']) { S.sort = srt; S.sortDir = dir; run(`zařízení adv=${adv} sort=${srt}/${dir}`, renderDevices); }
   for (const vf of ['', 'v6', 'v7', 'need', 'crit', 'ok', 'bad']) { S.vf = vf; run(`zařízení filtr=${vf || 'vše'}`, renderDevices); }
   S.vf = ''; S.owner = 1; run(`zařízení vlastník adv=${adv}`, renderDevices); S.owner = 0;
+  S.grpAp = false; run(`zařízení bez seskupení adv=${adv}`, renderDevices); S.grpAp = true; S.selected.add(2); run(`zařízení po APčkách s výběrem adv=${adv}`, renderDevices); S.selected.clear();
   run(`upgrady adv=${adv}`, renderJobs);
   run(`nastavení adv=${adv}`, (el) => renderSettings(el));
   run(`správa adv=${adv}`, (el) => renderSettings(el, true));

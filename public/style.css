@@ -169,6 +169,12 @@ td.acts{white-space:nowrap}
 .tree{color:var(--line2);white-space:pre;font-size:12px;margin-right:2px;letter-spacing:-1px}
 .rootmark{display:inline-block;color:var(--accent);margin-right:6px;font-size:12px}
 tr.root-row td{border-top:2px solid var(--line2)}
+/* hlavička APčka v seznamu zařízení (seskupení „po APčkách“) */
+tr.grp td{background:var(--panel2);border-top:2px solid var(--line2);border-bottom:1px solid var(--line);padding:5px 6px;white-space:normal}
+tbody tr.grp:hover td{background:var(--panel2)}
+tr.grp td.grph{font-size:13px}tr.grp .grpmark{color:var(--muted);margin-right:6px}tr.grp .cnt{color:var(--muted);font-weight:400;margin-left:8px;font-size:12px}tr.grp .cnt .need{color:var(--warn)}
+tr.grp .gup{margin-left:10px;padding:1px 8px}
+tr.grp+tr.root-row td{border-top:none}
 .help p,.help li{max-width:78ch;line-height:1.55}.help ol{padding-left:22px}.help ol li{margin:6px 0}.help details{border-top:1px solid var(--line);padding:8px 0}.help details summary{color:var(--ink);font-weight:500}.help details p{margin:6px 0 0;color:var(--ink2)}.help code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-family:var(--mono);font-size:12px}
 .ssobtn{display:block;text-align:center;background:var(--accent);color:var(--accent-ink);font-weight:600;padding:10px;border-radius:var(--r);text-decoration:none;margin:8px 0}
 .ssobtn:hover{filter:brightness(1.06)}
@@ -226,6 +232,10 @@ details.warnbox{border:1px solid var(--err);border-radius:var(--r);padding:6px 1
   table.cards td .sub{display:inline;margin-left:6px}
   table.cards td.parent select,table.cards td select{max-width:60%}
   table.cards tr.root-row td{border-top:none}
+  table.cards tr.grp{display:flex;align-items:center;gap:8px;background:var(--panel2);border:none;margin:16px 0 4px;padding:6px 10px}
+  table.cards tr.grp td{display:block;padding:0;background:none;border:none}
+  table.cards tr.grp td.cardsel{flex:0 0 auto}table.cards tr.grp td.grph{flex:1;font-size:14px}
+  table.cards tr.grp .gup{display:inline-block;margin:4px 0 0}
   .stats .stat{padding:8px 10px}
   .stats .stat b{font-size:18px}
   /* v kartách nemá stromová kresba význam (řádky nejsou pod sebou jako strom) a kontextové řádky rodičů jsou jen šum */
