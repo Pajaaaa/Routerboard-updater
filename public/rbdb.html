@@ -27,7 +27,13 @@
   .area>summary{padding:8px 12px;cursor:pointer;background:var(--panel2);font-weight:600;list-style:none;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
   .area>summary::-webkit-details-marker{display:none}.area>summary .arrow{color:var(--muted);font-weight:400;width:12px;display:inline-block}
   .area>summary .cnt{margin-left:auto;font-weight:400;color:var(--warn)}
-  .tw{overflow-x:auto}.tw table{min-width:420px}
+  .tw{overflow-x:auto}.tw table{width:100%;min-width:360px;table-layout:auto}
+  .tw th,.tw td{white-space:normal;word-break:normal;overflow-wrap:anywhere}
+  .tw td.ip,.tw td.ver{white-space:nowrap;width:1%}
+  .tw td.ip .dups{white-space:normal;font-size:11px;color:var(--muted);min-width:250px;max-width:420px;line-height:1.35}
+  .tw td.ip .dups span{white-space:nowrap}
+  .tw th:last-child,.tw td.apc{width:auto}
+  @media (max-width:600px){.tw table{min-width:0}.tw td.ip .dups{min-width:0;max-width:none}.tw td.ip .dups span{white-space:normal}.tw th,.tw td{padding:5px 4px}}
   td.v6{color:var(--v6);font-weight:600}
   #msg{display:none;margin:20px 0;padding:12px 14px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
   .legend{font-size:12px;color:var(--muted);margin:6px 0 14px}
@@ -56,7 +62,8 @@ async function load() {
 function msg(t) { const m = $('#msg'); m.style.display = 'block'; m.textContent = t; $('#main').innerHTML = ''; }
 
 function row(d) {
-  return `<tr><td class="mono">${esc(d.ip)}${(d.dups || []).length ? `<div class="muted" style="font-size:11px" title="další adresy téhož routeru">= ${d.dups.map(esc).join(', ')}</div>` : ''}</td><td class="mono ${/^6\./.test(d.version) ? 'v6' : ''}">${esc(d.version)}${d.swos ? ' <span class="badge b-muted" title="switch se SwOS: bez SSH, zranitelnost RouterOS se ho netýká">SwOS</span>' : ''}</td><td>${esc(d.ap)}${d.member ? ' <span class="badge b-muted">člen</span>' : ''}</td></tr>`;
+  const dups = (d.dups || []).length ? `<div class="dups" title="další adresy téhož routeru">= ${d.dups.map(x => `<span>${esc(x)}</span>`).join(', ')}</div>` : '';
+  return `<tr><td class="mono ip">${esc(d.ip)}${dups}</td><td class="mono ver ${/^6\./.test(d.version) ? 'v6' : ''}">${esc(d.version)}${d.swos ? ' <span class="badge b-muted" title="switch se SwOS: bez SSH, zranitelnost RouterOS se ho netýká">SwOS</span>' : ''}</td><td class="apc">${esc(d.ap)}${d.member ? ' <span class="badge b-muted">člen</span>' : ''}</td></tr>`;
 }
 function render() {
   if (!data) return;
@@ -88,7 +95,7 @@ function render() {
   if (data.unknown.length) {
     const un = qq ? data.unknown.filter(d => `${d.ip} ${d.version}`.toLowerCase().includes(qq)) : data.unknown;
     if (un.length) h += `<details class="area" ${openAll || qq ? 'open' : ''}><summary><span class="arrow">▸</span><span class="muted">mimo userdb (IP v evidenci není)</span><span class="cnt">${un.length} zařízení</span></summary>
-      <div class="tw"><table><thead><tr><th>IP</th><th>verze RouterOS</th><th></th></tr></thead><tbody>${un.map(d => `<tr><td class="mono">${esc(d.ip)}</td><td class="mono ${/^6\./.test(d.version) ? 'v6' : ''}">${esc(d.version)}</td><td class="muted">—</td></tr>`).join('')}</tbody></table></div></details>`;
+      <div class="tw"><table><thead><tr><th>IP</th><th>verze RouterOS</th><th></th></tr></thead><tbody>${un.map(d => `<tr><td class="mono ip">${esc(d.ip)}</td><td class="mono ver ${/^6\./.test(d.version) ? 'v6' : ''}">${esc(d.version)}</td><td class="muted apc">—</td></tr>`).join('')}</tbody></table></div></details>`;
   }
   if (!data.userdb) h += '<p class="muted">Napojení na userdb právě neodpovídá — kusy nejdou rozdělit do oblastí.</p>';
   $('#main').innerHTML = h;
