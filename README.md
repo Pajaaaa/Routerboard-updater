@@ -58,7 +58,7 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
   podle e-mailu). Ruční sken (seznam `ip uživatel heslo` nebo rozsahy) zůstává.
 - **Stav SSH u zařízení:** když se kontrola nepřipojí, server zjistí proč (port ssh odmítá spojení = služba vypnutá; nic neodpovídá,
   ale Winbox jede = firewall nebo „available from“ u služby; nic = kus nedostupný) a seznam zařízení to ukáže ve sloupci stav
-  („SSH vypnuté (Winbox jede)“, „SSH blokuje firewall (Winbox jede)“, špatný login, poškozený SSH klíč). Totéž rozlišení dává
+  („SSH vypnuté (Winbox jede)“, „SSH blokuje firewall (Winbox jede)“, špatný login, poškozený SSH klíč, SSH bez odpovědi při handshake). Totéž rozlišení dává
   natažení z userdb / RB-DB u kusů, které se nepodařilo založit.
 - **Spoje:** záložka s kvalitou rádiových spojů z posledního snímku rádií každého kusu (vzniká při kontrole zařízení, historie
   se neukládá): anténa ↔ sektor spárované přes MAC rádia s hodnotami z obou stran (signál, CCQ), klienti sektorů mimo upgrader

@@ -544,7 +544,7 @@ function rbdbProblems(st) {
   for (const t of st.authFailed || []) put(t, 'b-err', 'špatný login', 'login z userdb router odmítl — oprav heslo v userdb a natáhni znovu');
   for (const t of st.notRouterOS || []) put(t, 'b-warn', 'není RouterOS', 'SSH odpovídá, ale není to RouterOS');
   for (const t of st.foreign || []) put(t, 'b-warn', 'u jiného uživatele', t);
-  for (const t of st.errors || []) { const m = String(t); put(m, /chybí login/i.test(m) ? 'b-warn' : 'b-err', /chybí login/i.test(m) ? 'bez loginu v userdb' : /odmítá spojení|ECONNREFUSED/i.test(m) ? 'SSH vypnuté (kus běží)' : /neodpovídá|nedostupná|timeout|unreachable|EHOSTUNREACH|ETIMEDOUT/i.test(m) ? 'nedostupné (nic neodpovídá)' : 'chyba při natažení', m); }
+  for (const t of st.errors || []) { const m = String(t); put(m, /chybí login/i.test(m) ? 'b-warn' : 'b-err', /chybí login/i.test(m) ? 'bez loginu v userdb' : /poškozený SSH host key|KEY_EXCHANGE_FAILED/i.test(m) ? 'poškozený SSH klíč na kusu' : /nedokončí handshake/i.test(m) ? 'SSH bez odpovědi (handshake)' : /odmítá spojení|ECONNREFUSED/i.test(m) ? 'SSH vypnuté (kus běží)' : /neodpovídá|nedostupná|timeout|unreachable|EHOSTUNREACH|ETIMEDOUT/i.test(m) ? 'nedostupné (nic neodpovídá)' : 'chyba při natažení', m); }
   return out;
 }
 /** Spoje: kvalita rádiových spojů z posledního snímku rádií (API /links); bez historie — jen stav z poslední kontroly každého kusu */
