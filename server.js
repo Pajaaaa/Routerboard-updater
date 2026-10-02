@@ -865,6 +865,18 @@ async function api(req, res, method, p, url) {
         try { await c.connect(); for (const menu of ['/interface wireless registration-table', '/interface wifi registration-table']) { const rows = (await c.list(menu, ['mac-address'])) || []; for (const r of rows) macs.add(up(r['mac-address'])); } } finally { try { c.close(); } catch {} }
         sectorCache.set(sec.id, macs); return macs;
       };
+      // 60 GHz: živě z protistrany, ke kterým MAC má spoj (monitor remote-address; u PtMP seznam oddělený „;“)
+      const liveW60 = async (peer) => {
+        const key = 'w60:' + peer.id; if (sectorCache.has(key)) return sectorCache.get(key);
+        const raw = db.getDeviceRaw(peer.id); const macs = new Set();
+        const c = new RosClient({ host: raw.host, port: raw.port, username: raw.username, password: decrypt(raw.password_enc), timeoutMs: 15000, expectedHostKey: raw.host_key || '' });
+        try {
+          await c.connect();
+          const txt = await c.exec(':foreach i in=[/interface w60g find] do={:do {:local m [/interface w60g monitor $i once as-value]; :put ($m->"remote-address")} on-error={}}', { timeoutMs: 20000, allowError: true });
+          for (const part of String(txt || '').split(/[\s;,]+/)) if (/^[0-9A-F:]{17}$/i.test(part)) macs.add(up(part));
+        } finally { try { c.close(); } catch {} }
+        sectorCache.set(key, macs); return macs;
+      };
       for (const id of ids) {
         const d = db.getDeviceRaw(id);
         if (!d) { skipped.push(`#${id}: neexistuje`); continue; }
@@ -881,6 +893,15 @@ async function api(req, res, method, p, url) {
           if (!(sec.owner_id === acct.id || (sec.userdb_ap_id && myAps.has(Number(sec.userdb_ap_id))))) { skipped.push(`${d.host}: sektor ${sec.identity || sec.host} není v tvé oblasti`); continue; }
           let regs; try { regs = await liveRegs(sec); } catch (e) { skipped.push(`${d.host}: sektor ${sec.identity || sec.host} neodpovídá (${String(e.message).slice(0, 40)})`); continue; }
           if (!regs.has(up(st.mac))) { skipped.push(`${d.host}: teď není registrovaný na sektoru ${sec.identity || sec.host}`); continue; }
+        } else if (((fl.links && fl.links.w60g) || []).some(w => w.remote || (w.stations || []).length)) {
+          // 60 GHz spoj (2.10.2026 Locutus, link UHK–dukla): protistrana musí být moje nebo z mé oblasti a živě hlásit spoj k tomuhle kusu
+          const w60 = (fl.links.w60g || []).filter(w => w.remote || (w.stations || []).length);
+          const peersMac = w60.flatMap(w => [w.remote, ...(w.stations || []).map(x => x.mac)].filter(Boolean).map(up));
+          const peer = all.find(x => (((x.flags || {}).links || {}).w60g || []).some(w => peersMac.includes(up(w.mac))));
+          if (!peer) { skipped.push(`${d.host}: protistrana 60 GHz (${peersMac[0]}) není v seznamu zařízení — nejde ověřit`); continue; }
+          if (!(peer.owner_id === acct.id || (peer.userdb_ap_id && myAps.has(Number(peer.userdb_ap_id))))) { skipped.push(`${d.host}: protistrana ${peer.identity || peer.host} není v tvé oblasti`); continue; }
+          let regs; try { regs = await liveW60(peer); } catch (e) { skipped.push(`${d.host}: protistrana ${peer.identity || peer.host} neodpovídá (${String(e.message).slice(0, 40)})`); continue; }
+          if (!w60.some(w => regs.has(up(w.mac)))) { skipped.push(`${d.host}: protistrana ${peer.identity || peer.host} teď nehlásí spoj k tomuto kusu`); continue; }
         } else {
           const par = d.parent_id ? all.find(x => x.id === d.parent_id) : null;
           if (!par || !(par.owner_id === acct.id || (par.userdb_ap_id && myAps.has(Number(par.userdb_ap_id))))) { skipped.push(`${d.host}: bez rádiového spoje a nadřazený prvek není v tvé oblasti`); continue; }
