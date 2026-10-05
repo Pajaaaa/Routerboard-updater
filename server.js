@@ -1360,5 +1360,8 @@ server.listen(cfg.port, cfg.host, () => {
   setTimeout(() => { try { const r = db.dedupeAllSerials(); if (r.linked) { console.log(`duplicity: sloučeno ${r.linked} záznamů (${r.serials} sériových čísel na víc záznamech)`); bus.emit('event', { type: 'devices-changed' }); } } catch (e) { console.error('duplicity:', e.message); } }, 2000);
   setTimeout(() => resolveUserdbAps('po startu').catch(() => {}), 20000);
   setInterval(() => resolveUserdbAps('pravidelně').catch(() => {}), 30 * 60e3);
+  // úklid zastavených jobů starších 14 dní (nikdo je už nespustí) — denně, běžící joby to nijak neovlivní
+  const sweepJobs = () => { try { const r = db.closeStaleJobs(14); const ids = [...r.closed, ...r.cancelled]; if (ids.length) { console.log(`úklid jobů: ${r.closed.length} uzavřeno, ${r.cancelled.length} zrušeno`); db.audit('systém', 'úklid jobů', `uzavřeno #${r.closed.join(',#') || '—'}; zrušeno #${r.cancelled.join(',#') || '—'}`, ''); for (const id of ids) bus.emit('event', { type: 'job', job: db.getJobSummary(id) }); } } catch (e) { console.error('úklid jobů:', e.message); } };
+  setTimeout(sweepJobs, 60e3); setInterval(sweepJobs, 24 * 3600e3);
 });
 process.on('SIGTERM', () => { server.close(); process.exit(0); });
