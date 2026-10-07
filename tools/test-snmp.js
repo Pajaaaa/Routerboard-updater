@@ -1,4 +1,4 @@
-// Regresní test: SNMP — zapnutí a omezení community na povolené adresy.
+// Regresní test: SNMP — zapnutí a nastavení community přesně na povolené adresy (přidaný rozsah v nastavení se musí propsat).
 process.env.MTU_SECRET = process.env.MTU_SECRET || 'test-secret-1234567890';
 process.env.MTU_PASSWORD = process.env.MTU_PASSWORD || 'test';
 process.env.DATA_DIR = process.env.DATA_DIR || require('fs').mkdtempSync(require('os').tmpdir() + '/mtu-snmp-');
@@ -7,8 +7,11 @@ let bad = 0;
 const check = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'OK ' : 'FAIL'} ${msg}`); };
 const A = ['10.107.0.0/16'];
 check(Runner.snmpAddressesOk('10.107.0.0/16', A), 'přesně povolený rozsah');
-check(Runner.snmpAddressesOk('10.107.252.0/24,10.107.3.1/32', A), 'užší podsítě uvnitř');
-check(Runner.snmpAddressesOk('10.107.3.1', A), 'holá IP uvnitř');
+check(!Runner.snmpAddressesOk('10.107.252.0/24,10.107.3.1/32', A), 'užší podsítě uvnitř už nestačí — přepíší se na seznam z nastavení');
+check(!Runner.snmpAddressesOk('10.107.3.1', A), 'holá IP uvnitř nestačí');
+check(Runner.snmpAddressesOk('10.107.3.1', ['10.107.3.1/32']), 'holá IP = /32');
+check(Runner.snmpAddressesOk('10.207.0.0/16, 10.107.0.0/16', ['10.107.0.0/16', '10.207.0.0/16']), 'jiné pořadí a mezery = shoda');
+check(!Runner.snmpAddressesOk('10.107.0.0/16', ['10.107.0.0/16', '10.207.0.0/16']), 'přidaný rozsah v nastavení → community se přepíše');
 check(!Runner.snmpAddressesOk('0.0.0.0/0', A), '0.0.0.0/0 = bez omezení');
 check(!Runner.snmpAddressesOk('::/0', A), '::/0 = bez omezení');
 check(!Runner.snmpAddressesOk('', A), 'prázdné = bez omezení');
@@ -16,8 +19,10 @@ check(!Runner.snmpAddressesOk('10.0.0.0/8', A), 'širší rozsah neprojde');
 check(!Runner.snmpAddressesOk('10.107.0.0/16,192.168.1.0/24', A), 'cizí rozsah navíc neprojde');
 check(Runner.snmpAddressesOk('10.107.0.0/16,10.207.0.0/16', ['10.107.0.0/16', '10.207.0.0/16']), 'víc povolených rozsahů');
 const C = (name, addresses, disabled = 'false') => ({ name, addresses, disabled });
-let ch = Runner.snmpChanges('false', [C('public', '0.0.0.0/0'), C('mon', '10.107.252.0/24'), C('old', '::/0', 'true')], A);
+let ch = Runner.snmpChanges('false', [C('public', '0.0.0.0/0'), C('mon', '10.107.0.0/16'), C('old', '::/0', 'true')], A);
 check(ch.length === 2 && ch[0].cmd === '/snmp set enabled=yes' && ch[1].cmd === '/snmp community set [find name="public"] addresses=10.107.0.0/16', 'zapnout + omezit jen public: ' + ch.map(x => x.cmd || x.desc).join(' | '));
+ch = Runner.snmpChanges('true', [C('mon', '10.107.0.0/16')], ['10.107.0.0/16', '10.207.0.0/16']);
+check(ch.length === 1 && ch[0].cmd === '/snmp community set [find name="mon"] addresses=10.107.0.0/16,10.207.0.0/16', 'nový rozsah se propíše: ' + ch.map(x => x.cmd || x.desc).join(' | '));
 ch = Runner.snmpChanges('true', [C('mon', '10.107.0.0/16')], A);
 check(ch.length === 0, 'vše v pořádku = žádná změna');
 ch = Runner.snmpChanges('true', [C('x y', '0.0.0.0/0')], A);

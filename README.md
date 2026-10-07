@@ -48,8 +48,10 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
   Dále (výchozí zapnuto) vypnutí (R)STP na bridgích zařízení (`protocol-mode rstp/stp → none`, `mstp` se nechává) —
   na spojích a sektorech STP jen zdržuje a po upgradu umí port v bridge zablokovat. Kdo to u svých zařízení nechce,
   zaškrtne v „Moje nastavení“ → Bridge „nevypínat (R)STP na mých zařízeních“ (platí bez ohledu na společné nastavení).
-  Volitelně SNMP: zapnout `/snmp` a každou zapnutou community omezit na povolené adresy/CIDR z nastavení (mění se jen
-  community, jejichž adresy nejsou celé uvnitř povoleného rozsahu; bez omezení = 0.0.0.0/0 nebo ::/0 se přepíše).
+  Volitelně SNMP: zapnout `/snmp` a každé zapnuté community nastavit přesně povolené adresy/CIDR z nastavení (mění se jen
+  community, jejichž seznam adres neodpovídá — přidaný rozsah v nastavení se tak propíše i na už omezené kusy).
+  Volitelně statické DNS servery (`/ip dns servers=…`, mění se jen odchylka). Všechny tyhle kroky běží při každém
+  ostrém běhu, i u zařízení, které už je na cílové verzi — změnu nastavení stačí „poslat k upgradu“ znovu.
 - **Účty:** přihlášení přes OpenID Connect (SSO). Každý vidí jen svá zařízení, správce vše. Účet se při prvním
   přihlášení naváže podle e-mailu na správce oblasti v userdb.
 - **Import z userdb:** v dialogu „Přidat zařízení (sken)“ tlačítko „Natáhnout z userdb“ → tabulka oblastí a APček
