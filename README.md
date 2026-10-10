@@ -43,8 +43,8 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
   s připnutou verzí a nová se jen ukáže v panelu verzí, dokud ji správce nepřijme. Prázdné pole = vždy nejnovější vydání.
   Verze a data vydání, která kdy MikroTik nabídl, si nástroj pamatuje (`data/releases.json`). Každý uživatel si ve svém
   nastavení smí zvolit cíl **vyšší** než společný (třeba nové vydání dřív než ostatní), nikdy nižší a nejvýš to, co MikroTik nabízí.
-- **Volitelná hardening:** `/ip service` (vypnutí nepotřebných služeb, povolené adresy; ssh se nikdy nevypne a adresy
-  se použijí jen když obsahují IP serveru), vzdálené logování na syslog, NTP klient a časová zóna. Mění se jen odchylky.
+- **Volitelná hardening:** `/ip service` (vypnutí nepotřebných služeb, povolené adresy + vždy soukromé rozsahy 192.168.0.0/16
+  a 172.16.0.0/12 pro správu z lokální sítě; ssh se nikdy nevypne a adresy se použijí jen když obsahují IP serveru), vzdálené logování na syslog, NTP klient a časová zóna. Mění se jen odchylky.
   Dále (výchozí zapnuto) vypnutí (R)STP na bridgích zařízení (`protocol-mode rstp/stp → none`, `mstp` se nechává) —
   na spojích a sektorech STP jen zdržuje a po upgradu umí port v bridge zablokovat. Kdo to u svých zařízení nechce,
   zaškrtne v „Moje nastavení“ → Bridge „nevypínat (R)STP na mých zařízeních“ (platí bez ohledu na společné nastavení).
