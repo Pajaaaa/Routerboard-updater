@@ -1063,16 +1063,22 @@ async function api(req, res, method, p, url) {
     }
     if (method === 'DELETE' && !seg[2]) { if (runner.isDeviceBusy(id)) throw new Error('zařízení je právě v jobu'); db.deleteDevice(id); audit(req, 'zařízení smazáno', `${dev.host} ${dev.name || dev.identity || ''}`); bus.emit('event', { type: 'device-deleted', id, owner_id: dev.owner_id }); return send(res, 200, { ok: true }); }
     if (method === 'POST' && seg[2] === 'scan') { const r = await scanner.scanOne(id); return send(res, 200, { ...r, device: db.getDevice(id) }); }
-    // nouzová oprava přes telnet: poškozený SSH host key (KEY_EXCHANGE_FAILED) → regenerate-host-key + restart; uložený otisk klíče se smaže (nový klíč je náš zásah)
+    // nouzová oprava poškozeného SSH host key (KEY_EXCHANGE_FAILED): regenerate-host-key + restart přes první kanál, který jde
+    // (SSH s jiným typem klíče, API 8728/8729, REST, telnet — lib/sshfix.js); uložený otisk klíče se smaže (nový klíč je náš zásah).
+    // Totéž dělá upgrade sám před začátkem položky; tlačítko je pro okamžitou opravu bez jobu.
     if (method === 'POST' && seg[2] === 'fix-sshkey') {
       if (runner.isDeviceBusy(id)) throw new Error('zařízení je právě v jobu');
       const raw = db.getDeviceRaw(id);
-      const { telnetRun } = require('./lib/telnet');
-      const tr = await telnetRun({ host: raw.host, username: raw.username, password: decrypt(raw.password_enc), timeoutMs: 30000 }, ['/ip ssh regenerate-host-key', '/system reboot']);
-      db.updateDevice(id, { host_key: '', scan_status: 'unreachable', scan_error: 'SSH klíč přegenerován přes telnet, zařízení se restartuje — za 2–3 min „Zkontrolovat“' });
-      audit(req, 'SSH klíč přegenerován (telnet)', `${raw.host} ${devLabel(raw)}`);
+      const SF = require('./lib/sshfix');
+      const { RosClient } = require('./lib/ros');
+      const steps = [];
+      const creds = { host: raw.host, port: raw.port, username: raw.username, password: decrypt(raw.password_enc), timeoutMs: 15000 };
+      const r = await SF.regenerateHostKey({ creds, version: raw.version, log: (lvl, m) => steps.push(`${lvl === 'warn' ? '⚠ ' : ''}${m}`),
+        tryConnect: async (extra) => { const cl = new RosClient({ ...creds, ...extra }); await cl.connect(); return cl; } });
+      db.updateDevice(id, { host_key: '', scan_status: 'unreachable', scan_error: `SSH klíč přegenerován přes ${r.channel}, zařízení se restartuje — za 2–3 min „Zkontrolovat“` });
+      audit(req, 'SSH klíč přegenerován', `${raw.host} ${devLabel(raw)} přes ${r.channel}`);
       bus.emit('event', { type: 'devices-changed' });
-      return send(res, 200, { ok: true, transcript: tr.slice(-1500) });
+      return send(res, 200, { ok: true, channel: r.channel, steps, transcript: (r.transcript || '').slice(-1500) });
     }
     if (method === 'POST' && seg[2] === 'reset-hostkey') { db.updateDevice(id, { host_key: '', scan_status: 'never', scan_error: '' }); scanner.scanOne(id).catch(() => {}); return send(res, 200, { ok: true }); }
     if (method === 'GET' && seg[2] === 'plan') {

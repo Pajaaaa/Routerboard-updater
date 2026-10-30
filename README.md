@@ -62,6 +62,14 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
   ale Winbox jede = firewall nebo „available from“ u služby; nic = kus nedostupný) a seznam zařízení to ukáže ve sloupci stav
   („SSH vypnuté (Winbox jede)“, „SSH blokuje firewall (Winbox jede)“, špatný login, poškozený SSH klíč, SSH bez odpovědi při handshake); poslední výsledek natažení každého správce se ukládá do `DATA_DIR/discovery-state.json`, takže důvody přežijí restart serveru. Totéž rozlišení dává
   natažení z userdb / RB-DB u kusů, které se nepodařilo založit.
+- **Oprava SSH před upgradem:** když se položka nepřipojí kvůli poškozenému host key routeru (RouterOS log „Corrupt host's key,
+  regenerating it! Reboot required!“, ssh2 hlásí KEY_EXCHANGE_FAILED), runner před upgradem spustí `/ip ssh regenerate-host-key`
+  a restart přes první kanál, který jde: SSH s jiným typem host key (v6 má RSA i DSA, v7 RSA i ed25519 — poškozený bývá jen jeden),
+  RouterOS API (8728) / api-ssl (8729, anonymní DH), REST API (v7, www/www-ssl), telnet. Počká na návrat, naváže SSH, uloží nový otisk klíče
+  a pokračuje upgradem; každý pokus je v logu položky. Nanečisto se nic neopravuje. Když se zařízení nedomluví na algoritmech
+  („no matching key exchange / host key format / cipher / MAC“), zkusí se všechny algoritmy ssh2 včetně zastaralých a položka s nimi
+  pokračuje bez restartu. Totéž bez jobu dělá tlačítko „Opravit SSH klíč“ v detailu zařízení. Náhradní SSH pokusy jsou nejvýš dva
+  (brute-force pravidla routerů počítají nová spojení na port 22).
 - **Spoje:** záložka s kvalitou rádiových spojů z posledního snímku rádií každého kusu (vzniká při kontrole zařízení, historie
   se neukládá): anténa ↔ sektor spárované přes MAC rádia s hodnotami z obou stran (signál, CCQ), klienti sektorů mimo upgrader
   (jen pohled ze sektoru + verze RouterOS, kterou hlásí), 60 GHz spoje (kvalita, MCS, PER, RSSI) a stanice bez registrace.
@@ -88,6 +96,9 @@ Node.js 22 (`node:sqlite`, bez build kroku), jediná závislost `ssh2`. Hesla ro
 ```
 server.js          HTTP API, statika, SSE, účty, import z userdb
 lib/ros.js         SSH/SFTP klient pro RouterOS (v6 i v7), timeouty, přerušení přenosu
+lib/sshfix.js      oprava SSH před upgradem: poškozený host key (regenerate-host-key + restart přes SSH s jiným klíčem / API / REST / telnet), zastaralé algoritmy
+lib/rosapi.js      nouzové kanály k RouterOS: binární API (8728, api-ssl 8729) a REST (v7) — jen pro opravu SSH
+lib/telnet.js      minimální telnet klient — jen pro opravu SSH
 lib/inspect.js     zjištění stavu zařízení (jen čtení)
 lib/planner.js     plán hopů a balíčků, blokátory a varování, seznamy rizikových verzí a HW
 lib/runner.js      job engine (kontrola → záloha → staging → ověření → restart → ověření → firmware), zámky
