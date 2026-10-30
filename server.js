@@ -1115,7 +1115,7 @@ async function api(req, res, method, p, url) {
     if (!ids.length) throw new Error('žádná zařízení');
     const o = b.options || {};
     const options = {
-      dry_run: !!o.dry_run, mode: o.mode === 'router' ? 'router' : 'upload', firmware: o.firmware !== false, stop_on_failure: o.stop_on_failure !== false,
+      dry_run: !!o.dry_run, mode: o.mode === 'router' ? 'router' : 'upload', firmware: o.firmware !== false, stop_on_failure: o.stop_on_failure === true, // výchozí: při chybě pokračovat dalším zařízením (30.10.2026)
       canary: !!o.canary, pause_sec: Number.isFinite(+o.pause_sec) ? +o.pause_sec : undefined,
       require_binary_backup: !!o.require_binary_backup, allow_routing_migration: !!o.allow_routing_migration, allow_small_flash: !!o.allow_small_flash,
       device_mode: o.device_mode !== false,

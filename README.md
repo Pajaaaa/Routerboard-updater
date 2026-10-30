@@ -19,10 +19,16 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
 - **Pořadí a zámky:** nadřazený prvek se nerestartuje, dokud jeho potomci v jobu neskončí; chyba potomka rodiče
   zablokuje. Jobů může běžet víc naráz (každý po jednom zařízení), zařízení nesmí být ve dvou jobech a před restartem
   se čeká na cizí job na sousedícím zařízení. PoE watchdog na napájecím rodiči se na dobu položky vypne.
+  Chyba na jednom zařízení job nezastaví — jede se dál dalším a chybné zůstane ve výpisu jobu (volba „zastavit při první
+  chybě“ v pokročilém režimu job místo toho pozastaví).
 - **Předběžná kontrola naplánovaného jobu:** hned po naplánování se zařízení zkontrolují a v detailu jobu je vidět, co
   by v době startu bránilo upgradu; kontrola se dá zopakovat a před startem proběhne znovu.
 - **Cesty po krocích:** 60 GHz kusy (nRAY, Cube, wAP/LHG 60G) z 7.12–7.17 na 7.20+ přes 7.14.2 → 7.16.2 → 7.18.2; CCR2004/RB450Gx4 přes
   7.16.2 → 7.18.2; 16 MB flash z v6 na v7 přes 7.12.x; volitelně 16 MB kusy pod 6.45 samostatnými v6 balíčky (z all_packages zipu) místo bundle.
+  Když se balíčky hopu na 16 MB kusu nevejdou do volné flash (v6 se všemi samostatnými balíčky: 20 npk, 17 MB), odinstalují
+  se před hopem balíčky mimo bundle, které jsou vypnuté nebo podle sond nic nedělají (user-manager, ups, gps, lte, tr069-client,
+  ntp server, openflow, calea, lcd, dude — členy bundle nikdy), zařízení se restartuje a plán vznikne znovu s menším hopem
+  (nastavení „Balíčky“, výchozí zapnuto). Při „not enough space for upgrade“ po restartu následuje ještě jeden restart bez nahrávání.
 - **Verze:** x.y.0 až po 14 dnech, seznam verzí s doloženou regresí pro konkrétní hardware i obecně, hardware bez v7
   (MIPS-LE, < 64 MB RAM, smips, staré RB4xx, 32 MB kusy) cílí na poslední v6; jde povolit per zařízení.
   Podrobná rešerše rizik: `docs/reserse-bezpecny-upgrade.md`.
@@ -82,7 +88,10 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
   k upgradu. Když RB-DB hlásí starší verzi než vlastní sken upgraderu (údaj ze sousedů nebo z dřívějška), řádek to ukáže
   a rozhoduje sken. Tlačítko „Přeskenovat vybrané v RB-DB“ požádá scanner o nový SNMP sken vybraných adres
   (POST …/api/scan), aby upgradovaný kus z výpisu napadnutelných zmizel dřív než při pravidelném skenu; v hlavičce jsou
-  živé fronty scanneru (GET …/api/queues).
+  živé fronty scanneru (GET …/api/queues). Filtr výpisu (pamatuje se): podle upgraderu (k upgradu, aktuální, v upgraderu,
+  chybí, nezná ani userdb), „nedá se připojit“ (nedostupné/SSH zavřené, špatný login, změněný nebo poškozený SSH klíč — ze
+  stavu poslední kontroly i z výsledku natažení), SwOS, RB-DB má starší verzi než náš sken; k tomu hledání podle IP, názvu,
+  S/N, verze, APčka a oblasti.
   Veřejná stránka `rbdb.html` (bez přihlášení) ukazuje tytéž kusy spárované s userdb po oblastech: jen IP, verze a APčko.
 - **Obnova mrtvého zařízení:** postup v nápovědě (záložní bootloader → Netinstall se stejnou verzí jako záloha →
   obnova z binární zálohy nebo exportu; od 7.24 Netinstall ze sousedního MikroTiku).
