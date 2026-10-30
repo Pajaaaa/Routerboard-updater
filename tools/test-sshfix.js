@@ -139,6 +139,45 @@ function fakeRest({ v6 = false } = {}) {
   chk(/let rebootedByUs = sshRepaired/.test(src), 'runner: po restartu kvůli opravě klíče se nesmí kontrolovat min. uptime');
   chk(/host_key: ''/.test(src.slice(src.indexOf('connectOrRepair'), src.indexOf('connectOrRepair') + 4000)), 'runner: po přegenerování klíče se musí smazat uložený otisk');
 
+  // recoverAccess: změněný klíč / odmítnutý login → nový klíč, login z userdb, porovnání S/N, převzetí jiného hardware
+  {
+    const updates = [], audits = [];
+    const mkDeps = (serial, udb) => ({ inspect: async () => ({ serial, board_name: 'LHG 5 ax', model: 'LHG-5axD', identity: 'Alezi', arch: 'arm', version: '7.21.5' }),
+      userdb: { enabled: () => !!udb, getCredentials: async () => udb }, db: { updateDevice: (id, f) => updates.push({ id, ...f }), getUser: () => ({ name: 'paja' }), audit: (u, a, d) => audits.push(a) }, encrypt: (x) => 'enc:' + x });
+    const mkRaw = () => ({ id: 1, host: '10.0.0.1', serial: '8176081FD807', board_name: 'LHG 5', identity: 'Alezi', version: '7.23.7', host_key: 'SHA256:old', username: 'admin', owner_id: 4 });
+    const tryC = (okUser, okPass, key = 'SHA256:new') => async (extra) => { if (extra.username !== okUser || extra.password !== okPass) throw new Error('SSH: All configured authentication methods failed'); return { hostKey: key, close() {} }; };
+    const KEYERR = 'SSH host key zařízení se ZMĚNIL (uložený SHA256:old, nyní SHA256:new) — možný podvrh';
+    // a) jiný hardware, DB login odmítnut, userdb login projde → převzetí + uložení loginu + audit
+    let raw = mkRaw(), creds = { username: 'admin', password: 'a' }, lg = [];
+    let r = await SF.recoverAccess({ raw, creds, tryConnect: tryC('spravce', 's'), log: (l, m) => lg.push(l + ':' + m), settings: {}, deps: mkDeps('HN10BGVYSKH', { login: 'spravce', password: 's' }), error: KEYERR });
+    chk(r && !r.same && r.viaUserdb && creds.username === 'spravce' && raw.serial === 'HN10BGVYSKH' && raw.identity === 'Alezi' && raw.host_key === 'SHA256:new', 'jiný hardware: převzat, login z userdb v creds i raw');
+    chk(updates.length === 1 && updates[0].serial === 'HN10BGVYSKH' && updates[0].username === 'spravce' && updates[0].password_enc === 'enc:s' && updates[0].host_key === 'SHA256:new' && updates[0].board_name === 'LHG 5 ax', 'DB: S/N, deska, login, otisk jedním zápisem: ' + JSON.stringify(updates[0]));
+    chk(audits.join() === 'device.takeover' && lg.some(l => /^warn:⚠ na adrese 10\.0\.0\.1 je JINÝ HARDWARE.*S\/N 8176081FD807 → HN10BGVYSKH.*LHG 5 → LHG 5 ax/.test(l)) && lg.some(l => /login z userdb \(spravce\) funguje — uložen k zařízení místo „admin“/.test(l)), 'audit + log převzetí a loginu');
+    // b) stejné S/N (netinstall) → jen nový otisk, žádný audit
+    updates.length = 0; audits.length = 0; raw = mkRaw(); creds = { username: 'admin', password: 'a' }; lg = [];
+    r = await SF.recoverAccess({ raw, creds, tryConnect: tryC('admin', 'a'), log: (l, m) => lg.push(l + ':' + m), settings: {}, deps: mkDeps('8176081FD807', null), error: KEYERR });
+    chk(r && r.same && !r.viaUserdb && updates.length === 1 && Object.keys(updates[0]).join() === 'id,host_key' && !audits.length && lg.some(l => /sériové číslo 8176081FD807 sedí/.test(l)), 'stejné S/N: jen otisk');
+    // c) jen špatný login (klíč sedí), userdb má jiný → uloží se login, S/N stejné → žádné převzetí
+    updates.length = 0; raw = mkRaw(); creds = { username: 'admin', password: 'a' }; lg = [];
+    r = await SF.recoverAccess({ raw, creds, tryConnect: tryC('spravce', 's', 'SHA256:old'), log: (l, m) => lg.push(l + ':' + m), settings: {}, deps: mkDeps('8176081FD807', { login: 'spravce', password: 's' }), error: 'SSH: All configured authentication methods failed' });
+    chk(r && r.same && r.viaUserdb && updates.length === 1 && updates[0].username === 'spravce' && !('serial' in updates[0]) && !('host_key' in updates[0]), 'špatný login: jen login z userdb');
+    // d) špatný login a userdb má totéž → null (nic k vyzkoušení)
+    updates.length = 0; raw = mkRaw(); creds = { username: 'admin', password: 'a' }; lg = [];
+    r = await SF.recoverAccess({ raw, creds, tryConnect: tryC('x', 'x'), log: (l, m) => lg.push(l + ':' + m), settings: {}, deps: mkDeps('x', { login: 'admin', password: 'a' }), error: 'SSH: All configured authentication methods failed' });
+    chk(r === null && !updates.length && lg.some(l => /heslo na zařízení někdo změnil/.test(l)), 'stejný login v userdb: null + vysvětlení');
+    // e) vypnuté nastavení → null
+    r = await SF.recoverAccess({ raw: mkRaw(), creds: { username: 'admin', password: 'a' }, tryConnect: tryC('admin', 'a'), log: () => {}, settings: { hostkey_auto_accept: false }, deps: mkDeps('8176081FD807', null), error: KEYERR });
+    chk(r === null, 'hostkey_auto_accept=false → nic');
+    // f) oba loginy odmítnuty → null, bez zápisu
+    updates.length = 0; lg = [];
+    r = await SF.recoverAccess({ raw: mkRaw(), creds: { username: 'admin', password: 'a' }, tryConnect: tryC('n', 'n'), log: (l, m) => lg.push(l + ':' + m), settings: {}, deps: mkDeps('x', { login: 'spravce', password: 's' }), error: KEYERR });
+    chk(r === null && !updates.length && lg.some(l => /žádný login neprošel \(uložený login, login z userdb \(spravce\)\)/.test(l)), 'oba loginy odmítnuty: null');
+    // g) jiná chyba než login (kus spadl) → null bez dalších pokusů
+    let tries = 0; r = await SF.recoverAccess({ raw: mkRaw(), creds: { username: 'admin', password: 'a' }, tryConnect: async () => { tries++; throw new Error('ETIMEDOUT'); }, log: () => {}, settings: {}, deps: mkDeps('x', { login: 'spravce', password: 's' }), error: KEYERR });
+    chk(r === null && tries === 1, 'síťová chyba: hned konec');
+    chk(SF.isHostKeyChanged(KEYERR) && !SF.isHostKeyChanged('SSH: KEY_EXCHANGE_FAILED') && SF.isAuthFailed('All configured authentication methods failed'), 'rozpoznání chyb');
+    chk(/SF\.recoverAccess\(/.test(src) && /hardwareReplaced/.test(src) && /SF\.recoverAccess\(/.test(require('fs').readFileSync(require('path').join(__dirname, '../lib/scanner.js'), 'utf8')), 'runner i scanner volají recoverAccess');
+  }
   if (bad) { console.error(`oprava SSH: ${bad} chyb`); process.exit(1); }
   console.log('oprava SSH OK');
 })().catch((e) => { console.error(e); process.exit(1); });

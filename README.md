@@ -76,6 +76,12 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
   („no matching key exchange / host key format / cipher / MAC“), zkusí se všechny algoritmy ssh2 včetně zastaralých a položka s nimi
   pokračuje bez restartu. Totéž bez jobu dělá tlačítko „Opravit SSH klíč“ v detailu zařízení. Náhradní SSH pokusy jsou nejvýš dva
   (brute-force pravidla routerů počítají nová spojení na port 22).
+- **Změněný SSH klíč a špatný login bez zásahu obsluhy:** když uložený otisk nesedí, nástroj se připojí s novým klíčem
+  (při odmítnutí loginem z userdb) a porovná sériové číslo: stejné S/N = týž kus po netinstallu (jen nový otisk), jiné S/N =
+  jiný hardware na stejné adrese → převzít (S/N, deska, identita, otisk, fungující login) s varováním v logu a auditem.
+  Odmítnutý login se zkusí loginem z userdb a ten se uloží. Vypíná se nastavením „změněný SSH host key řešit automaticky“.
+  U nedostupného kusu kontrola dohledá, co na adrese opravdu je: SwOS web (CSS switch bez SSH — upgrader ho nespravuje) a výpis
+  sousedů (MNDP/LLDP) z rodiče nebo okolních kusů téže /24 (identita, deska, verze, uptime).
 - **Spoje:** záložka s kvalitou rádiových spojů z posledního snímku rádií každého kusu (vzniká při kontrole zařízení, historie
   se neukládá): anténa ↔ sektor spárované přes MAC rádia s hodnotami z obou stran (signál, CCQ), klienti sektorů mimo upgrader
   (jen pohled ze sektoru + verze RouterOS, kterou hlásí), 60 GHz spoje (kvalita, MCS, PER, RSSI) a stanice bez registrace.

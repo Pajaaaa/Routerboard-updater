@@ -842,6 +842,7 @@ function settingsFields(s, global) {
     ${c('allow_v7_small_flash', 'přechod v6 → v7 na 16 MB flash bez adresáře flash')}
     ${c('old_small_flash_split', '16 MB flash na v6 pod 6.45: nahrát zapnuté balíčky jednotlivě (system, wireless, dhcp…) místo bundle — menší zápis do flash, podle zkušeností z fóra bezpečnější než bundle; supout .rif se před nahráním smažou')}
     ${c('allow_v7_low_ram', 'v7 na zařízeních s méně než 64 MB RAM (RB750, hAP lite — hrozí OOM bootloop)')}
+    ${c('hostkey_auto_accept', 'změněný SSH host key řešit automaticky: připojit se s novým klíčem (při odmítnutí loginem z userdb), přečíst sériové číslo — stejné S/N = týž kus po netinstallu (jen nový otisk), jiné S/N = jiný hardware na stejné adrese → převzít (S/N, deska, identita, otisk) a zapsat varování do logu; vypnuté = položka skončí chybou „resetuj klíč“ (30.10.2026 Alezi: nový LHG 5 ax s loginem z userdb)')}
     ${c('allow_ap_v7_before_clients', 'sektor na v7 dřív než jeho klienti (registrovaní klienti ještě na v6, zvlášť station-bridge/nv2, se po v7 sektoru nemusí připojit — sektor se odřízne a objíždějí se členové)')}
     <h2>Služby zařízení (/ip service)</h2>
     ${c('harden_services', 'při ostrém běhu vypnout služby mimo seznam a všem nastavit povolené adresy (ssh se nikdy nevypne, adresy jen když obsahují IP tohoto serveru)')}
