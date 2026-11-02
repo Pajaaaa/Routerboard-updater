@@ -74,6 +74,38 @@ check(Runner.unusedPkgPlan(['calea'], 'x', {}).disable.length === 1 && Runner.UN
   check(res.uninstalled.join(',') === 'ntp,calea,lcd' && t.log.some(l => /sondy použití balíčků selhaly/.test(l)), 'chyba sond: zapnuté se sondou se nechají, vypnutý ntp a calea/lcd bez sondy se odinstalují');
   t = mk(); res = await r.uninstallUnusedPackages(t.fake, { ...info16, packages: info16.packages.filter(p => V6.has(p.name)) }, hop16, t.L, t.W, {}, false);
   check(t.cmds.length === 0 && t.log.some(l => /žádný balíček mimo bundle/.test(l)), 'jen členy bundle = poznámka');
+  // Balíček, který MikroTik pro cílovou verzi už nevydává (2.11.2026 SXTsq 5 ac 6.48.1 s lora → lora-7.23.8-arm.npk neexistuje): planner dá varování + missingPkgs
+  // místo blokátoru; runner ho přes force odinstaluje bez ohledu na flash, když ho nic nepoužívá, jinak vrátí forcedKept.
+  check(Runner.unusedPkgPlan(['lora'], 'wAP LR8 kit', { 'lora#0': '0' }).keep.length === 1 && Runner.unusedPkgPlan(['lora'], 'SXTsq 5 ac', { 'lora#0': '0' }).disable.length === 1 && Runner.unusedPkgPlan(['lora'], 'SXTsq 5 ac', { 'lora#0': '1' }).keep.length === 1, 'lora: deska s LoRa modulem zůstává, jinak podle sondy');
+  const V = require('../lib/versions'); const { plan } = require('../lib/planner');
+  const origPI = V.packageInfo;
+  V.packageInfo = async (n, ver, arch) => { const file = `${n}-${ver}-${arch}.npk`; return { exists: !(n === 'lora' && V.cmpVersion(ver, '7.17') >= 0), file, url: 'x/' + file, size: (n === 'routeros' ? 13.2 : 0.3) * MB }; };
+  const sxt = { version: '6.48.1', arch: 'arm', board_name: 'SXTsq 5 ac', model: 'RBSXTsqG-5acD', routerboard: true, fw_current: '6.48.1', fw_upgrade: '6.48.1', total_hdd: 15 * MB, free_hdd: 2.3 * MB, total_mem: 256 * MB, free_mem: 200 * MB, uptime_sec: 999999, cpu_load: 5,
+    packages: ['multicast', 'lora', 'mpls', 'routing', 'dhcp', 'wireless', 'system', 'security'].map(name => ({ name, version: '6.48.1', disabled: false })), interfaces: [{ name: 'wlan1', type: 'wlan' }], flags: {}, links: [], files: [], npk_files: [], fwf_files: [] };
+  const latest = { versions: { 'v7-long-term': { version: '7.23.8' }, 'v6-long-term': { version: '6.49.23' } } };
+  const pl = await plan(sxt, { track: 'v7-long-term', settings: { allow_v7_small_flash: true, space_margin_mb: 0 }, latest, options: {} });
+  V.packageInfo = origPI;
+  const last = pl.hops[pl.hops.length - 1] || {};
+  check(pl.blockers.length === 0 && pl.missingPkgs.join(',') === 'lora' && (last.missingPkgs || []).join(',') === 'lora' && !(last.packages || []).some(x => x.name === 'lora') && pl.warnings.some(w => /lora-7\.23\.8-arm\.npk .*neexistuje .*před upgradem odinstaluje/.test(w)), 'planner: chybějící lora = varování + missingPkgs, ne blokátor, není v balíčcích hopu: ' + JSON.stringify({ b: pl.blockers, m: pl.missingPkgs, hops: pl.hops.map(h => h.from + '→' + h.to) }));
+  const hopFits = { packages: [{ name: 'routeros', size: 13.2 * MB }] };
+  const loraText = (n) => `lora#0=${n}\n`;
+  t = mk(); t.fake.exec = async (cmd) => { t.cmds.push(cmd); return /^:do/.test(cmd) ? loraText(0) : ''; };
+  res = await r.uninstallUnusedPackages(t.fake, { ...sxt, free_hdd: 20 * MB }, hopFits, t.L, t.W, {}, false, ['lora']);
+  check(t.cmds.length === 2 && t.cmds[1] === '/system package uninstall [find name~"^(lora)\\$"]' && res.uninstalled.join(',') === 'lora' && res.forcedKept.length === 0 && t.log.some(l => /chybějící balíčky lora: pro cílovou verzi nejsou .* k odinstalaci \(platí po restartu\): lora \(LoRa zařízení — nic\), zůstává 7/.test(l)), 'force: i když se hop vejde, odinstaluje se jen lora: ' + t.cmds[1] + ' | ' + t.log.join(' | '));
+  t = mk(); t.fake.exec = async (cmd) => { t.cmds.push(cmd); return /^:do/.test(cmd) ? loraText(0) : ''; };
+  res = await r.uninstallUnusedPackages(t.fake, { ...sxt, free_hdd: 20 * MB }, hopFits, t.L, t.W, { small_flash_uninstall_pkgs: false }, false, ['lora']);
+  check(t.cmds.length === 2 && res.uninstalled.join(',') === 'lora', 'force nezávisí na nastavení small_flash_uninstall_pkgs');
+  t = mk(); t.fake.exec = async (cmd) => { t.cmds.push(cmd); return /^:do/.test(cmd) ? loraText(2) : ''; };
+  res = await r.uninstallUnusedPackages(t.fake, { ...sxt, free_hdd: 20 * MB }, hopFits, t.L, t.W, {}, false, ['lora']);
+  check(t.cmds.length === 1 && res.uninstalled.length === 0 && res.forcedKept.join(',') === 'lora' && t.log.some(l => /warn: chybějící balíčky lora: .*lora se používá nebo to nejde ověřit/.test(l)), 'force: lora se používá → forcedKept, nic se neodinstaluje');
+  t = mk(); t.fake.exec = async (cmd) => { t.cmds.push(cmd); return /^:do/.test(cmd) ? loraText(0) : ''; };
+  res = await r.uninstallUnusedPackages(t.fake, { ...sxt, free_hdd: 20 * MB }, hopFits, t.L, t.W, {}, true, ['lora']);
+  check(t.cmds.length === 1 && res.uninstalled.length === 0 && res.forcedKept.length === 0 && t.log.some(l => /DRY RUN chybějící balíčky lora/.test(l)), 'force dry run: jen sonda a výpis, forcedKept prázdné');
+  t = mk(); t.fake.exec = async (cmd) => { t.cmds.push(cmd); return /^:do/.test(cmd) ? loraText(0) + 'ups#0=0\n' : ''; };
+  res = await r.uninstallUnusedPackages(t.fake, { ...sxt, packages: sxt.packages.concat([{ name: 'ups', disabled: false }]) }, { packages: [{ name: 'routeros', size: 13.2 * MB }, { name: 'ups', size: 0.3 * MB }] }, t.L, t.W, {}, false, ['lora']);
+  check(res.uninstalled.join(',') === 'lora,ups' && res.forcedKept.length === 0, 'force na 16 MB flash, kam se hop nevejde: přiberou se i ostatní nepoužívané: ' + res.uninstalled.join(','));
+  t = mk(); res = await r.uninstallUnusedPackages(t.fake, { ...sxt, free_hdd: 20 * MB, packages: sxt.packages.filter(p => p.name !== 'lora') }, hopFits, t.L, t.W, {}, false, ['lora']);
+  check(t.cmds.length === 0 && res.uninstalled.length === 0 && res.forcedKept.join(',') === 'lora', 'force na balíček, který není nainstalovaný: forcedKept (runner zablokuje s návodem)');
   console.log(bad ? `SELHALO: ${bad}` : 'nepoužívané balíčky OK');
   process.exit(bad ? 1 : 0);
 })();
