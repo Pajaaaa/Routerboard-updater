@@ -83,7 +83,12 @@ check(Runner.unusedPkgPlan(['calea'], 'x', {}).disable.length === 1 && Runner.UN
   const sxt = { version: '6.48.1', arch: 'arm', board_name: 'SXTsq 5 ac', model: 'RBSXTsqG-5acD', routerboard: true, fw_current: '6.48.1', fw_upgrade: '6.48.1', total_hdd: 15 * MB, free_hdd: 2.3 * MB, total_mem: 256 * MB, free_mem: 200 * MB, uptime_sec: 999999, cpu_load: 5,
     packages: ['multicast', 'lora', 'mpls', 'routing', 'dhcp', 'wireless', 'system', 'security'].map(name => ({ name, version: '6.48.1', disabled: false })), interfaces: [{ name: 'wlan1', type: 'wlan' }], flags: {}, links: [], files: [], npk_files: [], fwf_files: [] };
   const latest = { versions: { 'v7-long-term': { version: '7.23.8' }, 'v6-long-term': { version: '6.49.23' } } };
-  const pl = await plan(sxt, { track: 'v7-long-term', settings: { allow_v7_small_flash: true, space_margin_mb: 0 }, latest, options: {} });
+  const pl = await plan(sxt, { track: 'v7-long-term', settings: { allow_v7_small_flash: true, old_small_flash_split: true, space_margin_mb: 0 }, latest, options: {} });
+  // 16 MB flash s odinstalovanými členy bundle (ppp, hotspot, ipv6, advanced-tools): v6 hop samostatnými balíčky místo bundle, který by je přidal zpět (2.11.2026 SXTsq 5 ac „not enough space for upgrade“)
+  const h0 = pl.hops[0] || {};
+  check(h0.split === true && h0.packages.map(x => x.name).sort().join(',') === 'dhcp,lora,mpls,multicast,routing,security,system,wireless' && pl.warnings.some(w => /samostatné balíčky .*bundle by přidal zpět odinstalované členy ipv6, hotspot, ppp, advanced-tools/.test(w)), '16 MB flash bez části členů bundle: v6 hop samostatně: ' + JSON.stringify({ split: h0.split, pk: (h0.packages || []).map(x => x.name) }));
+  const plFull = await plan({ ...sxt, packages: ['system', 'ipv6', 'wireless', 'hotspot', 'ppp', 'dhcp', 'security', 'advanced-tools', 'multicast', 'mpls', 'routing'].map(name => ({ name, disabled: false })) }, { track: 'v6-long-term', settings: { old_small_flash_split: true, space_margin_mb: 0 }, latest, options: {} });
+  check(!plFull.hops[0].split && plFull.hops[0].packages.map(x => x.name).join(',') === 'routeros', 'plná sada členů na 16 MB flash od 6.45: dál bundle');
   V.packageInfo = origPI;
   const last = pl.hops[pl.hops.length - 1] || {};
   check(pl.blockers.length === 0 && pl.missingPkgs.join(',') === 'lora' && (last.missingPkgs || []).join(',') === 'lora' && !(last.packages || []).some(x => x.name === 'lora') && pl.warnings.some(w => /lora-7\.23\.8-arm\.npk .*neexistuje .*před upgradem odinstaluje/.test(w)), 'planner: chybějící lora = varování + missingPkgs, ne blokátor, není v balíčcích hopu: ' + JSON.stringify({ b: pl.blockers, m: pl.missingPkgs, hops: pl.hops.map(h => h.from + '→' + h.to) }));
