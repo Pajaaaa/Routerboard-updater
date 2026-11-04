@@ -66,7 +66,7 @@ function verStatus(d) {
 }
 const STATUS_LABEL = { ok: ['b-ok', 'OK'], unreachable: ['b-err', 'nedostupný'], auth: ['b-err', 'špatný login'], hostkey: ['b-err', 'host key!'], never: ['b-muted', 'neskenováno'] };
 const ITEM_LABEL = { pending: ['b-muted', 'čeká'], checking: ['b-info', 'kontrola'], backup: ['b-info', 'záloha'], upload: ['b-info', 'nahrávání'], reboot: ['b-warn', 'restart'], verify: ['b-info', 'ověření'], firmware: ['b-info', 'firmware'], done: ['b-ok', 'hotovo'], blocked: ['b-warn', 'přeskočeno'], failed: ['b-err', 'chyba'], skipped: ['b-muted', 'vynecháno'], unknown: ['b-err', 'neznámý stav'] };
-const JOB_LABEL = { queued: ['b-muted', 'připraven'], running: ['b-info', 'probíhá'], paused: ['b-err', 'zastaven'], waiting: ['b-warn', 'čeká na potvrzení'], scheduled: ['b-warn', 'naplánován'], 'waiting-window': ['b-warn', 'čeká na okno'], done: ['b-ok', 'hotovo'], cancelled: ['b-muted', 'zrušen'] };
+const JOB_LABEL = { queued: ['b-muted', 'připraven'], running: ['b-info', 'probíhá'], paused: ['b-err', 'zastaven'], waiting: ['b-warn', 'čeká na potvrzení'], scheduled: ['b-warn', 'naplánován'], 'waiting-window': ['b-warn', 'čeká na okno'], 'batch-hold': ['b-muted', 'čeká na předchozí dávku'], done: ['b-ok', 'hotovo'], cancelled: ['b-muted', 'zrušen'] };
 /** srozumitelný stav zařízení pro jednoduchý režim */
 // zařízení čeká na upgrade v naplánovaném / zařazeném / běžícím jobu → malé hodiny u jména
 const CLOCK_SVG = '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 4.3V8.2l2.6 1.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -353,7 +353,7 @@ function renderDevices(m) {
   m.querySelectorAll('.track').forEach(s => s.onchange = async () => { try { await api(`/devices/${s.dataset.id}`, { method: 'PUT', body: { track: s.value } }); toast('track uložen'); } catch (e) { toast(e.message, true); } });
 }
 
-const JOB_PLAIN = { queued: 'připraven ke spuštění', running: 'probíhá', paused: 'zastaven', waiting: 'čeká na potvrzení', scheduled: 'naplánován', 'waiting-window': 'čeká na servisní okno', done: 'hotovo', cancelled: 'zrušen' };
+const JOB_PLAIN = { queued: 'připraven ke spuštění', running: 'probíhá', paused: 'zastaven', waiting: 'čeká na potvrzení', scheduled: 'naplánován', 'waiting-window': 'čeká na servisní okno', 'batch-hold': 'čeká na předchozí dávku', done: 'hotovo', cancelled: 'zrušen' };
 /** štítek jobu: „hotovo" jen když všechno prošlo; jinak s chybou / s výhradami / nic neprovedeno */
 /** skutečný stav běžícího/pozastaveného jobu podle rozpracované položky a poznámky (pro přehled) */
 function jobLiveState(j) {
@@ -391,8 +391,8 @@ function renderJobs(m) {
   const cur = state.job;
   const adv = state.advanced;
   // aktivní joby (běžící, čekající, pozastavené, naplánované) vždy nahoře a vždy zobrazené; hotové/zrušené pod nimi podle data
-  const ACTIVE_JOB = ['running', 'waiting', 'waiting-window', 'queued', 'scheduled', 'paused'];
-  const rank = (j) => ({ running: 0, waiting: 1, 'waiting-window': 1, queued: 2, scheduled: 3, paused: 4 })[j.status] ?? 9;
+  const ACTIVE_JOB = ['running', 'waiting', 'waiting-window', 'queued', 'scheduled', 'paused', 'batch-hold'];
+  const rank = (j) => ({ running: 0, waiting: 1, 'waiting-window': 1, queued: 2, scheduled: 3, paused: 4, 'batch-hold': 5 })[j.status] ?? 9;
   // správce vidí joby všech — filtr podle vlastníka (state.jobOwner = id účtu, 0 = všichni); seznam vlastníků z načtených jobů
   // seznam uživatelů pro filtr: všechny účty (state.users), ne jen vlastníci načtených jobů — po načtení historie jednoho uživatele by ostatní zmizeli
   const jc = state.jobCounts || {};
@@ -452,6 +452,7 @@ function jobBanner(job, items) {
     return { cls, html: `<b>${head}</b> ${sum}.${skipped && !bad ? ' Přeskočená zařízení mají důvod u řádku; po nápravě dej u položky <b>znovu</b>.' : ''}${o.dry_run ? ' Byla to jen kontrola, nic se nezměnilo. Pokud je vše zelené, spusť to samé ostře.' : ''}` };
   }
   if (job.status === 'cancelled') return { cls: 'muted', html: `<b>Zrušeno.</b> ${sum}.` };
+  if (job.status === 'batch-hold') { const bt = o.batch || {}; return { cls: 'muted', html: `<b>Čeká na předchozí dávku.</b> Dávka ${bt.index || '?'}/${bt.total || '?'} s ${items.length} zařízeními. Spustí se sama, až doběhne dávka ${bt.index ? bt.index - 1 : ''}. Předběžná kontrola proběhne až na začátku dávky.` }; }
   return { cls: 'muted', html: `<b>Připraveno.</b> ${items.length} zařízení, klikni <b>Spustit</b>.` };
 }
 /** filtr logu podle zařízení (select nad logem): skryje řádky jiných zařízení, řádky jobu (bez zařízení) zůstávají */
@@ -1162,6 +1163,7 @@ function renderModal() {
       <div style="max-height:180px;overflow:auto;margin-bottom:10px" class="mono">${devs.map(d => ({ d, depth: depthOf(d) })).sort((a, b) => b.depth - a.depth).map(({ d }) => { const ps = plainStatus(d); const par = state.devices.find(x => x.id === d.parent_id); return `<div>${esc(devName(d))} <span class="muted">${esc(d.host)} · ${esc(d.board_name)}</span> · ${esc(d.version || '?')} <span class="badge ${ps.cls}">${esc(ps.txt)}</span>${par ? ` <span class="muted">← ${esc(devName(par))}</span>` : ''}</div>`; }).join('')}</div>
       ${skipped.length ? `<div class="hint" style="margin-bottom:8px">${skipped.length} z vybraných nic nepotřebuje nebo není dostupné — přeskočí se.</div>` : ''}
       <form id="jobf" class="form"><label class="wide">název<input name="name" value="${esc(defaultJobName(devs))}"></label>
+        ${devs.length > 1 ? `<label class="wide" title="velký výběr se rozdělí na víc menších jobů, které poběží jeden po druhém (nejdřív koncové kusy, nakonec páteř); 0 = jeden job">rozdělit do dávek po <input name="batch_size" type="number" min="0" max="500" step="1" value="${suggestBatch(devs.length)}" style="width:5em"> zařízeních <span class="muted" id="batchhint"></span></label>` : ''}
         ${adv ? `
         <label class="check"><input type="checkbox" name="firmware" checked> po upgradu i firmware RouterBOOT (+1 restart)</label>
         <label class="check" title="výchozí: při chybě na jednom zařízení job jede dál na další (chybné zařízení zůstane ve výpisu jako chyba); zaškrtnuté = po první chybě se job pozastaví a čeká na „pokračovat“"><input type="checkbox" name="stop_on_failure"> zastavit při první chybě (jinak se pokračuje dalším zařízením)</label>
@@ -1176,16 +1178,21 @@ function renderModal() {
         <label class="check"><input type="checkbox" name="allow_small_flash"> povolit v6→v7 na 16 MB flash (jen pro tento job)</label>` : `
         <label>spustit v (datum i čas; prázdné = hned)<input name="start_at" type="datetime-local" min="${localDt(Date.now())}"></label>`}
         <div class="wide row"><button class="primary" name="go" value="start">▶ Spustit upgrade</button><button name="go" value="check">Jen zkontrolovat (nic se nezmění)</button>${adv ? '<button name="go" value="create">Jen vytvořit</button>' : ''}<button type="button" id="mclose">Zavřít</button></div></form></div>`;
+    const bi = $('#batchhint'), bs = $('[name=batch_size]');
+    const updBatch = () => { if (!bi || !bs) return; const n = Math.max(0, parseInt(bs.value, 10) || 0); bi.textContent = n > 0 && devs.length > n ? `→ ${Math.ceil(devs.length / n)} dávek, poběží po sobě` : (n > 0 ? '→ 1 job (méně zařízení než dávka)' : '→ 1 job'); };
+    if (bs) { bs.oninput = updBatch; updBatch(); }
     $('#jobf').onsubmit = async (e) => { e.preventDefault(); const fd = new FormData(e.target); const go = e.submitter && e.submitter.value;
-      const o = { dry_run: go === 'check', firmware: adv ? !!fd.get('firmware') : true, stop_on_failure: adv ? !!fd.get('stop_on_failure') : false, canary: !!fd.get('canary'), require_binary_backup: adv ? !!fd.get('require_binary_backup') : false, device_mode: adv ? !!fd.get('device_mode') : true, precheck: adv ? !!fd.get('precheck') : true, allow_routing_migration: adv ? !!fd.get('allow_routing_migration') : false, allow_small_flash: adv ? !!fd.get('allow_small_flash') : false, mode: adv ? fd.get('mode') : 'upload', start_at: fd.get('start_at') || '', pause_sec: adv ? +fd.get('pause_sec') : undefined };
+      const o = { dry_run: go === 'check', firmware: adv ? !!fd.get('firmware') : true, stop_on_failure: adv ? !!fd.get('stop_on_failure') : false, canary: !!fd.get('canary'), require_binary_backup: adv ? !!fd.get('require_binary_backup') : false, device_mode: adv ? !!fd.get('device_mode') : true, precheck: adv ? !!fd.get('precheck') : true, allow_routing_migration: adv ? !!fd.get('allow_routing_migration') : false, allow_small_flash: adv ? !!fd.get('allow_small_flash') : false, mode: adv ? fd.get('mode') : 'upload', start_at: fd.get('start_at') || '', pause_sec: adv ? +fd.get('pause_sec') : undefined, batch_size: Math.max(0, parseInt(fd.get('batch_size'), 10) || 0) };
       if (o.start_at && new Date(o.start_at).getTime() < Date.now() - 60000) return toast(`čas spuštění ${new Date(o.start_at).toLocaleString('cs-CZ')} je v minulosti — pro dnešní noc vyber zítřejší datum`, true);
       const start = go === 'start' || go === 'check';
-      if (go === 'start' && !confirm(o.start_at ? `Naplánovat upgrade ${devs.length} zařízení na ${new Date(o.start_at).toLocaleString('cs-CZ')}?` : `Spustit upgrade ${devs.length} zařízení hned?\n\nNejdřív proběhne kontrola. Pak se každé zařízení zálohuje, nahraje, ověří a restartuje (chvíli bude nedostupné).`)) return;
-      try { const r = await api('/jobs', { method: 'POST', body: { name: fd.get('name'), deviceIds: devs.map(d => d.id), options: o, start } }); if (r.queued) toast(`zařazeno do fronty, spustí se po dokončení jobu #${r.behind}`); closeModal(); state.selected.clear(); await loadState(); await openJob(r.id); } catch (e2) { toast(e2.message, true); } };
+      const nb = o.batch_size > 0 && devs.length > o.batch_size ? Math.ceil(devs.length / o.batch_size) : 1;
+      if (go === 'start' && !confirm(o.start_at ? `Naplánovat upgrade ${devs.length} zařízení na ${new Date(o.start_at).toLocaleString('cs-CZ')}?${nb > 1 ? `\n\nRozdělí se na ${nb} dávek po ${o.batch_size}, které poběží jedna po druhé.` : ''}` : `Spustit upgrade ${devs.length} zařízení hned?${nb > 1 ? `\n\nRozdělí se na ${nb} dávek po ${o.batch_size}; poběží jedna po druhé, další se spustí až po dokončení předchozí.` : ''}\n\nNejdřív proběhne kontrola. Pak se každé zařízení zálohuje, nahraje, ověří a restartuje (chvíli bude nedostupné).`)) return;
+      try { const r = await api('/jobs', { method: 'POST', body: { name: fd.get('name'), deviceIds: devs.map(d => d.id), options: o, start } }); if (r.batch) toast(`vytvořeno ${r.batch.count} dávek po ${r.batch.size}; ${start ? 'běží první, další se spustí po sobě' : 'spustí se po sobě'}`); else if (r.queued) toast(`zařazeno do fronty, spustí se po dokončení jobu #${r.behind}`); closeModal(); state.selected.clear(); await loadState(); await openJob(r.id); } catch (e2) { toast(e2.message, true); } };
   }
   const c = $('#mclose'); if (c) c.onclick = closeModal;
 }
 function localDt(ms) { const d = new Date(ms); const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
+function suggestBatch(n) { return n > 10 ? 5 : 0; }
 function defaultJobName(devs) {
   const date = new Date().toLocaleDateString('cs-CZ');
   if (devs.length === 1) return `Upgrade ${devName(devs[0])} (${devs[0].host}) ${date}`;

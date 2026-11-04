@@ -1148,15 +1148,41 @@ async function api(req, res, method, p, url) {
       devs.sort((a, b2) => (canaryIds.has(b2.id) - canaryIds.has(a.id)) || b2.depth - a.depth || a.priority - b2.priority || a.host.localeCompare(b2.host));
     }
     options.by = who(req);
-    const jobId = db.createJob(b.name || `Upgrade ${new Date().toLocaleString('cs-CZ')}`, options, devs.map(d => d.id), req.user.id);
-    if (options.canary) for (const it of db.getJobItems(jobId)) if (canaryIds.has(it.device_id)) db.updateJobItem(it.id, { plan: { canary: true } });
-    db.addLog(jobId, 0, 0, 'info', `Job vytvořen (${options.by}): ${devs.length} zařízení, ${JSON.stringify(options)}`);
+    // rozdělení do dávek: zařízení jsou seřazená potomci→rodiče; dávky poběží jedna po druhé (nejdřív koncové kusy, nakonec páteř),
+    // každá je samostatný job a spustí se teprve po dokončení předchozí (runner.advanceBatch); 0/prázdné = jeden job jako dřív
+    const batchSize = Math.max(0, Math.min(500, parseInt(o.batch_size, 10) || 0));
+    const chunks = [];
+    if (batchSize > 0 && devs.length > batchSize) for (let i = 0; i < devs.length; i += batchSize) chunks.push(devs.slice(i, i + batchSize));
+    else chunks.push(devs);
+    const multi = chunks.length > 1;
+    const baseName = b.name || `Upgrade ${new Date().toLocaleString('cs-CZ')}`;
+    const group = multi ? `b${Date.now().toString(36)}` : '';
+    const useCanary = options.canary && !multi; // u dávek se kanárci nepoužijí — každá dávka je sama malá vlna
+    const createdIds = [];
+    for (let ci = 0; ci < chunks.length; ci++) {
+      const chunk = chunks[ci];
+      const opts = { ...options, canary: useCanary };
+      if (multi) opts.batch = { group, index: ci + 1, total: chunks.length, next: 0 };
+      const name = multi ? `${baseName} — dávka ${ci + 1}/${chunks.length}` : baseName;
+      const cids = new Set();
+      if (useCanary) { const seen = new Set(); for (const d of chunk) { const key = d.board_name || d.model || 'unknown'; if (!seen.has(key)) { seen.add(key); cids.add(d.id); } } }
+      const id = db.createJob(name, opts, chunk.map(d => d.id), req.user.id);
+      if (useCanary) for (const it of db.getJobItems(id)) if (cids.has(it.device_id)) db.updateJobItem(it.id, { plan: { canary: true } });
+      createdIds.push(id);
+      db.addLog(id, 0, 0, 'info', `Job vytvořen (${options.by}): ${chunk.length} zařízení${multi ? `, dávka ${ci + 1}/${chunks.length}` : ''}, ${JSON.stringify(opts)}`);
+    }
+    // zřetězit dávky (každá zná následující) a dávky 2..N uspat do „batch-hold“, dokud nedoběhne předchozí
+    if (multi) {
+      for (let ci = 0; ci < createdIds.length - 1; ci++) { const j = db.getJob(createdIds[ci]); db.updateJob(createdIds[ci], { options: { ...j.options, batch: { ...j.options.batch, next: createdIds[ci + 1] } } }); }
+      for (let ci = 1; ci < createdIds.length; ci++) db.updateJob(createdIds[ci], { status: 'batch-hold', status_note: `čeká na dokončení dávky ${ci}/${chunks.length}` });
+    }
+    const jobId = createdIds[0];
     if (b.start && options.start_at) { db.updateJob(jobId, { status: 'scheduled', status_note: `spustí se ${new Date(options.start_at * 1000).toLocaleString('cs-CZ')}` }); db.addLog(jobId, 0, 0, 'info', `Naplánováno na ${new Date(options.start_at * 1000).toLocaleString('cs-CZ')} (${who(req)}).`); }
     let queued = null;
     if (b.start && !options.start_at) queued = runner.startOrQueue(jobId);
     else if (b.start && options.start_at && options.precheck && !options.dry_run) runner.earlyPrecheck(jobId).catch(e => db.addLog(jobId, 0, 0, 'warn', 'předběžná kontrola se nepovedla: ' + e.message));
-    bus.emit('event', { type: 'job', job: db.getJobSummary(jobId) });
-    return send(res, 200, { id: jobId, queued: !!(queued && queued.queued), behind: queued && queued.behind });
+    for (const id of createdIds) bus.emit('event', { type: 'job', job: db.getJobSummary(id) });
+    return send(res, 200, { id: jobId, queued: !!(queued && queued.queued), behind: queued && queued.behind, batch: multi ? { size: batchSize, count: chunks.length, ids: createdIds } : null });
   }
   if (seg[0] === 'jobs' && seg[1]) {
     const id = parseInt(seg[1], 10);
