@@ -45,5 +45,6 @@ node tools/test-unused-pkgs.js || { echo "kontrola vypínání nepoužívaných 
 node tools/test-wifiwave2.js || { echo "kontrola náhrady wifiwave2 selhala"; exit 1; }
 node tools/test-access.js || { echo "kontrola sdíleného přístupu podle APčka selhala"; exit 1; }
 node tools/test-batch.js || { echo "kontrola rozdělení upgradu do dávek selhala"; exit 1; }
+node tools/test-topo-lock.js || { echo "kontrola zámku předek-potomek napříč dávkami selhala"; exit 1; }
 node tools/ui-smoke.js
 echo "preflight OK"
