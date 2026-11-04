@@ -58,7 +58,8 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
   community, jejichž seznam adres neodpovídá — přidaný rozsah v nastavení se tak propíše i na už omezené kusy).
   Volitelně statické DNS servery (`/ip dns servers=…`, mění se jen odchylka). Všechny tyhle kroky běží při každém
   ostrém běhu, i u zařízení, které už je na cílové verzi — změnu nastavení stačí „poslat k upgradu“ znovu.
-- **Účty:** přihlášení přes OpenID Connect (SSO). Každý vidí jen svá zařízení, správce vše. Účet se při prvním
+- **Účty:** přihlášení přes OpenID Connect (SSO). Každý vidí svá zařízení a všechna zařízení pod APčky svých oblastí
+  z userdb (správce i zástupce správce oblasti je spravují společně, `lib/access.js`), správce nástroje vše. Účet se při prvním
   přihlášení naváže podle e-mailu na správce oblasti v userdb.
 - **Import z userdb:** v dialogu „Přidat zařízení (sken)“ tlačítko „Natáhnout z userdb“ → tabulka oblastí a APček
   → import zařízení APček i zařízení členů pod nimi včetně loginů. Typ zařízení z evidence se ignoruje, co je RouterOS

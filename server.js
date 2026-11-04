@@ -100,6 +100,7 @@ bus.on('event', (ev) => { if (ev.type === 'discovery-done' && ev.state) { const 
 
 const { suggestParent } = require('./lib/topology');
 const userdb = require('./lib/userdb');
+const access = require('./lib/access'); // kdo smí na které zařízení: vlastník + správci oblasti jeho APčka (SO i ZSO)
 const rbdb = require('./lib/rbdb');
 const linksQ = require('./lib/links');
 /** do seznamu zařízení jdou jen příznaky, které UI používá; velké struktury (sousedé, rádia, balíčky) zůstávají v detailu zařízení */
@@ -142,7 +143,8 @@ function withSuggestions(devs) {
   const foreignDup = (d) => foreignRef(d.dup_of);
   void byId;
   const sc = settingsByOwner();
-  return devs.map(d => { const rules = NO_V7.filter(r => { try { return r.test(d); } catch { return false; } }); const eff = effectiveTrack(d, sc(d.owner_id)); return { ...slimDevice(d), suggested_parent: d.parent_id ? null : suggestParent(d, devs), parent_foreign: foreignParent(d), dup_foreign: foreignDup(d), no_v7: rules.map(r => r.why), no_v7_hard: rules.some(r => r.hard), eff_track: eff }; });
+  const owners = new Map(db.listUsers().map(u => [u.id, u.userdb_nick || u.name]));
+  return devs.map(d => { const rules = NO_V7.filter(r => { try { return r.test(d); } catch { return false; } }); const eff = effectiveTrack(d, sc(d.owner_id)); return { ...slimDevice(d), owner_name: owners.get(d.owner_id) || '', suggested_parent: d.parent_id ? null : suggestParent(d, devs), parent_foreign: foreignParent(d), dup_foreign: foreignDup(d), no_v7: rules.map(r => r.why), no_v7_hard: rules.some(r => r.hard), eff_track: eff }; });
 }
 
 const { targetFor } = require('./lib/planner');
@@ -409,24 +411,27 @@ function validateDevice(d) {
 
 const who = (req) => (req.user && req.user.name) || '?';
 const isAdmin = (req) => !!(req.user && req.user.role === 'admin');
-// každý vidí jen svá zařízení a joby; správce vše
-const canSee = (req, dev) => !!dev && (isAdmin(req) || dev.owner_id === req.user.id);
-const ownsJob = (req, job) => !!job && (isAdmin(req) || job.owner_id === req.user.id);
-const visDevices = (req) => isAdmin(req) ? db.listDevices() : db.listDevices(req.user.id);
-const visJobs = (req, n) => isAdmin(req) ? db.listJobs(n) : db.listJobs(n, req.user.id);
+// každý vidí svá zařízení a zařízení pod APčky svých oblastí (správce i zástupce správce oblasti spravují společně — lib/access.js); joby, které
+// na taková zařízení sahají; správce nástroje vše
+const canSee = (req, dev) => !!dev && (isAdmin(req) || access.canAccess(req.user.id, dev));
+const ownsJob = (req, job) => !!job && (isAdmin(req) || access.jobVisible(req.user.id, job));
+const visDevices = (req) => isAdmin(req) ? db.listDevices() : access.visibleDevices(req.user.id);
+const visJobs = (req, n) => isAdmin(req) ? db.listJobs(n) : access.visibleJobs(req.user.id, n);
 const runnerStatusFor = (req) => {
   const st = runner.status(req.user.id);
   st.busy = runner.running().map(x => x.deviceId).filter(Boolean); // zařízení právě v jobu (kohokoli) — jen id
   // zařízení čekající na upgrade v otevřeném jobu (jen vlastní, správce vidí vše) → v seznamu zařízení se u nich kreslí hodiny
   st.sched = {};
+  const adm = isAdmin(req); const visIds = adm ? null : new Set(visDevices(req).map(d => d.id));
   for (const r of db.pendingUpgrades()) {
-    if (!isAdmin(req) && r.owner_id !== req.user.id) continue;
+    if (!adm && !visIds.has(r.device_id)) continue;
     const cur = st.sched[r.device_id];
     if (!cur || (r.at && (!cur.at || r.at < cur.at))) st.sched[r.device_id] = { at: r.at, job: r.job_id, js: r.jstatus };
   }
   // cizí běžící joby jen informačně: kdo (userdb uid + přezdívka), kolik zařízení, kolik hotovo; otevřít je smí jen správce
+  // (joby kolegů z téže oblasti na společných zařízeních nejsou cizí — jsou v seznamu jobů jako běžící)
   const byUser = new Map();
-  for (const x of runner.running().filter(x => x.ownerId !== req.user.id)) {
+  for (const x of runner.running().filter(x => x.ownerId !== req.user.id && !(!adm && access.jobVisible(req.user.id, { id: x.jobId, owner_id: x.ownerId })))) {
     const u = db.getUser(x.ownerId); const items = db.getJobItems(x.jobId);
     const done = items.filter(i => !['pending', 'checking', 'backup', 'upload', 'reboot', 'verify', 'firmware', 'running'].includes(i.status)).length;
     const k = x.ownerId; const cur = byUser.get(k) || { user: u ? (u.userdb_nick || u.name) : '?', uid: u ? (u.userdb_uid || 0) : 0, total: 0, done: 0, jobs: 0, jobId: 0 };
@@ -473,7 +478,7 @@ function userdbOwnerResolver({ acct, allMode, ownerMe, byName }) {
     if (ownerCache.has(so.id)) return ownerCache.get(so.id);
     let u = db.getUserByUserdbUid(so.id);
     if (!u && so.email) { const ex = db.getUserAuth(so.email); if (ex && !ex.userdb_uid) { db.updateUser(ex.id, { userdb_uid: so.id, userdb_nick: so.nick }); u = db.getUser(ex.id); } }
-    if (!u && so.email) { const id = db.insertUser({ name: so.email, pass_hash: '', role: 'user' }); db.updateUser(id, { userdb_uid: so.id, userdb_nick: so.nick, email: so.email }); u = db.getUser(id); db.audit(byName, 'účet založen (import celé sítě)', `${so.email} = ${so.nick} (uid ${so.id})`); }
+    if (!u && so.email) { const id = db.insertUser({ name: so.email, pass_hash: '', role: 'user' }); db.updateUser(id, { userdb_uid: so.id, userdb_nick: so.nick, email: so.email }); u = db.getUser(id); access.invalidate(); db.audit(byName, 'účet založen (import celé sítě)', `${so.email} = ${so.nick} (uid ${so.id})`); }
     ownerCache.set(so.id, u ? u.id : acct.id);
     return u ? u.id : acct.id;
   };
@@ -497,7 +502,8 @@ async function runUserdbImport({ acct, allMode, ownerMe, onlyAps, key, prog, byN
     const extra = { userdb_ap_id: d.apId, userdb_ap: d.ap, userdb_member: d.member ? d.userId : 0 };
     const ex = db.findDeviceByHost(d.ip, 22);
     if (ex) {
-      if (ex.owner_id && ex.owner_id !== ownerId) {
+      // má ho jiný účet a není to kolega z oblasti tohoto APčka (podle userdb teď, ne podle uloženého APčka — to se níže aktualizuje)
+      if (ex.owner_id && ex.owner_id !== ownerId && !access.canAccess(ownerId, { owner_id: ex.owner_id, userdb_ap_id: d.apId })) {
         const o = db.getUser(ex.owner_id); const on = o ? (o.userdb_nick || o.name) : 'jiný uživatel';
         sum.foreign.push(`${d.ip} (${d.name || d.ap}) má u sebe ${on}`);
         // převzetí: zařízení pod APčkem z MÉ oblasti (r.devices jsou jen z oblastí, kde jsem SO/ZSO) si můžu vzít k sobě — víc správců jednoho AP
@@ -520,7 +526,7 @@ async function runUserdbImport({ acct, allMode, ownerMe, onlyAps, key, prog, byN
   userdbImports.set(key, sum);
   db.audit(byName, allMode ? (ownerMe ? 'import celé sítě z userdb (pod sebe)' : 'import celé sítě z userdb') : 'import z userdb', `${r.admin.nick}: ${sum.total} zařízení z userdb, ${entries.length} nových ke skenu, ${sum.updated} aktualizováno, ${sum.foreign.length} u jiného uživatele${allMode ? `; vlastníci: ${Object.entries(sum.owners).map(([k, v]) => `${k} ${v}`).join(', ')}` : ''}`);
   // do výsledku skenu se přidá i to, co se skenovat nebude: zařízení jiného uživatele a IP bez loginu v userdb
-  const foreign = sum.foreign.map(x => `${x} — každé zařízení může mít jen jednoho vlastníka; ${isAdm ? 'jako správce nástroje si ho můžeš převzít tlačítkem níže' : 'když je pod APčkem tvé oblasti, můžeš si ho převzít tlačítkem níže'}`);
+  const foreign = sum.foreign.map(x => `${x} — není pod APčkem tvé oblasti (zařízení vidí vlastník a správci oblasti jeho APčka); ${isAdm ? 'jako správce nástroje si ho můžeš převzít tlačítkem níže' : 'o předání požádej jeho nebo správce nástroje'}`);
   const takeover = sum.takeover;
   const errors = sum.missingLogin.map(x => `${x}: v userdb chybí login/heslo — doplň je v userdb a načti znovu`);
   if (entries.length) {
@@ -549,26 +555,25 @@ async function linkUserdb(userId, who) {
   const other = db.getUserByUserdbUid(w.id);
   if (other && other.id !== userId) { console.warn(`userdb: správce ${w.nick} (uid ${w.id}) je už navázaný na účet ${other.name}, účet ${u && u.name} zůstává bez vazby`); return null; }
   db.updateUser(userId, { userdb_uid: w.id, userdb_nick: w.nick, email: (u && u.email) || w.email || '' });
+  access.invalidate();
   db.audit(u ? u.name : String(userId), 'účet navázán na userdb', `${w.nick} (uid ${w.id}), ${w.areas.length} oblastí`);
   return w;
 }
 const userdbFor = (req) => { if (!userdb.enabled()) return { enabled: false }; const u = req.user && db.getUser(req.user.id); return { enabled: true, uid: (u && u.userdb_uid) || 0, nick: (u && u.userdb_nick) || '', aps: (u && u.userdb_aps || []).length }; };
 const discoveryFor = (req) => discovery.status(req.user.id);
 /** SSE: událost projde jen tomu, kdo smí vidět dotčené zařízení / job */
-const jobOwnerCache = new Map(); // jobId -> { at, owner } (SSE: každý log řádek × každý klient by jinak dělal dotaz do DB)
-function jobOwner(jobId) { const c = jobOwnerCache.get(jobId); if (c && Date.now() - c.at < 60000) return c.owner; const j = db.getJob(jobId); const owner = j ? j.owner_id : -1; jobOwnerCache.set(jobId, { at: Date.now(), owner }); return owner; }
 function eventFor(req, ev) {
   if (ev.type === 'device' && ev.device) ev = { ...ev, device: slimDevice(ev.device) }; // do prohlížeče jen štíhlá verze (bez sousedů/rádií)
   if (isAdmin(req)) return ev;
   const uid = req.user.id;
   switch (ev.type) {
-    case 'device': return ev.device && ev.device.owner_id === uid ? ev : null;
-    case 'device-deleted': return ev.owner_id === uid ? ev : null;
-    case 'job': return ev.job && ev.job.owner_id === uid ? ev : null;
-    case 'item': return ev.item && jobOwner(ev.item.job_id) === uid ? ev : null;
-    case 'log': return ev.log && jobOwner(ev.log.job_id) === uid ? ev : null;
-    case 'progress': return jobOwner(ev.job_id) === uid ? ev : null;
-    case 'runner': return ev.status && ev.status.ownerId === uid ? ev : null;
+    case 'device': return access.canAccess(uid, ev.device) ? ev : null;
+    case 'device-deleted': return access.canAccess(uid, ev) ? ev : null; // ev nese owner_id + userdb_ap_id smazaného
+    case 'job': return ev.job && access.jobVisible(uid, ev.job) ? ev : null;
+    case 'item': return ev.item && access.jobVisible(uid, { id: ev.item.job_id }) ? ev : null;
+    case 'log': return ev.log && access.jobVisible(uid, { id: ev.log.job_id }) ? ev : null;
+    case 'progress': return access.jobVisible(uid, { id: ev.job_id }) ? ev : null;
+    case 'runner': return ev.status && access.jobVisible(uid, { id: ev.status.jobId, owner_id: ev.status.ownerId }) ? ev : null;
     case 'discovery': case 'discovery-done': return ev.state && ev.state.ownerId === uid ? ev : null;
     case 'scan-progress': return ev.ownerId === uid ? ev : null;
     case 'discovery-error': case 'devices-changed': case 'latest': case 'scan-done': return ev;
@@ -659,6 +664,7 @@ async function api(req, res, method, p, url) {
       if (String(b.password || '').length < 8) throw new Error('heslo musí mít aspoň 8 znaků');
       if (db.getUserAuth(name)) throw new Error('uživatel už existuje');
       const id = db.insertUser({ name, pass_hash: hashPassword(b.password), role: b.role === 'admin' ? 'admin' : 'user' });
+      access.invalidate();
       audit(req, 'uživatel založen', `${name} (${b.role === 'admin' ? 'správce' : 'uživatel'})`);
       return send(res, 200, db.getUser(id));
     }
@@ -685,6 +691,7 @@ async function api(req, res, method, p, url) {
       if (losesAdmin && db.countAdmins() <= 1) throw new Error('nelze odebrat posledního správce');
       if (uid === req.user.id && losesAdmin) throw new Error('sám sobě správce neodebereš');
       db.updateUser(uid, f);
+      access.invalidate();
       audit(req, 'uživatel upraven', `${u.name}: ${Object.keys(f).map(k => k === 'pass_hash' ? 'heslo' : k).join(',')}`);
       return send(res, 200, db.getUser(uid));
     }
@@ -697,6 +704,7 @@ async function api(req, res, method, p, url) {
       if (owned && !target) throw new Error(`uživatel vlastní ${owned} zařízení — zadej, komu je předat (transfer_to)`);
       if (target) { if (!db.getUser(target)) throw new Error('cílový uživatel neexistuje'); db.bumpDevices(); db.db.prepare('UPDATE devices SET owner_id=? WHERE owner_id=?').run(target, uid); db.db.prepare('UPDATE jobs SET owner_id=? WHERE owner_id=?').run(target, uid); }
       db.deleteUser(uid);
+      access.invalidate();
       audit(req, 'uživatel smazán', `${u.name}${target ? ` (zařízení předána #${target})` : ''}`);
       return send(res, 200, { ok: true });
     }
@@ -712,10 +720,11 @@ async function api(req, res, method, p, url) {
     // hlavní správce (role admin) vidí vše; správce oblasti jen spoje svých kusů — protistrana jiného správce se ukáže jen jako název + kdo ji má (bez IP, bez odkazu),
     // stejně jako cizí nadřazený prvek v seznamu zařízení
     const adm = isAdmin(req), uid = req.user.id;
-    const mine = adm ? rows : rows.filter(r => (r.sta && r.sta.owner_id === uid) || (r.ap && r.ap.owner_id === uid));
+    const acc = (b) => adm || access.canAccess(uid, { owner_id: b.owner_id, userdb_ap_id: b.userdb_ap_id != null ? b.userdb_ap_id : b.apId }); // brief() má apId
+    const mine = adm ? rows : rows.filter(r => (r.sta && acc(r.sta)) || (r.ap && acc(r.ap)));
     const users = new Map(db.listUsers().map(u => [u.id, u.userdb_nick || u.name]));
-    const strip = (b) => !b ? null : (adm || b.owner_id === uid) ? { ...b, owner: users.get(b.owner_id) || '', owner_id: undefined } : { label: b.label, owner: users.get(b.owner_id) || '', foreign: true, at: b.at };
-    const scope = adm ? all : all.filter(d => d.owner_id === uid);
+    const strip = (b) => !b ? null : acc(b) ? { ...b, owner: users.get(b.owner_id) || '', owner_id: undefined } : { label: b.label, owner: users.get(b.owner_id) || '', foreign: true, at: b.at };
+    const scope = adm ? all : all.filter(acc);
     return send(res, 200, { at: db.now(), thresholds, rows: mine.map(r => ({ ...r, sta: strip(r.sta), ap: strip(r.ap) })), scanned: scope.filter(d => d.managed && !d.dup_of && d.flags && d.flags.links).length, total: scope.filter(d => d.managed && !d.dup_of).length });
   }
   // ---- RB-DB (nezávislý scanner RouterOS v síti): výpis kriticky neaktuálních kusů proti upgraderu a userdb; jen správce ----
@@ -974,7 +983,7 @@ async function api(req, res, method, p, url) {
       if (runner.isDeviceBusy(id)) { skipped.push(`${d.host} je právě v jobu`); continue; }
       db.deleteDevice(id); deleted++;
       audit(req, 'zařízení smazáno', `${d.host} ${devLabel(d)}`);
-      bus.emit('event', { type: 'device-deleted', id, owner_id: d.owner_id });
+      bus.emit('event', { type: 'device-deleted', id, owner_id: d.owner_id, userdb_ap_id: d.userdb_ap_id || 0 });
     }
     return send(res, 200, { deleted, skipped });
   }
@@ -1364,6 +1373,8 @@ server.listen(cfg.port, cfg.host, () => {
   setTimeout(() => { try { adminDevicesJson({ user: { role: 'admin' } }); } catch (e) { console.error('keš zařízení:', e.message); } }, 300);
   scanner.startPeriodic();
   setTimeout(() => { try { const r = db.dedupeAllSerials(); if (r.linked) { console.log(`duplicity: sloučeno ${r.linked} záznamů (${r.serials} sériových čísel na víc záznamech)`); bus.emit('event', { type: 'devices-changed' }); } } catch (e) { console.error('duplicity:', e.message); } }, 2000);
+  access.refresh().then(() => console.log('přístup podle APček: mapa účtů sestavena')).catch(() => {});
+  setInterval(() => access.refresh().catch(() => {}), 10 * 60e3);
   setTimeout(() => resolveUserdbAps('po startu').catch(() => {}), 20000);
   setInterval(() => resolveUserdbAps('pravidelně').catch(() => {}), 30 * 60e3);
   // úklid zastavených jobů starších 14 dní (nikdo je už nespustí) — denně, běžící joby to nijak neovlivní
