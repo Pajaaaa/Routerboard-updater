@@ -1171,16 +1171,15 @@ async function api(req, res, method, p, url) {
       createdIds.push(id);
       db.addLog(id, 0, 0, 'info', `Job vytvořen (${options.by}): ${chunk.length} zařízení${multi ? `, dávka ${ci + 1}/${chunks.length}` : ''}, ${JSON.stringify(opts)}`);
     }
-    // zřetězit dávky (každá zná následující) a dávky 2..N uspat do „batch-hold“, dokud nedoběhne předchozí
-    if (multi) {
-      for (let ci = 0; ci < createdIds.length - 1; ci++) { const j = db.getJob(createdIds[ci]); db.updateJob(createdIds[ci], { options: { ...j.options, batch: { ...j.options.batch, next: createdIds[ci + 1] } } }); }
-      for (let ci = 1; ci < createdIds.length; ci++) db.updateJob(createdIds[ci], { status: 'batch-hold', status_note: `čeká na dokončení dávky ${ci}/${chunks.length}` });
-    }
+    // dávky běží SOUBĚŽNĚ: každá je samostatný job a spustí/naplánuje se hned, žádné čekání na předchozí (každá jede svá zařízení sériově,
+    // takže N dávek = až N zařízení naráz). Pozor: napříč souběžnými dávkami se nedrží pořadí potomci→rodiče (v rámci jedné dávky ano).
     const jobId = createdIds[0];
-    if (b.start && options.start_at) { db.updateJob(jobId, { status: 'scheduled', status_note: `spustí se ${new Date(options.start_at * 1000).toLocaleString('cs-CZ')}` }); db.addLog(jobId, 0, 0, 'info', `Naplánováno na ${new Date(options.start_at * 1000).toLocaleString('cs-CZ')} (${who(req)}).`); }
+    for (const id of createdIds) {
+      if (b.start && options.start_at) { db.updateJob(id, { status: 'scheduled', status_note: `spustí se ${new Date(options.start_at * 1000).toLocaleString('cs-CZ')}` }); db.addLog(id, 0, 0, 'info', `Naplánováno na ${new Date(options.start_at * 1000).toLocaleString('cs-CZ')} (${who(req)}).`); }
+    }
     let queued = null;
-    if (b.start && !options.start_at) queued = runner.startOrQueue(jobId);
-    else if (b.start && options.start_at && options.precheck && !options.dry_run) runner.earlyPrecheck(jobId).catch(e => db.addLog(jobId, 0, 0, 'warn', 'předběžná kontrola se nepovedla: ' + e.message));
+    if (b.start && !options.start_at) { for (const id of createdIds) { const q = runner.startOrQueue(id); if (id === jobId) queued = q; } }
+    else if (b.start && options.start_at && options.precheck && !options.dry_run) { for (const id of createdIds) runner.earlyPrecheck(id).catch(e => db.addLog(id, 0, 0, 'warn', 'předběžná kontrola se nepovedla: ' + e.message)); }
     for (const id of createdIds) bus.emit('event', { type: 'job', job: db.getJobSummary(id) });
     return send(res, 200, { id: jobId, queued: !!(queued && queued.queued), behind: queued && queued.behind, batch: multi ? { size: batchSize, count: chunks.length, ids: createdIds } : null });
   }
