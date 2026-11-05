@@ -22,8 +22,12 @@ function pinsFor(scope) {
   const g = db.getSettings();
   const s = scope == null ? g : (typeof scope === 'object' ? scope : db.getSettings(scope));
   const out = {};
+  // „vždy poslední verze": zapnuté pro scope (uživatel zdědí společné, může si přepsat) → piny se ignorují, cíl = nejnovější z MikroTiku.
+  // Nejnovější je vždy ≥ společnému cíli, takže to neporušuje spodní mez; společné zapnutí zahodí i společné piny coby mez.
+  if (s.always_latest) return out;
+  const gLatest = !!g.always_latest;
   for (const [k, track] of PIN_TRACKS) {
-    const gv = String(g[k] || '').trim(), uv = String(s[k] || '').trim();
+    const gv = gLatest ? '' : String(g[k] || '').trim(), uv = String(s[k] || '').trim();
     out[track] = uv && (!gv || (V.parseVersion(uv) && V.cmpVersion(uv, gv) >= 0)) ? uv : gv;
   }
   return out;
@@ -639,7 +643,7 @@ async function api(req, res, method, p, url) {
     db.setSettings(b); audit(req, 'nastavení', JSON.stringify(b));
     const after = db.getSettings();
     // změna společného cíle se dotkne všech (uživatelské volby pod novým minimem přestanou platit) → klienti si stáhnou svůj cíl znovu
-    if ([...db.PIN_KEYS, ...db.MIN_KEYS].some(k => before[k] !== after[k])) { statsCache.at = 0; progressCache.at = 0; remainingCache.at = 0; bus.emit('event', { type: 'latest' }); }
+    if ([...db.PIN_KEYS, ...db.MIN_KEYS, 'always_latest'].some(k => before[k] !== after[k])) { statsCache.at = 0; progressCache.at = 0; remainingCache.at = 0; bus.emit('event', { type: 'latest' }); }
     return send(res, 200, after);
   }
   if (method === 'GET' && p === '/api/audit') { if (!adminOnly(req, res)) return; return send(res, 200, db.listAudit(300)); }

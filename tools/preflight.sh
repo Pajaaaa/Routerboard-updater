@@ -48,5 +48,6 @@ node tools/test-batch.js || { echo "kontrola rozdělení upgradu do dávek selha
 node tools/test-topo-lock.js || { echo "kontrola zámku předek-potomek napříč dávkami selhala"; exit 1; }
 node tools/test-harden-services.js || { echo "kontrola ochrany služeb na RouterOS 6 selhala"; exit 1; }
 node tools/test-dup-skip.js || { echo "kontrola přeskočení dalšího rozhraní téhož kusu selhala"; exit 1; }
+node tools/test-always-latest.js || { echo "kontrola přepínače vždy nejnovější verze selhala"; exit 1; }
 node tools/ui-smoke.js
 echo "preflight OK"
