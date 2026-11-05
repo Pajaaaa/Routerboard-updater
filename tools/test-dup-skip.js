@@ -33,6 +33,18 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
   chk('souhrn není „nic neprovedeno"', job && !/nic neprovedeno/.test(job.status_note), job && job.status_note);
   chk('souhrn zmiňuje jiné rozhraní téhož kusu', job && /jiné rozhraní téhož kusu/.test(job.status_note), job && job.status_note);
 
+  // naplánovaný job: předběžná kontrola musí dup kus vypsat i s důvodem (ne jen započítat do „přeskočí se")
+  const future = new Date(Date.now()+3600e3).toISOString();
+  const rs = await req('POST','/api/jobs',{ name:'dup sched', deviceIds:[D], start:true, options:{ dry_run:false, precheck:true, start_at:future } });
+  chk('naplánovaný job vytvořen', rs.status===200 && rs.body && rs.body.id, JSON.stringify(rs.body));
+  const sid = rs.body.id;
+  let sj=null;
+  for (let i=0;i<60;i++){ sj=db.getJob(sid); if(sj && sj.options && sj.options.early_precheck) break; await sleep(250); }
+  chk('předběžná kontrola naplánovaného jobu proběhla', sj && sj.options && sj.options.early_precheck, sj && sj.status);
+  const reasons = (sj && sj.options && sj.options.early_precheck && sj.options.early_precheck.reasons) || [];
+  chk('dup kus je ve výpisu důvodů předběžné kontroly', reasons.some(x=>/jiné rozhraní/.test(x)), JSON.stringify(reasons));
+  chk('naplánovaný job zůstal scheduled', sj && sj.status==='scheduled', sj && sj.status);
+
   console.log(fail?`\n${fail} chyb`:'\nvše v pořádku');
   process.exit(fail?1:0);
 })().catch(e=>{console.error(e);process.exit(2);});
