@@ -24,7 +24,7 @@ for (const [board_name, model, want] of cases) check(wifiQcomFor({ board_name, m
   const settings = { space_margin_mb: 0 };
   let p = await plan(dev('hAP ax lite', 'L41G-2axD'), { track: 'v7-long-term', settings, latest, options: {} });
   const last = p.hops[p.hops.length - 1] || {};
-  check(p.blockers.length === 0 && (last.packages || []).map(x => x.name).sort().join(',') === 'routeros,wifi-qcom' && p.warnings.some(w => /wifiwave2 byl v 7\.13 rozdělen .* nahraje wifi-qcom,/.test(w)), 'hAP ax lite 7.7 → 7.23.8: routeros + wifi-qcom, bez blokátoru: ' + JSON.stringify({ b: p.blockers, pk: (last.packages || []).map(x => x.name), hops: p.hops.map(h => h.from + '→' + h.to) }));
+  check(p.blockers.length === 0 && (last.packages || []).map(x => x.name).sort().join(',') === 'routeros,wifi-qcom' && p.notes.some(w => /wifiwave2 byl v 7\.13 rozdělen .* nahraje wifi-qcom,/.test(w)), 'hAP ax lite 7.7 → 7.23.8: routeros + wifi-qcom, bez blokátoru: ' + JSON.stringify({ b: p.blockers, pk: (last.packages || []).map(x => x.name), hops: p.hops.map(h => h.from + '→' + h.to) }));
   p = await plan(dev('hAP ac^2', 'RBD52G-5HacD2HnD'), { track: 'v7-long-term', settings, latest, options: {} });
   check(p.blockers.length === 0 && (p.hops[p.hops.length - 1].packages || []).some(x => x.name === 'wifi-qcom-ac'), 'hAP ac² s wifiwave2: wifi-qcom-ac');
   p = await plan(dev('Neznámá deska', 'XYZ-1'), { track: 'v7-long-term', settings, latest, options: {} });

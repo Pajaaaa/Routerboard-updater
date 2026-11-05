@@ -823,35 +823,27 @@ function settingsFields(s, global) {
     ${minField('min_v7_stable', 'v7-stable', 'minimum v7 stable')}${minField('min_v7_long_term', 'v7-long-term', 'minimum v7 long-term')}${minField('min_v6_long_term', 'v6-long-term', 'minimum v6 long-term')}`
     : `${alHtml}<div class="wide hint">Vlastní cílová verze: můžeš jít výš než společný cíl (třeba na nové vydání MikroTiku dřív než ostatní), níž ne — správce nástroje drží minimum kvůli bezpečnostním opravám. Prázdné = společný cíl.</div>
     ${myPinField('pin_v7_stable', 'v7-stable', 'můj cíl v7 stable')}${myPinField('pin_v7_long_term', 'v7-long-term', 'můj cíl v7 long-term')}${myPinField('pin_v6_long_term', 'v6-long-term', 'můj cíl v6 long-term')}`;
-  return `<h2>Kontroly před upgradem</h2>
-    ${f('min_uptime_min', 'min. uptime zařízení (min)')}${f('min_free_mem_mb', 'min. volná RAM (MB)')}${f('space_margin_mb', 'rezerva místa k balíčkům (MB)', 'number', '0.5')}${f('ssh_timeout_sec', 'SSH timeout připojení (s)')}
-    <h2>Verze</h2>
+  // Základ = volby, které správci reálně mění (kanál, zůstat na v6, cíle, tempo jobu, dvě rizikové výjimky, vlastní služby); zbytek (limity, prahy,
+  // mezikroky, NTP/SNMP/DNS/syslog) je ve společném nastavení správce a v „Moje nastavení“ se ukáže jen v pokročilém zobrazení.
+  const simple = !global && !state.advanced;
+  const basic = `<h2>Verze</h2>
     <label class="wide">kanál RouterOS pro nová zařízení<select name="default_track"><option value="v7-long-term" ${s.default_track !== 'v7-stable' ? 'selected' : ''}>v7 long-term — jen prověřené verze (výchozí)</option><option value="v7-stable" ${s.default_track === 'v7-stable' ? 'selected' : ''}>v7 stable — nejnovější vydání</option></select><span class="hint">Platí pro zařízení přidaná od teď. Starý hardware bez v7 jde vždy na poslední v6. U existujících zařízení jde kanál změnit tužkou, nebo hromadně tlačítkem níže.</span></label>
     ${c('stay_on_v6', 'zůstat na v6: moje zařízení, která běží na RouterOS 6, nepřevádět na v7 — upgradují se jen na poslední v6 long-term, ať mají kanál jakýkoli (zařízení už na v7 se dál aktualizují v rámci v7; odškrtnutím se zase začne nabízet přechod na v7)')}
     <div class="wide row"><button type="button" class="small" id="tracksel-stable">Přepnout všechna moje zařízení na v7 stable</button><button type="button" class="small" id="tracksel-lt">Přepnout všechna moje zařízení na v7 long-term</button><span class="hint">nemění zařízení držená na v6 ani hold</span></div>
-    ${f('min_release_age_days', 'min. stáří verze (dní)', 'number', '0.5')}${f('zero_release_min_days', 'min. stáří první verze větve x.y.0 (dní)')}<label class="wide">zakázané verze (čárkou)<input name="bad_versions" type="text" value="${esc(s.bad_versions)}" placeholder="7.19.4, 7.23.4"></label>
     ${pinsHtml}
-    <h2>Průběh a bezdrátové spoje</h2>
-    ${f('reboot_timeout_min', 'návrat po restartu (min)')}${f('pause_between_devices_sec', 'pauza mezi zařízeními (s)')}${f('link_wait_min', 'čekání na obnovení spojů (min)')}${f('link_return_pct', 'návrat klientů sektoru (%)')}${f('preventive_reboot_days', 'preventivní restart při uptime nad (dní, 0 = vypnuto)')}
-    ${f('radio_min_signal', 'varovat při signálu pod (dBm, 5 GHz)')}${f('radio_min_ccq', 'varovat při CCQ pod (%)')}${f('radio_min_signal60', 'varovat při 60 GHz kvalitě pod (%)')}${f('radio_max_per', 'varovat při 60 GHz chybovosti nad (%)')}
-    ${c('confirm_after_precheck', 'po předběžné kontrole čekat na „Pokračovat“, když má některé zařízení varování nebo se přeskočí (jinak se jede rovnou a zastaví až chyba)')}
-    ${c('require_peer_in_job', 'blokovat upgrade, když druhý konec 60 GHz spoje není ve stejném jobu (jinak jen varování)')}
-    ${c('block_unmanaged_poe', 'blokovat upgrade, když je nad zařízením PoE prvek bez přístupu (neovladatelný PoE switch; jinak jen varování)')}
-    ${c('v7_via_712_small_flash', 'u 16 MB zařízení jít z v6 na v7 přes mezikrok 7.12.x')}
-    ${c('firmware_before_v7', 'před přechodem 6 → 7 nejdřív upgradovat RouterBOOT ještě na v6')}
-    ${c('use_partition_fallback', 'u zařízení s více oddíly zkopírovat běžící systém do záložního oddílu (fallback při nenabootování)')}
+    <h2>Průběh upgradu</h2>
+    ${f('pause_between_devices_sec', 'pauza mezi zařízeními (s)')}${f('link_wait_min', 'čekání na obnovení spojů (min)')}${f('link_return_pct', 'návrat klientů sektoru (%)')}
     <h2>Povolit rizikové (jinak blokováno)</h2>
-    ${c('allow_v7_routing_migration', 'přechod v6 → v7 s BGP / OSPF / routing filtry / MPLS')}
     ${c('allow_v7_small_flash', 'přechod v6 → v7 na 16 MB flash bez adresáře flash')}
-    ${c('old_small_flash_split', '16 MB flash na v6 pod 6.45: nahrát zapnuté balíčky jednotlivě (system, wireless, dhcp…) místo bundle — menší zápis do flash, podle zkušeností z fóra bezpečnější než bundle; supout .rif se před nahráním smažou')}
-    ${c('allow_v7_low_ram', 'v7 na zařízeních s méně než 64 MB RAM (RB750, hAP lite — hrozí OOM bootloop)')}
-    ${c('hostkey_auto_accept', 'změněný SSH host key řešit automaticky: připojit se s novým klíčem (při odmítnutí loginem z userdb), přečíst sériové číslo — stejné S/N = týž kus po netinstallu (jen nový otisk), jiné S/N = jiný hardware na stejné adrese → převzít (S/N, deska, identita, otisk) a zapsat varování do logu; vypnuté = položka skončí chybou „resetuj klíč“ (30.10.2026 Alezi: nový LHG 5 ax s loginem z userdb)')}
-    ${c('allow_ap_v7_before_clients', 'sektor na v7 dřív než jeho klienti (registrovaní klienti ještě na v6, zvlášť station-bridge/nv2, se po v7 sektoru nemusí připojit — sektor se odřízne a objíždějí se členové)')}
+    ${c('allow_v7_routing_migration', 'přechod v6 → v7 s BGP / OSPF / routing filtry / MPLS')}
     <h2>Služby zařízení (/ip service)</h2>
-    ${c('harden_services', 'při ostrém běhu vypnout služby mimo seznam a všem nastavit povolené adresy (ssh se nikdy nevypne, adresy jen když obsahují IP tohoto serveru)')}
+    ${global || !simple ? '' : `<div class="wide hint">Společné nastavení správce služby při ostrém běhu ${s.harden_services ? 'upravuje: vypne vše mimo seznam a nastaví povolené adresy' : 'neupravuje'}; tady si můžeš seznam přizpůsobit pro svoje zařízení.</div>`}
+    ${simple ? '' : `${c('harden_services', 'při ostrém běhu vypnout služby mimo seznam a všem nastavit povolené adresy (ssh se nikdy nevypne, adresy jen když obsahují IP tohoto serveru)')}`}
     <label>zapnuté služby (čárkou)<input name="services_keep" type="text" value="${esc(s.services_keep)}" placeholder="ssh,winbox"></label>
     <label class="wide">povolené adresy / CIDR (čárkou; prázdné = adresy neměnit; navíc se vždy přidají soukromé rozsahy 192.168.0.0/16 a 172.16.0.0/12)<input name="services_address" type="text" value="${esc(s.services_address)}" placeholder="10.0.0.0/8,192.168.0.0/16,2001:db8::/32"></label>
-    <h2>Čas (NTP a časová zóna)</h2>
+    `;
+  if (simple) return basic + `<div class="wide hint" style="margin-top:12px">Limity kontrol, rádiové prahy, mezikroky, NTP, SNMP, DNS, syslog a další volby drží správce ve společném nastavení. Chceš-li si je přepsat pro svoje zařízení, zapni vlevo dole „Pokročilé zobrazení“.</div>`;
+  const infra = `<h2>Čas (NTP a časová zóna)</h2>
     ${c('ntp_enable', 'při ostrém běhu nastavit NTP klienta a časovou zónu (mění se jen to, co neodpovídá)')}
     <label>NTP servery (čárkou; IP nebo jména)<input name="ntp_servers" type="text" value="${esc(s.ntp_servers)}" placeholder="192.0.2.1"></label>
     <label>časová zóna<input name="timezone_name" type="text" value="${esc(s.timezone_name)}" placeholder="Europe/Prague"></label>
@@ -861,9 +853,6 @@ function settingsFields(s, global) {
     <h2>DNS</h2>
     ${c('dns_enable', 'při ostrém běhu nastavit statické DNS servery (/ip dns servers=…; mění se jen když seznam neodpovídá, dynamické servery z DHCP se nechávají)')}
     <label class="wide">DNS servery (čárkou, IP; první = primární; prázdné = krok se neprovádí)<input name="dns_servers" type="text" value="${esc(s.dns_servers)}" placeholder="192.0.2.53,192.0.2.54"></label>
-    <h2>Balíčky na kusech s málo RAM nebo 16 MB flash</h2>
-    ${c('low_ram_disable_pkgs', 'když zařízení nesplní limit volné RAM, před restartem kvůli RAM vypnout balíčky, které prokazatelně nic nepoužívá (user-manager, hotspot, mpls, tr069-client, openflow, calea, lcd, ups, ntp server, multicast, ppp, routing, ipv6 — každý se nejdřív ověří sondou: žádní uživatelé, žádný hotspot, LDP vypnuté, žádné PPP secrets ani tunely, žádné OSPF/BGP/RIP, žádné IPv6 adresy…); system, wireless, dhcp, security a advanced-tools se nikdy nevypínají — typicky 32 MB kus se všemi balíčky, který má 6 MB volných a CPU na 100 %')}
-    ${c('small_flash_uninstall_pkgs', '16 MB flash: když se balíčky hopu nevejdou do volné flash (30.10.2026 911 Lite5 ac na 6.42.2: 20 samostatných balíčků, 16,9 MB na 1,3 MB volných → 2× „not enough space for upgrade“), před hopem odinstalovat balíčky mimo bundle, které jsou vypnuté nebo prokazatelně nic nepoužívají (user-manager, ups, gps, lte, tr069-client, ntp server, openflow, calea, lcd, dude — stejné sondy jako výše), zařízení restartovat a plán udělat znovu s menším hopem; členy bundle (system, wireless, dhcp, security, hotspot, ppp, routing, ipv6, mpls…) se nikdy neodinstalují')}
     <h2>Bridge</h2>
     ${global ? c('bridge_stp_off', 'při ostrém běhu vypnout (R)STP na bridgích zařízení (protocol-mode rstp/stp → none; mstp se nechává) — na spojích a sektorech STP jen zdržuje a po upgradu umí port v bridge zablokovat; každý si to může ve svém nastavení vypnout')
     : c('bridge_stp_keep', `nevypínat (R)STP na mých zařízeních — společné nastavení správce teď RSTP ${s.bridge_stp_off ? 'vypíná (protocol-mode rstp/stp → none)' : 'nevypíná'}; zaškrtnuté platí pro všechna moje zařízení bez ohledu na společné nastavení`)}
@@ -873,6 +862,31 @@ function settingsFields(s, global) {
     <label>název logging action<input name="remote_log_name" type="text" value="${esc(s.remote_log_name)}" placeholder="remote"></label>
     <label>témata (čárkou)<input name="remote_log_topics" type="text" value="${esc(s.remote_log_topics)}" placeholder="critical,error,info,warning"></label>
     `;
+  // zřídka měněné volby sbalené — od zavedení (9/2026) si je nikdo nepřepsal, výchozí hodnoty vyhovují
+  const rare = `<details class="advset wide"><summary><b>Pokročilé volby</b> — limity kontrol, mezikroky, prahy varování, speciální případy (výchozí hodnoty vyhovují)</summary><div class="form">
+    <h2>Kontroly před upgradem</h2>
+    ${f('min_uptime_min', 'min. uptime zařízení (min)')}${f('min_free_mem_mb', 'min. volná RAM (MB)')}${f('space_margin_mb', 'rezerva místa k balíčkům (MB)', 'number', '0.5')}${f('ssh_timeout_sec', 'SSH timeout připojení (s)')}
+    <h2>Stáří verzí</h2>
+    ${f('min_release_age_days', 'min. stáří verze (dní)', 'number', '0.5')}${f('zero_release_min_days', 'min. stáří první verze větve x.y.0 (dní)')}<label class="wide">zakázané verze (čárkou)<input name="bad_versions" type="text" value="${esc(s.bad_versions)}" placeholder="7.19.4, 7.23.4"></label>
+    <h2>Průběh</h2>
+    ${f('reboot_timeout_min', 'návrat po restartu (min)')}${f('preventive_reboot_days', 'preventivní restart při uptime nad (dní, 0 = vypnuto)')}
+    ${f('radio_min_signal', 'varovat při signálu pod (dBm, 5 GHz)')}${f('radio_min_ccq', 'varovat při CCQ pod (%)')}${f('radio_min_signal60', 'varovat při 60 GHz kvalitě pod (%)')}${f('radio_max_per', 'varovat při 60 GHz chybovosti nad (%)')}
+    ${c('confirm_after_precheck', 'po předběžné kontrole čekat na „Pokračovat“, když má některé zařízení varování nebo se přeskočí (jinak se jede rovnou a zastaví až chyba)')}
+    ${c('require_peer_in_job', 'blokovat upgrade, když druhý konec 60 GHz spoje není ve stejném jobu (jinak jen varování)')}
+    ${c('block_unmanaged_poe', 'blokovat upgrade, když je nad zařízením PoE prvek bez přístupu (neovladatelný PoE switch; jinak jen varování)')}
+    ${c('v7_via_712_small_flash', 'u 16 MB zařízení jít z v6 na v7 přes mezikrok 7.12.x')}
+    ${c('firmware_before_v7', 'před přechodem 6 → 7 nejdřív upgradovat RouterBOOT ještě na v6')}
+    ${c('use_partition_fallback', 'u zařízení s více oddíly zkopírovat běžící systém do záložního oddílu (fallback při nenabootování)')}
+    <h2>Rizikové a speciální případy</h2>
+    ${c('old_small_flash_split', '16 MB flash na v6 pod 6.45: nahrát zapnuté balíčky jednotlivě (system, wireless, dhcp…) místo bundle — menší zápis do flash, podle zkušeností z fóra bezpečnější než bundle; supout .rif se před nahráním smažou')}
+    ${c('allow_v7_low_ram', 'v7 na zařízeních s méně než 64 MB RAM (RB750, hAP lite — hrozí OOM bootloop)')}
+    ${c('hostkey_auto_accept', 'změněný SSH host key řešit automaticky: připojit se s novým klíčem (při odmítnutí loginem z userdb), přečíst sériové číslo — stejné S/N = týž kus po netinstallu (jen nový otisk), jiné S/N = jiný hardware na stejné adrese → převzít (S/N, deska, identita, otisk) a zapsat varování do logu; vypnuté = položka skončí chybou „resetuj klíč“ (30.10.2026 Alezi: nový LHG 5 ax s loginem z userdb)')}
+    ${c('allow_ap_v7_before_clients', 'sektor na v7 dřív než jeho klienti (registrovaní klienti ještě na v6, zvlášť station-bridge/nv2, se po v7 sektoru nemusí připojit — sektor se odřízne a objíždějí se členové)')}
+    <h2>Balíčky na kusech s málo RAM nebo 16 MB flash</h2>
+    ${c('low_ram_disable_pkgs', 'když zařízení nesplní limit volné RAM, před restartem kvůli RAM vypnout balíčky, které prokazatelně nic nepoužívá (user-manager, hotspot, mpls, tr069-client, openflow, calea, lcd, ups, ntp server, multicast, ppp, routing, ipv6 — každý se nejdřív ověří sondou: žádní uživatelé, žádný hotspot, LDP vypnuté, žádné PPP secrets ani tunely, žádné OSPF/BGP/RIP, žádné IPv6 adresy…); system, wireless, dhcp, security a advanced-tools se nikdy nevypínají — typicky 32 MB kus se všemi balíčky, který má 6 MB volných a CPU na 100 %')}
+    ${c('small_flash_uninstall_pkgs', '16 MB flash: když se balíčky hopu nevejdou do volné flash (30.10.2026 911 Lite5 ac na 6.42.2: 20 samostatných balíčků, 16,9 MB na 1,3 MB volných → 2× „not enough space for upgrade“), před hopem odinstalovat balíčky mimo bundle, které jsou vypnuté nebo prokazatelně nic nepoužívají (user-manager, ups, gps, lte, tr069-client, ntp server, openflow, calea, lcd, dude — stejné sondy jako výše), zařízení restartovat a plán udělat znovu s menším hopem; členy bundle (system, wireless, dhcp, security, hotspot, ppp, routing, ipv6, mpls…) se nikdy neodinstalují')}
+  </div></details>`;
+  return basic + infra + rare;
 }
 function adminPanelsHtml(s) {
   return `<h1>Správa</h1>
@@ -893,7 +907,7 @@ function renderSettings(m, adminMode = false) {
   const ownKeys = Object.keys(state.settingsOwn || {});
   m.innerHTML = adminMode ? adminPanelsHtml(s) : `<h1>Nastavení</h1>
   <div class="panel"><h2>Moje nastavení</h2><div class="hint" style="margin-bottom:8px">Platí pro tvoje upgrady, kontroly a plány. Předvyplněné jsou společné hodnoty od správce; po uložení se u tebe používají tyhle (společné změny se pak u tebe neprojeví, dokud nedáš „Vrátit na společné“).${ownKeys.length ? ` <b>Máš vlastní hodnoty.</b>` : ' Zatím používáš společné.'}</div>
-    <form id="setf-mine" class="form">${settingsFields(s)}<div class="wide row"><button class="primary">Uložit moje nastavení</button>${ownKeys.length ? '<button type="button" id="setreset">Vrátit na společné</button>' : ''}</div></form></div>
+    <form id="setf-mine" class="form">${settingsFields(s)}<div id="ownhidden" class="wide hint" hidden></div><div class="wide row"><button class="primary">Uložit moje nastavení</button>${ownKeys.length ? '<button type="button" id="setreset">Vrátit na společné</button>' : ''}</div></form></div>
   <div class="panel"><details ${state.advanced ? 'open' : ''}><summary><b>Jak to funguje</b> (podrobně)</summary><ul class="plain">
     <li><b>Sken</b> jen čte: verze, model, architektura, firmware, místo, RAM, balíčky, rizikové příznaky. Nikdy nic nemění.</li>
     <li><b>Job</b> zpracovává zařízení <b>sériově</b>, jedno po druhém (jobů může běžet víc naráz, každý po jednom zařízení; „spustit v“ naplánuje start na zadaný čas). Před každým krokem znovu zjistí živý stav a přepočítá plán.</li>
@@ -973,6 +987,8 @@ function renderSettings(m, adminMode = false) {
   }
   for (const [id, tr] of [['#tracksel-stable', 'v7-stable'], ['#tracksel-lt', 'v7-long-term']]) on(id, async () => { if (!confirm(`Přepnout všechna tvoje zařízení (kromě v6 a hold) na kanál ${tr}?`)) return; try { const r = await api('/devices/bulk-track', { method: 'POST', body: { track: tr } }); toast(`kanál změněn u ${r.changed} zařízení`); await loadState(); render(); } catch (e2) { toast(e2.message, true); } });
   const formBody = (form) => { const body = {}; for (const k of Object.keys(s)) { const el = form.elements[k]; if (!el) continue; body[k] = el.type === 'checkbox' ? el.checked : (el.type === 'text' || el.tagName === 'SELECT') ? el.value : parseFloat(el.value); } return body; };
+  // vlastní hodnoty, které formulář teď nezobrazuje (pokročilé volby v základním zobrazení) — platí dál, uložením se neztratí; ať o nich člověk ví
+  const oh = $('#ownhidden'); if (oh && $('#setf-mine')) { const hid = ownKeys.filter(k => !$('#setf-mine').elements[k]); if (hid.length) { oh.hidden = false; oh.innerHTML = `Mimo tento formulář máš uložené i vlastní hodnoty: <span class="mono">${hid.map(k => `${esc(k)}=${esc(String(state.settingsOwn[k]))}`).join(', ')}</span> — platí dál (upravíš je v pokročilém zobrazení, „Vrátit na společné“ zruší všechny).`; } }
   const sm = $('#setf-mine'); if (sm) sm.onsubmit = async (e) => { e.preventDefault(); try { const before = state.settings.default_track; const r = await api('/settings/mine', { method: 'PUT', body: formBody(e.target) }); state.settings = r.settings; state.settingsOwn = r.own; if (r.latest) state.latest = { ...r.latest, floor: (state.latest || {}).floor }; toast('moje nastavení uloženo');
     // změna kanálu platí jen pro nově přidaná zařízení — nabídnout přepnutí i stávajících (jinak lidé čekají, že se přepnou samy)
     const nt = r.settings.default_track; if (nt !== before && ['v7-stable', 'v7-long-term'].includes(nt) && (state.devices || []).some(d => d.owner_id === (state.auth.user || {}).id && !['v6-long-term', 'hold'].includes(d.track) && d.track !== nt) && confirm(`Kanál pro nová zařízení je teď ${nt}. Přepnout na něj i tvoje stávající zařízení (kromě v6 a hold)?`)) { try { const b = await api('/devices/bulk-track', { method: 'POST', body: { track: nt } }); toast(`kanál přepnut u ${b.changed} zařízení`); await loadState(); } catch (e3) { toast(e3.message, true); } }
@@ -1274,6 +1290,7 @@ function planHtml(p) {
     ${p.hops.map(h => `<div>hop <b class="mono">${esc(h.from)} → ${esc(h.to)}</b>${h.majorJump ? ' <span class="badge b-v6">v6→v7</span>' : ''}${h.via ? ' <span class="badge b-muted">mezikrok</span>' : ''}${p.mode === 'router' && h.channel ? ` <span class="badge b-muted">kanál ${esc(h.channel)}</span>` : ''}: ${(h.packages || []).map(x => `<span class="chip">${esc(x.file)} ${(x.size / MB).toFixed(1)} MB</span>`).join(' ')} <span class="muted">potřeba ${mb(h.needBytes)} MB, k dispozici ${mb(h.freeBytes)} MB ${h.stagingArea === 'ram' ? 'RAM' : 'flash'}</span></div>`).join('')}
     ${p.firmware ? `<div>firmware <b class="mono">${esc(p.firmware.current)} → ${esc(p.firmware.upgrade)}</b></div>` : ''}
     ${p.warnings.length ? `<ul class="plain warnlist">${p.warnings.map(w => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
+    ${(p.notes || []).length ? `<details class="notes"><summary>${p.notes.length} ${p.notes.length === 1 ? 'poznámka' : p.notes.length < 5 ? 'poznámky' : 'poznámek'} (informace, nic k řešení)</summary><ul class="plain notelist">${p.notes.map(w => `<li>${esc(w)}</li>`).join('')}</ul></details>` : ''}
     ${p.target ? `<details><summary>changelog ${esc(p.target)}</summary><div class="chg" data-ver="${esc(p.target)}">načítám…</div></details>` : ''}</div>`;
 }
 async function openDetail(id, mode = 'upload') {

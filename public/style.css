@@ -147,7 +147,8 @@ td.parent{white-space:normal;max-width:170px;font-size:12px}
 .toast{position:fixed;bottom:18px;right:18px;background:#fff;border:1px solid var(--line2);padding:10px 14px;border-radius:10px;z-index:30;max-width:420px;box-shadow:0 10px 30px #1b233126}
 .toast.err{border-color:var(--err)}
 ul.plain{margin:6px 0;padding-left:18px}
-.warnlist li{color:var(--warn)}.blocklist li{color:var(--err)}
+.warnlist li{color:var(--warn)}.blocklist li{color:var(--err)}.notelist li{color:var(--muted);font-size:12px}details.notes summary{color:var(--muted);font-size:12px;cursor:pointer}
+.form details.advset{grid-column:1/-1;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}.form details.advset>summary{cursor:pointer;font-size:13px;color:var(--ink2)}.form details.advset>.form{margin-top:4px}
 .clickable{cursor:pointer}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
 .progress{height:5px;background:var(--panel2);border-radius:3px;overflow:hidden;margin-top:4px}

@@ -44,6 +44,15 @@ nasazení, se zadává přes proměnné prostředí (`env.example`) a v nastaven
 - **Po restartu:** verze, balíčky, log, rozhraní a IP, spoje (stanice na stejném AP, ≥ 80 % klientů sektoru zpět,
   60 GHz MCS ≥ 1, CAP registrován), ping na bránu z routeru, sousedé, počty položek konfigurace proti stavu před upgradem.
 - **Nastavení per uživatel:** společné hodnoty nastavuje správce, každý si je může přepsat pro své joby, kontroly a plány.
+  „Moje nastavení“ ukazuje v základu jen volby, které správci reálně mění (kanál, zůstat na v6, cílové verze, tempo jobu,
+  dvě rizikové výjimky, vlastní služby); vše ostatní (limity kontrol, prahy varování, mezikroky, NTP/SNMP/DNS/syslog) je
+  ve společném nastavení správce a v „Moje nastavení“ se objeví až v pokročilém zobrazení. Uložení formuláře nikdy nezahodí
+  vlastní hodnoty, které formulář zrovna neukazuje (slučuje se s uloženým); zruší je jen „Vrátit na společné“.
+- **Varování × poznámky:** k položce jobu se jako varování (⚠) ukládá jen to, co může skončit špatně nebo chce rozhodnutí
+  (slabý spoj, country × sektor, starý RouterBOOT, podezření na HW, protějšek 60 GHz spoje mimo job, zahozený balíček…).
+  Informace o tom, co nástroj udělá sám, a obecná doporučení (přidaný balíček wireless, mezikroky 60 GHz, druhý restart na
+  16 MB flash, „zvaž repartition“, CPU, PoE-out/scheduler na v7, povolené výjimky) jsou poznámky: v logu jobu jako „pozn.“ a
+  v plánu zařízení sbalené pod varováními.
 - **Připnutá cílová verze:** správce může cíl každého kanálu (v7 stable / v7 long-term / v6 long-term) připnout na jednu
   verzi. Nové vydání MikroTiku pak cíl neposune samo — statistika, plány i „Upgradovat vše potřebné“ dál počítají
   s připnutou verzí a nová se jen ukáže v panelu verzí, dokud ji správce nepřijme. Prázdné pole = vždy nejnovější vydání.

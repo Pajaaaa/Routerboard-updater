@@ -623,7 +623,7 @@ async function api(req, res, method, p, url) {
   if (method === 'GET' && p === '/api/settings') return send(res, 200, { settings: db.getSettings(req.user.id), own: db.getUserSettings(req.user.id), global: isAdmin(req) ? db.getSettings() : undefined });
   if (method === 'PUT' && p === '/api/settings/mine') {
     const b = await readBody(req); const err = checkPins(b, true); if (err) return send(res, 400, { error: err });
-    const before = pinsFor(req.user.id); const own = db.setUserSettings(req.user.id, b); audit(req, 'vlastní nastavení', JSON.stringify(own));
+    const before = pinsFor(req.user.id); const own = db.setUserSettings(req.user.id, { ...db.getUserSettings(req.user.id), ...b }); audit(req, 'vlastní nastavení', JSON.stringify(own));
     if (JSON.stringify(before) !== JSON.stringify(pinsFor(req.user.id))) { statsCache.at = 0; progressCache.at = 0; }
     return send(res, 200, { settings: db.getSettings(req.user.id), own, latest: V.getLatest(req.user.id) });
   }
