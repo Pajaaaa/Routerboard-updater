@@ -5,7 +5,7 @@
 // Scénáře z noci 5./6.11.: Na Kotli (ROUTER → SWITCH → sektor S1 → CPE členů; kruh čekání) a Malhota (MAINv2 → sektory, switch CRS bez potomků).
 const fs = require('fs'), os = require('os'), path = require('path');
 const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'mtu-sched-'));
-process.env.DATA_DIR = DATA; process.env.MTU_SECRET = 'test-secret-1234567890'; process.env.MTU_PASSWORD = 'heslotest1234'; process.env.MTU_ADMIN_USER = 'admin';
+process.env.DATA_DIR = DATA; process.env.MTU_LOCK_DEFER_MIN = '0.002'; process.env.MTU_LOCK_POLL_MS = '20'; process.env.MTU_SECRET = 'test-secret-1234567890'; process.env.MTU_PASSWORD = 'heslotest1234'; process.env.MTU_ADMIN_USER = 'admin';
 const db = require('../lib/db');
 const S = require('../lib/schedule');
 const { Runner, RunnerPool } = require('../lib/runner');
@@ -16,8 +16,8 @@ const dev = (host, name, f = {}, extra = {}) => { const id = db.insertDevice({ h
 // Na Kotli
 const ROUTER = dev('10.9.0.1', 'NaKotli-ROUTER', { links: {} , ip_addresses: ['10.9.0.1'] });
 const SWITCH = dev('10.9.0.2', 'NaKotli-SWITCH', { uplink: { iface: 'ether1', neighbor: { address: '10.9.0.1' } } }, { parent_id: ROUTER });
-const S1 = dev('10.9.0.3', 'NaKotli-S1', { links: { aps: [{ iface: 'wlan1', clients: 2 }] }, uplink: { iface: 'ether1', neighbor: { address: '10.9.0.2' } } }, { parent_id: SWITCH });
-const S2 = dev('10.9.0.4', 'NaKotli-S2', { links: { aps: [{ iface: 'wlan1', clients: 1 }] } }, { parent_id: SWITCH });
+const S1 = dev('10.9.0.3', 'NaKotli-S1', { links: { aps: [{ iface: 'wlan1', clients: [{ mac: '00:11:22:33:44:01' }, { mac: '00:11:22:33:44:02' }] }] }, uplink: { iface: 'ether1', neighbor: { address: '10.9.0.2' } } }, { parent_id: SWITCH });
+const S2 = dev('10.9.0.4', 'NaKotli-S2', { links: { aps: [{ iface: 'wlan1', clients: [{ mac: '00:11:22:33:44:03' }] }] } }, { parent_id: SWITCH });
 const C1 = dev('10.9.1.1', 'clen-1', { links: { stations: [{ iface: 'wlan1' }] } }, { parent_id: S1, userdb_member: 1 });
 const C2 = dev('10.9.1.2', 'clen-2', { links: { stations: [{ iface: 'wlan1' }] } }, { parent_id: S1, userdb_member: 1 });
 const C3 = dev('10.9.1.3', 'clen-3', { links: { stations: [{ iface: 'wlan1' }] } }, { parent_id: S2, userdb_member: 1 });
@@ -25,7 +25,7 @@ const W60 = dev('10.9.0.5', 'NaKotli-60G', { links: { w60g: [{ iface: 'wlan60' }
 // Malhota: CRS v DB bez potomků (sektory visí přímo pod MAINv2) — přesto je infra, ne leaf
 const MAIN = dev('10.8.0.1', 'MalhotaA-MAINv2', { links: {} });
 const CRS = dev('10.8.0.2', 'MalhotaA-CRS', { uplink: { iface: 'sfp1', neighbor: { address: '10.8.0.1' } } }, { parent_id: MAIN });
-const MS1 = dev('10.8.0.3', 'Malhota-sektor1', { links: { aps: [{ iface: 'wlan1', clients: 3 }] } }, { parent_id: MAIN });
+const MS1 = dev('10.8.0.3', 'Malhota-sektor1', { links: { aps: [{ iface: 'wlan1', clients: [{ mac: '00:11:22:33:44:04' }] }] } }, { parent_id: MAIN });
 const MC1 = dev('10.8.1.1', 'clen-m1', { links: { stations: [{}] } }, { parent_id: MS1, userdb_member: 1 });
 const STA = dev('10.8.2.1', 'cizi-stanice', { links: { stations: [{}] } }, { parent_id: MS1 }); // stanice bez člena = infra (spoj)
 const raw = (id) => db.getDeviceRaw(id);
@@ -38,7 +38,7 @@ chk('router = infra', S.classify(raw(ROUTER)) === 'infra');
 chk('60 GHz spoj = infra', S.classify(raw(W60)) === 'infra');
 chk('CRS bez potomků v DB = infra (ne leaf)', S.classify(raw(CRS)) === 'infra');
 chk('stanice bez člena = infra', S.classify(raw(STA)) === 'infra');
-chk('člen se potomkem (AP doma) = ne leaf', (() => { const k = dev('10.9.1.9', 'clen-ap', { links: { aps: [{ clients: 1 }] } }, { userdb_member: 1 }); dev('10.9.1.10', 'clen-ap-dite', {}, { parent_id: k, userdb_member: 1 }); return S.classify(raw(k)) === 'sector'; })());
+chk('člen se potomkem (AP doma) = ne leaf', (() => { const k = dev('10.9.1.9', 'clen-ap', { links: { aps: [{ clients: [{ mac: '00:11:22:33:44:03' }] }] } }, { userdb_member: 1 }); dev('10.9.1.10', 'clen-ap-dite', {}, { parent_id: k, userdb_member: 1 }); return S.classify(raw(k)) === 'sector'; })());
 chk('switch vidí router na uplinku → switch před routerem', S.seesOnUplink(raw(SWITCH), raw(ROUTER)) && !S.seesOnUplink(raw(ROUTER), raw(SWITCH)));
 
 console.log('výběr další položky (pickNext):');
@@ -83,7 +83,7 @@ chk('SWITCH failed, ale nedotčený (untouched) → ROUTER jde', p.item && p.ite
 db.updateJobItem(byDev(SWITCH).id, { result: {} });
 // kanárci
 set(SWITCH, 'done'); db.updateJobItem(byDev(ROUTER).id, { plan: { canary: true } }); set(C1, 'pending'); p = pick({ ...ctx, onlyCanary: true });
-chk('fáze kanárků: C1 (nekanárek) se nebere; ROUTER (kanárek) čeká na pending C1', !p.item && !p.blockedItems.length, p.item && p.item.dev_name);
+chk('fáze kanárků: C1 (nekanárek) se nebere a kanárka ROUTER nezdržuje (nic na něm není rozpracované)', p.item && p.item.device_id === ROUTER, p.item && p.item.dev_name);
 p = pick();
 chk('mimo fázi kanárků se C1 vezme', p.item && p.item.device_id === C1);
 
@@ -126,6 +126,20 @@ console.log('pracovníci v runneru (stubovaný upgrade):');
   chk('switch před routerem, CRS před MAINv2', idx('NaKotli-SWITCH') < idx('NaKotli-ROUTER') && idx('MalhotaA-CRS') < idx('MalhotaA-MAINv2'));
   chk('pracovníci po skončení z poolu pryč', [...pool.runners.keys()].every(k => typeof k === 'number' && !String(k).includes('#')) && pool.runners.size === 0, [...pool.runners.keys()].join());
 
+  // pád pracovníka uprostřed položky: položka → unknown, job neuvázne; job pozastavený drainem bez restartu serveru se sám rozjede
+  const origRun = Runner.prototype.runItem;
+  Runner.prototype.runItem = async function (job, item) { if (item.device_id === C2) throw new Error('simulovaný pád'); return origRun.call(this, job, item); };
+  const j3 = db.createJob('pád', { parallel: 3, precheck: false, pause_sec: 0 }, [C1, C2, C3], 1);
+  db.updateJob(j3, { status: 'paused', status_note: 'aktualizace serveru — job pokračuje automaticky po restartu' });
+  pool.tickScheduled();
+  await sleep(100);
+  chk('job pozastavený drainem se po ticku rozjel i bez restartu serveru', !!pool.runnerOfJob(j3) || db.getJob(j3).status !== 'paused', db.getJob(j3).status);
+  for (let i = 0; i < 100 && (pool.runnerOfJob(j3) || db.getJob(j3).status === 'queued'); i++) await sleep(50);
+  const j3s = db.getJob(j3), j3i = db.getJobItems(j3);
+  chk('po pádu pracovníka položka „unknown“, ostatní done, job skončil', j3s.status === 'done' && j3i.find(i => i.device_id === C2).status === 'unknown' && j3i.filter(i => i.status === 'done').length === 2, `${j3s.status} ${j3s.status_note} / ${j3i.map(i => i.status).join(',')}`);
+  Runner.prototype.runItem = origRun;
+  await sleep(700); pool.runners.clear();
+
   // kruh čekání: A čeká na B, B na C, C na A → nejhlubší (C) jde
   const r = (jobId, devId, waitFor) => { const x = new Runner(); x.ownerId = 1; x.currentJobId = jobId; x.currentItemId = devId; x.currentDeviceId = devId; x.waitingLockFor = waitFor; x.pool = pool; pool.runners.set(jobId, x); return x; };
   const rA = r(901, ROUTER, SWITCH), rB = r(902, SWITCH, S1), rC = r(903, S1, ROUTER);
@@ -136,6 +150,29 @@ console.log('pracovníci v runneru (stubovaný upgrade):');
   db.updateJobItem(byDev(SWITCH).id, { status: 'reboot' }); rB.currentItemId = byDev(SWITCH).id;
   chk('rebootingNear: S1 vidí restartující SWITCH (předek)', /SWITCH/.test(pool.rebootingNear(raw(S1), rC) || ''), pool.rebootingNear(raw(S1), rC));
   chk('rebootingNear: kus z jiné sítě a jiného jobu ne', pool.rebootingNear(raw(MC1), rC) === null, pool.rebootingNear(raw(MC1), rC));
+  pool.runners.clear();
+
+  console.log('zámek před restartem (waitForPhysicalLock):');
+  const mk = (jobId, devId) => { const x = new Runner(); x.ownerId = 1; x.currentJobId = jobId; x.currentItemId = 1000 + devId; x.currentDeviceId = devId; x.pool = pool; pool.runners.set(jobId, x); return x; };
+  const noop = () => {}; const steps = [];
+  // cizí job drží rodiče (SWITCH), my chceme restartovat S1 → po limitu (env 0.002 min) odložení, ne restart
+  const busy = mk(801, SWITCH); const me = mk(802, S1);
+  let err = null; try { await me.waitForPhysicalLock(raw(S1), noop, (s) => steps.push(s)); } catch (e) { err = e; }
+  chk('čekání na cizí upgrade rodiče → po limitu výjimka s e.defer (odložení, ne restart)', err && err.defer === true, err && err.message);
+  chk('během čekání krok „čekám na cizí upgrade …“', steps.some(s => /čekám na cizí upgrade/.test(s)));
+  // uvolnění: cizí runner skončí → čekání končí bez výjimky
+  const me2 = mk(803, S2); setTimeout(() => { busy.currentDeviceId = 0; busy.currentJobId = 0; }, 60);
+  err = null; try { await me2.waitForPhysicalLock(raw(S2), noop, noop); } catch (e) { err = e; }
+  chk('cizí runner skončil → čekání skončí bez výjimky', !err && me2.waitingLockFor === 0, (err && err.message) || ('waitingLockFor=' + me2.waitingLockFor));
+  // kruh: ROUTER(804) čeká na S1(805), S1 čeká na C1(806), C1 čeká na ROUTER → nejhlubší C1 projde, ROUTER dál čeká (→ odložení)
+  pool.runners.clear();
+  const rR = mk(804, ROUTER), rS = mk(805, S1), rC2 = mk(806, C1);
+  rR.waitingLockFor = S1; rS.waitingLockFor = C1;
+  err = null; let logs = []; try { await rC2.waitForPhysicalLock(raw(C1), (l, m) => logs.push(m), noop); } catch (e) { err = e; }
+  chk('kruh čekání: nejhlubší kus (C1) projde bez čekání na limit', !err && logs.some(m => /kruh vzájemného čekání/.test(m)), err && err.message);
+  err = null; try { await rR.waitForPhysicalLock(raw(ROUTER), noop, noop); } catch (e) { err = e; }
+  chk('ROUTER v kruhu není nejhlubší → po limitu odložení', err && err.defer === true, err ? err.message : 'bez výjimky');
+  chk('zrušení během čekání → návrat bez výjimky', await (async () => { pool.runners.clear(); mk(807, SWITCH); const m = mk(808, S1); setTimeout(() => { m.cancelRequested = true; }, 30); try { await m.waitForPhysicalLock(raw(S1), noop, noop); return true; } catch { return false; } })());
   pool.runners.clear();
   console.log(fail ? `\nSELHALO: ${fail}` : '\nvše v pořádku');
   process.exit(fail ? 1 : 0);
