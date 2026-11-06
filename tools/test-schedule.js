@@ -77,6 +77,10 @@ chk('cizí konflikt → ROUTER čeká, důvod v waiting', !p.item && p.waiting.s
 // selhaný potomek → rodič zablokován
 set(ROUTER, 'pending'); set(SWITCH, 'failed'); p = pick();
 chk('SWITCH failed → ROUTER v blockedItems s důvodem', !p.item && p.blockedItems.length === 1 && /SWITCH/.test(p.blockedItems[0].blockReason), p.blockedItems.map(b => b.blockReason).join());
+// nedotčený potomek (chyba před připojením, result.untouched) rodiče neblokuje
+db.updateJobItem(byDev(SWITCH).id, { result: { untouched: true } }); p = pick();
+chk('SWITCH failed, ale nedotčený (untouched) → ROUTER jde', p.item && p.item.device_id === ROUTER && !p.blockedItems.length, p.blockedItems.map(b => b.blockReason).join());
+db.updateJobItem(byDev(SWITCH).id, { result: {} });
 // kanárci
 set(SWITCH, 'done'); db.updateJobItem(byDev(ROUTER).id, { plan: { canary: true } }); set(C1, 'pending'); p = pick({ ...ctx, onlyCanary: true });
 chk('fáze kanárků: C1 (nekanárek) se nebere; ROUTER (kanárek) čeká na pending C1', !p.item && !p.blockedItems.length, p.item && p.item.dev_name);
