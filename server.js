@@ -166,7 +166,7 @@ function networkStatsCompute() {
   const latestFor = (uid) => { const k = uid || 0; if (!latestOf.has(k)) latestOf.set(k, V.getLatest(sc(k || undefined))); return latestOf.get(k); };
   // stejně jako přehled po oblastech: bez duplicit podle sériového čísla (stejný kus pod jinou IP, dup_of) — jinak „celkem“ nesedí
   const devs = db.listDevices().filter(d => d.managed && !d.dup_of);
-  const busy = new Set(runner.running().map(x => x.deviceId).filter(Boolean));
+  const busy = new Set(runner.busyDeviceIds());
   const st = { total: devs.length, upToDate: 0, needs: 0, stayV6: 0, unreachable: 0, unreachableToday: 0, upgrading: busy.size, hold: 0, never: 0, dead: 0, deadToday: 0 };
   const day0 = Math.floor(new Date(new Date().setHours(0, 0, 0, 0)).getTime() / 1000);
   const sc = settingsByOwner();
@@ -423,7 +423,7 @@ const visDevices = (req) => isAdmin(req) ? db.listDevices() : access.visibleDevi
 const visJobs = (req, n) => isAdmin(req) ? db.listJobs(n) : access.visibleJobs(req.user.id, n);
 const runnerStatusFor = (req) => {
   const st = runner.status(req.user.id);
-  st.busy = runner.running().map(x => x.deviceId).filter(Boolean); // zařízení právě v jobu (kohokoli) — jen id
+  st.busy = runner.busyDeviceIds(); // zařízení právě v jobu (kohokoli, všichni pracovníci) — jen id
   // zařízení čekající na upgrade v otevřeném jobu (jen vlastní, správce vidí vše) → v seznamu zařízení se u nich kreslí hodiny
   st.sched = {};
   const adm = isAdmin(req); const visIds = adm ? null : new Set(visDevices(req).map(d => d.id));
@@ -1133,6 +1133,8 @@ async function api(req, res, method, p, url) {
       require_binary_backup: !!o.require_binary_backup, allow_routing_migration: !!o.allow_routing_migration, allow_small_flash: !!o.allow_small_flash,
       device_mode: o.device_mode !== false,
       precheck: o.precheck !== false,
+      // souběh uvnitř jobu (6.11.2026): K pracovníků, pořadí a výlučnost podle tříd kusů (lib/schedule.js); nahrazuje dávky (batch_size)
+      parallel: Math.max(1, Math.min(12, parseInt(o.parallel, 10) || 6)),
     };
     // naplánovaný start: čas v sekundách; v minulosti nebo prázdné = hned
     if (o.start_at) {
@@ -1152,40 +1154,18 @@ async function api(req, res, method, p, url) {
       devs.sort((a, b2) => (canaryIds.has(b2.id) - canaryIds.has(a.id)) || b2.depth - a.depth || a.priority - b2.priority || a.host.localeCompare(b2.host));
     }
     options.by = who(req);
-    // rozdělení do dávek: zařízení jsou seřazená potomci→rodiče; dávky poběží jedna po druhé (nejdřív koncové kusy, nakonec páteř),
-    // každá je samostatný job a spustí se teprve po dokončení předchozí (runner.advanceBatch); 0/prázdné = jeden job jako dřív
-    const batchSize = Math.max(0, Math.min(500, parseInt(o.batch_size, 10) || 0));
-    const chunks = [];
-    if (batchSize > 0 && devs.length > batchSize) for (let i = 0; i < devs.length; i += batchSize) chunks.push(devs.slice(i, i + batchSize));
-    else chunks.push(devs);
-    const multi = chunks.length > 1;
-    const baseName = b.name || `Upgrade ${new Date().toLocaleString('cs-CZ')}`;
-    const group = multi ? `b${Date.now().toString(36)}` : '';
-    const useCanary = options.canary && !multi; // u dávek se kanárci nepoužijí — každá dávka je sama malá vlna
-    const createdIds = [];
-    for (let ci = 0; ci < chunks.length; ci++) {
-      const chunk = chunks[ci];
-      const opts = { ...options, canary: useCanary };
-      if (multi) opts.batch = { group, index: ci + 1, total: chunks.length, next: 0 };
-      const name = multi ? `${baseName} — dávka ${ci + 1}/${chunks.length}` : baseName;
-      const cids = new Set();
-      if (useCanary) { const seen = new Set(); for (const d of chunk) { const key = d.board_name || d.model || 'unknown'; if (!seen.has(key)) { seen.add(key); cids.add(d.id); } } }
-      const id = db.createJob(name, opts, chunk.map(d => d.id), req.user.id);
-      if (useCanary) for (const it of db.getJobItems(id)) if (cids.has(it.device_id)) db.updateJobItem(it.id, { plan: { canary: true } });
-      createdIds.push(id);
-      db.addLog(id, 0, 0, 'info', `Job vytvořen (${options.by}): ${chunk.length} zařízení${multi ? `, dávka ${ci + 1}/${chunks.length}` : ''}, ${JSON.stringify(opts)}`);
-    }
-    // dávky běží SOUBĚŽNĚ: každá je samostatný job a spustí/naplánuje se hned, žádné čekání na předchozí (každá jede svá zařízení sériově,
-    // takže N dávek = až N zařízení naráz). Pozor: napříč souběžnými dávkami se nedrží pořadí potomci→rodiče (v rámci jedné dávky ano).
-    const jobId = createdIds[0];
-    for (const id of createdIds) {
-      if (b.start && options.start_at) { db.updateJob(id, { status: 'scheduled', status_note: `spustí se ${new Date(options.start_at * 1000).toLocaleString('cs-CZ')}` }); db.addLog(id, 0, 0, 'info', `Naplánováno na ${new Date(options.start_at * 1000).toLocaleString('cs-CZ')} (${who(req)}).`); }
-    }
+    // jeden job pro celý výběr: souběh řeší pracovníci uvnitř jobu (options.parallel), ne rozdělení na dávky — dávky běžely vedle sebe
+    // bez ohledu na topologii a navzájem se blokovaly fyzickým zámkem (6.11.2026)
+    const name = b.name || `Upgrade ${new Date().toLocaleString('cs-CZ')}`;
+    const jobId = db.createJob(name, options, devs.map(d => d.id), req.user.id);
+    if (options.canary) for (const it of db.getJobItems(jobId)) if (canaryIds.has(it.device_id)) db.updateJobItem(it.id, { plan: { canary: true } });
+    db.addLog(jobId, 0, 0, 'info', `Job vytvořen (${options.by}): ${devs.length} zařízení, souběžně až ${options.parallel}, ${JSON.stringify(options)}`);
+    if (b.start && options.start_at) { db.updateJob(jobId, { status: 'scheduled', status_note: `spustí se ${new Date(options.start_at * 1000).toLocaleString('cs-CZ')}` }); db.addLog(jobId, 0, 0, 'info', `Naplánováno na ${new Date(options.start_at * 1000).toLocaleString('cs-CZ')}.`); }
     let queued = null;
-    if (b.start && !options.start_at) { for (const id of createdIds) { const q = runner.startOrQueue(id); if (id === jobId) queued = q; } }
-    else if (b.start && options.start_at && options.precheck && !options.dry_run) { for (const id of createdIds) runner.earlyPrecheck(id).catch(e => db.addLog(id, 0, 0, 'warn', 'předběžná kontrola se nepovedla: ' + e.message)); }
-    for (const id of createdIds) bus.emit('event', { type: 'job', job: db.getJobSummary(id) });
-    return send(res, 200, { id: jobId, queued: !!(queued && queued.queued), behind: queued && queued.behind, batch: multi ? { size: batchSize, count: chunks.length, ids: createdIds } : null });
+    if (b.start && !options.start_at) queued = runner.startOrQueue(jobId);
+    else if (b.start && options.start_at && options.precheck && !options.dry_run) runner.earlyPrecheck(jobId).catch(e => db.addLog(jobId, 0, 0, 'warn', 'předběžná kontrola se nepovedla: ' + e.message));
+    bus.emit('event', { type: 'job', job: db.getJobSummary(jobId) });
+    return send(res, 200, { id: jobId, queued: !!(queued && queued.queued), behind: queued && queued.behind, parallel: options.parallel, batch: null });
   }
   if (seg[0] === 'jobs' && seg[1]) {
     const id = parseInt(seg[1], 10);
@@ -1210,7 +1190,7 @@ async function api(req, res, method, p, url) {
       const q = runner.startOrQueue(id);
       return send(res, 200, { ...runnerStatusFor(req), queued: q.queued, behind: q.behind });
     }
-    if (method === 'POST' && seg[2] === 'skip-current') { if (!rj) throw new Error('tento job neběží'); db.addLog(id, 0, 0, 'warn', `Přeskočení aktuálního: ${who(req)}`); audit(req, 'job přeskočení', `#${id}`); rj.skipCurrent(); return send(res, 200, { ok: true }); }
+    if (method === 'POST' && seg[2] === 'skip-current') { if (!rj) throw new Error('tento job neběží'); const bb = await readBody(req).catch(() => ({})); const iid = parseInt((bb && bb.item_id) || 0, 10) || 0; db.addLog(id, iid, 0, 'warn', `Přeskočení ${iid ? 'položky' : 'aktuálního'}: ${who(req)}`); audit(req, 'job přeskočení', `#${id}${iid ? ' položka ' + iid : ''}`); rj.skipCurrent(iid); return send(res, 200, { ok: true }); }
     if (method === 'DELETE' && !seg[2]) { if (rj) throw new Error('job právě běží'); audit(req, 'job smazán', `#${id} ${job.name}`); db.deleteJob(id); bus.emit('event', { type: 'job-deleted', id }); return send(res, 200, { ok: true }); }
   }
   if (seg[0] === 'items' && seg[1] && method === 'POST') {
