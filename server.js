@@ -566,8 +566,10 @@ async function linkUserdb(userId, who) {
 const userdbFor = (req) => { if (!userdb.enabled()) return { enabled: false }; const u = req.user && db.getUser(req.user.id); return { enabled: true, uid: (u && u.userdb_uid) || 0, nick: (u && u.userdb_nick) || '', aps: (u && u.userdb_aps || []).length }; };
 const discoveryFor = (req) => discovery.status(req.user.id);
 /** SSE: událost projde jen tomu, kdo smí vidět dotčené zařízení / job */
+// ořezaná podoba události 'device' se dělá jednou na událost, ne pro každý připojený prohlížeč zvlášť (a díky tomu se i serializuje jednou, viz sseFrame)
+const slimEvCache = new WeakMap();
 function eventFor(req, ev) {
-  if (ev.type === 'device' && ev.device) ev = { ...ev, device: slimDevice(ev.device) }; // do prohlížeče jen štíhlá verze (bez sousedů/rádií)
+  if (ev.type === 'device' && ev.device) { let s = slimEvCache.get(ev); if (!s) { s = { ...ev, device: slimDevice(ev.device) }; slimEvCache.set(ev, s); } ev = s; } // do prohlížeče jen štíhlá verze (bez sousedů/rádií)
   if (isAdmin(req)) return ev;
   const uid = req.user.id;
   switch (ev.type) {
@@ -598,7 +600,8 @@ async function api(req, res, method, p, url) {
   // stav
   if (method === 'GET' && p === '/api/state') {
     const latest = V.getLatest();
-    if (!latest.fetchedAt) await V.refreshLatest().catch(() => {});
+    // po startu nečekat na mikrotik.com: v odpovědi jsou poslední známé verze (paměť vydání), čerstvé přijdou klientům událostí 'latest'
+    if (!latest.fetchedAt) V.refreshLatest().then(() => bus.emit('event', { type: 'latest' })).catch(() => {});
     // ?nodevices=1: jen joby/runner/nastavení (klient si to stahuje při každé události runneru; seznam zařízení se mění zvlášť přes události 'device')
     const noDev = url.searchParams.get('nodevices') === '1';
     const base = { latest: { ...V.getLatest(req.user.id), floor: pinsFor(null), min: minsFor() }, settings: db.getSettings(req.user.id), settingsOwn: db.getUserSettings(req.user.id), settingsGlobal: isAdmin(req) ? db.getSettings() : undefined, jobs: visJobs(req, 30), runner: runnerStatusFor(req), tracks: TRACKS, scanning: [...scanner.inProgress], checkProg: scanner.checkProgress(req.user.id), discovery: discoveryFor(req), admin: isAdmin(req), user: req.user };
@@ -1206,9 +1209,14 @@ async function api(req, res, method, p, url) {
 
   // SSE
   if (method === 'GET' && p === '/api/events') {
+    // ?job=ID: řádky logu a průběh nahrávání jen z jobu, který má prohlížeč otevřený (0 = žádný); bez parametru (starší načtený klient) vše jako dřív
+    const watch = url.searchParams.has('job') ? (parseInt(url.searchParams.get('job'), 10) || 0) : null;
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
     res.write(': hello\n\n');
-    const h = (ev) => { try { const e2 = eventFor(req, ev); if (e2) res.write(`data: ${JSON.stringify(e2)}\n\n`); } catch {} };
+    const h = (ev) => { try {
+      if (watch !== null && (ev.type === 'log' || ev.type === 'progress') && (ev.type === 'log' ? (ev.log && ev.log.job_id) : ev.job_id) !== watch) return;
+      const e2 = eventFor(req, ev); if (e2) res.write(sseFrame(e2));
+    } catch {} };
     bus.on('event', h);
     const ping = setInterval(() => { try { res.write(': ping\n\n'); } catch {} }, 25000);
     req.on('close', () => { bus.off('event', h); clearInterval(ping); });
@@ -1216,6 +1224,10 @@ async function api(req, res, method, p, url) {
   }
   send(res, 404, { error: 'neznámé API' });
 }
+
+// jedna serializace na událost pro všechny prohlížeče (správci dostanou týž objekt, uživatelé týž ořezaný) místo JSON.stringify per klient
+const frameCache = new Map();
+function sseFrame(e2) { let s = frameCache.get(e2); if (!s) { if (frameCache.size > 64) frameCache.clear(); s = `data: ${JSON.stringify(e2)}\n\n`; frameCache.set(e2, s); } return s; }
 
 // ---------- server ----------
 const server = http.createServer(async (req, res) => {
@@ -1377,7 +1389,7 @@ else if (!db.listUsers().length) { console.error('žádný uživatel a MTU_PASSW
 server.listen(cfg.port, cfg.host, () => {
   console.log(build.full);
   console.log(`mikrotik-upgrader běží na http://${cfg.host}:${cfg.port}${cfg.basePath}/ (data v ${cfg.dataDir})`);
-  V.refreshLatest().then(l => console.log('nejnovější verze:', JSON.stringify(Object.fromEntries(Object.entries(l.versions).map(([k, v]) => [k, v.version]))))).catch(e => console.error('verze:', e.message));
+  V.refreshLatest().then(l => { console.log('nejnovější verze:', JSON.stringify(Object.fromEntries(Object.entries(l.versions).map(([k, v]) => [k, v.version])))); bus.emit('event', { type: 'latest' }); }).catch(e => console.error('verze:', e.message));
   // předehřát keš seznamu zařízení pro správce hned po startu (skládá se ~1 s a blokuje smyčku) — dřív než se rozjedou joby a SSH spojení
   setTimeout(() => { try { adminDevicesJson({ user: { role: 'admin' } }); } catch (e) { console.error('keš zařízení:', e.message); } }, 300);
   scanner.startPeriodic();

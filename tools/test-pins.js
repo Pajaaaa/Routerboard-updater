@@ -40,12 +40,13 @@ check(V2.cmpVersion('7.24.3', '7.24.2') > 0 && V2.cmpVersion('7.24.2', '7.24.2')
 // cíl podle vlastníka: pins() dostane scope (id vlastníka / jeho nastavení) a může vrátit vyšší verzi než společnou
 V2.configure({ pins: (scope) => scope === 7 ? { 'v7-stable': '7.24.3' } : { 'v7-stable': '7.24.2' } });
 check(V2.getLatest().versions['v7-stable'].version === '7.24.2' && V2.getLatest(7).versions['v7-stable'].version === '7.24.3', 'cíl podle vlastníka (scope) — uživatel 7 má vlastní vyšší připnutí');
-check(V2.getLatest(7).versions['v7-stable'].newer === null && V2.getLatest().versions['v7-stable'].newer === null, 'newer jen když MikroTik nabízí víc než připnutí (bez odpovědi MikroTiku nic)');
+// 9.11.2026: poslední známá odpověď MikroTiku z paměti vydání platí hned po startu (nečeká se na stažení) → společné připnutí 7.24.2 vidí novější 7.24.3, uživatel 7 s 7.24.3 nic
+check(V2.getLatest(7).versions['v7-stable'].newer === null && V2.getLatest().versions['v7-stable'].newer === '7.24.3', 'newer jen když MikroTik (poslední známá odpověď z paměti vydání) nabízí víc než připnutí');
 
-// neplatné připnutí se ignoruje (server ho ani nepustí, ale kdyby v DB bylo)
+// neplatné připnutí se ignoruje (server ho ani nepustí, ale kdyby v DB bylo) → platí poslední známá odpověď MikroTiku
 V2.configure({ pins: () => ({ 'v7-stable': 'nesmysl' }) });
 l = V2.getLatest();
-check(!l.versions['v7-stable'], 'nečitelná připnutá verze se ignoruje');
+check(l.versions['v7-stable'] && l.versions['v7-stable'].version === '7.24.3' && !l.versions['v7-stable'].pinned, 'nečitelná připnutá verze se ignoruje (platí známá odpověď MikroTiku)');
 
 console.log(bad ? `SELHALO: ${bad}` : 'připnuté verze OK');
 process.exit(bad ? 1 : 0);

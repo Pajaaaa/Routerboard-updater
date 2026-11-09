@@ -122,6 +122,7 @@ function renderLive() { if (state.authed && userBusy()) { pendingRender = true; 
 function render() {
   const app = $('#app');
   pendingRender = false;
+  watchJob();
   const sameView = lastRenderedView === state.view; lastRenderedView = state.view;
   const keepY = sameView ? window.scrollY : 0;
   let openKeys = new Set(); try { if (sameView) [...document.querySelectorAll('#main details')].forEach((d, i) => { if (d.open) openKeys.add(d.id || 'i' + i); }); } catch {}
@@ -1311,7 +1312,15 @@ let reloadT = null, renderT = null;
 function renderSoon() { if (renderT) return; renderT = setTimeout(() => { renderT = null; if (!state.modal) renderLive(); }, 2000); }
 let reloadFull = false;
 /** full=false: jen joby/runner/nastavení (události runneru chodí pořád; seznam zařízení správce má 4 MB a skládá se sekundu, ten se stahuje jen když se zařízení změní) */
-function scheduleReload(full = true) { reloadFull = reloadFull || full; if (reloadT) return; reloadT = setTimeout(async () => { reloadT = null; const f = reloadFull; reloadFull = false; try { await loadState({ light: !f }); } catch {} renderLive(); }, 2500); }
+// delay: po události runneru (každá položka každého pracovníka) stačí 8 s — všech ~30 otevřených prohlížečů jinak po každé položce ptalo server naráz;
+// kratší požadavek (změna seznamu) běžící delší odklad zkrátí
+let reloadAt = 0;
+function scheduleReload(full = true, delay = 2500) {
+  reloadFull = reloadFull || full;
+  if (reloadT) { if (Date.now() + delay >= reloadAt) return; clearTimeout(reloadT); }
+  reloadAt = Date.now() + delay;
+  reloadT = setTimeout(async () => { reloadT = null; const f = reloadFull; reloadFull = false; try { await loadState({ light: !f }); } catch {} renderLive(); }, delay);
+}
 /** joby pro aktuální pohled: výběr uživatele nebo víc než 30 hotových → celá historie ze serveru, jinak stačí /state */
 async function loadJobsForView() {
   const lim = state.jobsLimit ?? 10;
@@ -1323,19 +1332,31 @@ async function loadState({ light = false } = {}) {
   // i účet a vazba na userdb: po přihlášení heslem se stránka nenačítá znovu a state.auth by zůstal z doby před přihlášením (15.9.2026: bez „Natáhnout z userdb“ a bez štítků cizích zařízení);
   // přidělená APčka (userdb.aps) se mění ve Správě za běhu
   try { const w = await api('/whoami'); if (w && w.serverStartedAt) { state.auth.serverStartedAt = w.serverStartedAt; state.auth.draining = !!w.draining; state.auth.drainJobs = w.drainJobs || []; if (w.sourceIp) state.auth.sourceIp = w.sourceIp; } if (w && w.authed) { state.auth.user = w.user || state.auth.user; state.auth.userdb = w.userdb || state.auth.userdb; state.auth.passwordLogin = w.passwordLogin; state.auth.registration = w.registration; } } catch {}
-  const s = await api(light && state.devices.length ? '/state?nodevices=1' : '/state');
+  const lite = light && state.devices.length > 0; // lehké obnovení: jen joby/runner/nastavení; účty, počty jobů a statistika se nemění
+  const s = await api(lite ? '/state?nodevices=1' : '/state');
   if (state.jobsLimit === undefined) { try { const v = localStorage.getItem('mtu_joblimit'); state.jobsLimit = v === null ? 10 : +v; } catch { state.jobsLimit = 10; } }
   const lim = state.jobsLimit ?? 10; if ((state.admin && state.jobOwner) || !lim || lim > 30) { try { s.jobs = state.admin && state.jobOwner ? await api(`/jobs?owner=${state.jobOwner}&limit=${lim || 1000}`) : await api(`/jobs?limit=${lim || 1000}`); } catch {} }
   Object.assign(state, { devices: s.devices || state.devices, jobs: s.jobs, latest: s.latest, settings: s.settings, settingsOwn: s.settingsOwn || {}, settingsGlobal: s.settingsGlobal, runner: s.runner, tracks: s.tracks, scanning: s.scanning, checkProg: s.checkProg && !s.checkProg.finishedAt ? s.checkProg : (state.checkProg && !state.checkProg.finishedAt ? state.checkProg : s.checkProg), discovery: s.discovery, admin: s.admin, auth: { ...state.auth, user: s.user } });
-  if (s.admin) { try { state.users = await api('/users'); } catch { state.users = null; } try { state.jobCounts = await api('/jobs/counts'); } catch { state.jobCounts = null; } }
+  if (s.admin && !lite) { try { state.users = await api('/users'); } catch { state.users = null; } try { state.jobCounts = await api('/jobs/counts'); } catch { state.jobCounts = null; } }
   // správce: výchozí pohled = vlastní zařízení; ruční přepnutí na jiného vlastníka si pamatuje prohlížeč
   if (s.admin && s.user && state.ownerInit !== s.user.id) { state.ownerInit = s.user.id; let saved = null; try { saved = localStorage.getItem('mtu_owner'); } catch {} state.owner = saved !== null && saved !== '' ? +saved : s.user.id; }
-  try { state.stats = await api('/stats'); } catch { state.stats = null; }
+  if (!lite) { try { state.stats = await api('/stats'); } catch { state.stats = null; } }
 }
-let es;
+let es, esJob = null;
+/** řádek logu právě otevřeného jobu (ze SSE i z dočtení po znovupřipojení) */
+function onLog(log) {
+  if (!state.job || log.job_id !== state.job.job.id) return;
+  if (state.jobLog.length && log.id <= state.jobLog[state.jobLog.length - 1].id) return; // už máme (dočtení po znovupřipojení)
+  state.jobLog.push(log); const l = $('#joblog'); if (l) { const p = $('#joblogprog'); if (p) p.remove(); const atBottom = LOGFOLLOW; l.insertAdjacentHTML('beforeend', logLine(log, logNames(state.job.items))); const d = +l.dataset.dev || 0; if (d && log.device_id && log.device_id !== d) l.lastElementChild.classList.add('od'); if (atBottom) window.scrollTo(0, document.documentElement.scrollHeight); }
+}
+/** server posílá řádky logu a průběh jen z jobu, který je otevřený (?job=ID) — při změně otevřeného jobu se SSE připojí znovu (volá render) */
+function watchJob() { if (!es || !state.authed) return; const want = state.view === 'jobs' && state.job ? state.job.job.id : 0; if (want !== esJob) connectSSE(); }
 function connectSSE() {
   if (es) es.close();
-  es = new EventSource(BASE + '/api/events');
+  esJob = state.view === 'jobs' && state.job ? state.job.job.id : 0;
+  es = new EventSource(BASE + '/api/events?job=' + esJob);
+  // po (znovu)připojení dočíst řádky, které mezitím mohly utéct
+  es.onopen = () => { const id = esJob; if (id && state.job && state.job.job.id === id && state.jobLog) { const last = state.jobLog.length ? state.jobLog[state.jobLog.length - 1].id : 0; api(`/jobs/${id}/log?after=${last}`).then(rows => { if (esJob === id) for (const l of rows) onLog(l); }).catch(() => {}); } };
   es.onmessage = (e) => {
     const ev = JSON.parse(e.data);
     // překreslit jen když je zařízení v právě zobrazeném seznamu (správce s filtrem na sebe by jinak při kontrole cizích zařízení překresloval 2000 řádků každou sekundu)
@@ -1343,9 +1364,9 @@ function connectSSE() {
     else if (ev.type === 'device-deleted') { state.devices = state.devices.filter(d => d.id !== ev.id); state.selected.delete(ev.id); if (!state.modal) renderLive(); }
     else if (ev.type === 'job' && ev.job) { const i = state.jobs.findIndex(j => j.id === ev.job.id); if (i >= 0) state.jobs[i] = ev.job; else state.jobs.unshift(ev.job); if (state.job && state.job.job.id === ev.job.id) { state.job.job = { ...state.job.job, ...ev.job }; } if (state.view === 'jobs') render(); else scheduleReload(false); }
     else if (ev.type === 'item' && state.job && ev.item.job_id === state.job.job.id) { const i = state.job.items.findIndex(x => x.id === ev.item.id); if (i >= 0) state.job.items[i] = { ...state.job.items[i], ...ev.item }; if (state.view === 'jobs') renderJobDetail(); }
-    else if (ev.type === 'log' && state.job && ev.log.job_id === state.job.job.id) { state.jobLog.push(ev.log); const l = $('#joblog'); if (l) { const p = $('#joblogprog'); if (p) p.remove(); const atBottom = LOGFOLLOW; l.insertAdjacentHTML('beforeend', logLine(ev.log, logNames(state.job.items))); const d = +l.dataset.dev || 0; if (d && ev.log.device_id && ev.log.device_id !== d) l.lastElementChild.classList.add('od'); if (atBottom) window.scrollTo(0, document.documentElement.scrollHeight); } }
+    else if (ev.type === 'log' && ev.log) onLog(ev.log);
     else if (ev.type === 'progress' && state.job && ev.job_id === state.job.job.id) { const l = $('#joblog'); if (l) { let p = $('#joblogprog'); if (!p) { p = document.createElement('div'); p.id = 'joblogprog'; p.className = 'info'; l.appendChild(p); } p.textContent = `${new Date().toLocaleTimeString('cs-CZ')} ${ev.text}`; const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 200; if (atBottom) window.scrollTo(0, document.documentElement.scrollHeight); } }
-    else if (ev.type === 'runner') { scheduleReload(false); }
+    else if (ev.type === 'runner') { scheduleReload(false, 8000); }
     else if (ev.type === 'discovery' || ev.type === 'discovery-done') { state.discovery = ev.state; const r = $('#discres'); if (r) r.innerHTML = discoveryHtml(ev.state); if (ev.type === 'discovery-done') { toast(`sken rozsahu hotov: ${ev.state.added} nových zařízení`); loadState().then(() => { if (state.modal && state.modal.type === 'discover') renderModal(); else render(); rbdbAfterImport(ev.state); }); } }
     else if (ev.type === 'discovery-error') toast('sken rozsahu: ' + ev.error, true);
     else if (ev.type === 'scan-progress' && ev.tag === 'check') { state.checkProg = { ...(state.checkProg || {}), done: ev.done, total: ev.total, startedAt: ev.startedAt || (state.checkProg && state.checkProg.startedAt) || Date.now(), finishedAt: 0, label: ev.label || (state.checkProg && state.checkProg.label) || '', summary: undefined }; if (state.view === 'admin') { const el = $('#checkprog'), box = $('#adminprog'); if (el) el.outerHTML = checkProgHtml(); else if (box) box.innerHTML = checkProgHtml(); } else renderSoon(); }

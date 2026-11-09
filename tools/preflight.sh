@@ -47,6 +47,7 @@ node tools/test-wifiwave2.js || { echo "kontrola náhrady wifiwave2 selhala"; ex
 node tools/test-access.js || { echo "kontrola sdíleného přístupu podle APčka selhala"; exit 1; }
 node tools/test-schedule.js || { echo "kontrola souběhu a pořadí uvnitř jobu selhala"; exit 1; }
 node tools/test-db-perf.js || { echo "kontrola databáze (indexy, transakce, keše) selhala"; exit 1; }
+node tools/test-start-fast.js || { echo "kontrola rychlého startu (verze, přístup, SSE filtr) selhala"; exit 1; }
 node tools/test-topo-lock.js || { echo "kontrola zámku předek-potomek napříč dávkami selhala"; exit 1; }
 node tools/test-harden-services.js || { echo "kontrola ochrany služeb na RouterOS 6 selhala"; exit 1; }
 node tools/test-dup-skip.js || { echo "kontrola přeskočení dalšího rozhraní téhož kusu selhala"; exit 1; }
