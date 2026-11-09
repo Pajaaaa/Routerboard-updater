@@ -282,13 +282,13 @@ function resolveUserdbAps(reason) {
     try {
       const idx = await userdb.ipIndex();
       let n = 0, moved = 0, missing = 0;
-      for (const d of db.listDevices()) {
+      db.transaction(() => { for (const d of db.listDevices()) {
         const h = idx.get(d.host); if (!h) { if (!d.userdb_ap_id) missing++; continue; }
         if (Number(d.userdb_ap_id) === h.apId) continue;
         if (d.userdb_ap_id) { moved++; console.log(`userdb: ${d.host} přesunuto z APčka ${d.userdb_ap || d.userdb_ap_id} na ${h.ap} (${h.apId})`); }
         db.updateDevice(d.id, { userdb_ap_id: h.apId, userdb_ap: h.ap, userdb_member: h.member ? h.userId : 0, ...(d.group_name ? {} : { group_name: h.ap }) });
         n++;
-      }
+      } });
       if (n) { console.log(`userdb: vazba na APčko doplněna u ${n - moved} a opravena u ${moved} zařízení, ${missing} kusů userdb nezná (${reason})`); remainingCache.at = 0; bus.emit('event', { type: 'devices-changed' }); }
       return n;
     } catch (e) { console.error('userdb vazba na APčko:', e.message); return 0; }
@@ -1000,7 +1000,7 @@ async function api(req, res, method, p, url) {
     if (!tu) throw new Error('cílový uživatel neexistuje');
     const ids = (b.ids || []).map(Number).filter(i => db.getDevice(i));
     let n = 0;
-    for (const id of ids) { const d = db.getDevice(id); if (d.owner_id === target) continue; db.updateDevice(id, { owner_id: target }); n++; bus.emit('event', { type: 'device', device: db.getDevice(id) }); }
+    db.transaction(() => { for (const id of ids) { const d = db.getDevice(id); if (d.owner_id === target) continue; db.updateDevice(id, { owner_id: target }); n++; bus.emit('event', { type: 'device', device: db.getDevice(id) }); } });
     audit(req, 'zařízení předána', `${n}× → ${tu.name}`);
     bus.emit('event', { type: 'devices-changed' });
     return send(res, 200, { moved: n, owner: tu.name });
@@ -1010,7 +1010,7 @@ async function api(req, res, method, p, url) {
     const b = await readBody(req);
     if (!['v7-stable', 'v7-long-term'].includes(b.track)) throw new Error('kanál: v7-stable nebo v7-long-term');
     let n = 0;
-    for (const d of visDevices(req)) { if (['v6-long-term', 'hold'].includes(d.track) || d.track === b.track) continue; db.updateDevice(d.id, { track: b.track }); n++; }
+    db.transaction(() => { for (const d of visDevices(req)) { if (['v6-long-term', 'hold'].includes(d.track) || d.track === b.track) continue; db.updateDevice(d.id, { track: b.track }); n++; } });
     audit(req, 'kanál změněn hromadně', `${n}× → ${b.track}`);
     bus.emit('event', { type: 'devices-changed' });
     return send(res, 200, { changed: n });
@@ -1021,12 +1021,12 @@ async function api(req, res, method, p, url) {
     const all = db.listDevices().filter(d => !d.dup_of); // kandidáti na rodiče napříč účty
     const mine = new Set(visDevices(req).map(d => d.id));
     let n = 0;
-    for (const d of all) {
+    db.transaction(() => { for (const d of all) {
       if (!mine.has(d.id)) continue;
       if (d.parent_id && !b.overwrite) continue;
       const sp = suggestParent(d, all);
       if (sp && sp.id && sp.id !== d.parent_id && !db.descendantIds(d.id).includes(sp.id)) { db.updateDevice(d.id, { parent_id: sp.id, parent_src: sp.src || '' }); n++; }
-    }
+    } });
     bus.emit('event', { type: 'devices-changed' });
     return send(res, 200, { updated: n });
   }
