@@ -163,6 +163,26 @@ const check = (name, ok, extra = '') => { console.log(`  ${name}: ${ok ? 'OK' : 
     } catch (e) { err = e && e.message || String(e); }
     check('Patička: autor a verze sestavení', !err && !errors.slice(before).length, [err, errors.slice(before).join('; ')].filter(Boolean).join(' | '));
   }
+  // 9.11.2026 (rychlost): výsledek skenu jednoho zařízení vymění jen jeho řádek (swapRow), obsluha tlačítek v novém řádku funguje, 60s tiker mění jen relativní časy
+  {
+    const before = errors.length; let err = '';
+    try {
+      await run(`window.__adv = state.advanced; state.advanced = true; state.view = 'devices'; state.sort = 'tree'; state.filter = ''; state.vf = ''; state.devices = [
+        { id: 9001, host: '10.9.9.1', port: 22, username: 'admin', name: 'rodic', identity: 'rodic', board_name: 'RB750Gr3', model: 'RB750Gr3', version: '7.24.1', channel: 'stable', track: 'v7-stable', enabled: 1, managed: 1, scan_status: 'ok', scan_error: '', last_seen_at: Math.floor(Date.now() / 1000) - 120, last_scan_at: 0, total_hdd: 16e6, free_hdd: 8e6, total_mem: 256e6, free_mem: 128e6, flags: { routerboard: true, partitions: 1 }, parent_id: 0, owner_id: 1, priority: 0, group_name: '' },
+        { id: 9002, host: '10.9.9.2', port: 22, username: 'admin', name: 'dite', identity: 'dite', board_name: 'hAP lite', model: 'hAP lite', version: '6.49.10', channel: 'long-term', track: 'v6-long-term', enabled: 1, managed: 1, scan_status: 'ok', scan_error: '', last_seen_at: Math.floor(Date.now() / 1000) - 3600, last_scan_at: 0, total_hdd: 16e6, free_hdd: 8e6, total_mem: 32e6, free_mem: 16e6, flags: {}, parent_id: 9001, owner_id: 1, priority: 0, group_name: '' }];
+        render(); window.__p = 1`); await sleep(300);
+      await run(`const tr = document.querySelector('tr.devrow[data-id="9002"]'); if (!tr) throw new Error('řádek dítěte chybí'); if (!/├─|└─/.test(tr.textContent)) throw new Error('bez strom-značky: ' + tr.textContent.slice(0, 80)); if (!state.renderedDeco || !state.renderedDeco.get(9002)) throw new Error('renderedDeco chybí'); window.__p = 1`);
+      // výměna řádku: nová verze se objeví jen v jeho řádku, tabulka zůstává (stejný <tbody>), tlačítko ✎ v novém řádku má obsluhu, strom-značka zůstala
+      await run(`const tb = document.querySelector('table.devs tbody'); window.__tb = tb; const d2 = { ...state.devices[1], version: '7.24.9' }; state.devices[1] = d2; if (!swapRow(d2)) throw new Error('swapRow vrátil false'); window.__p = 1`);
+      await run(`const tr = document.querySelector('tr.devrow[data-id="9002"]'); if (!tr) throw new Error('řádek po výměně chybí'); if (!/7\.24\.9/.test(tr.textContent)) throw new Error('nová verze se neukázala: ' + tr.textContent.slice(0, 120)); if (!/├─|└─/.test(tr.textContent)) throw new Error('strom-značka po výměně zmizela'); if (tr.parentNode !== window.__tb) throw new Error('tabulka byla překreslena celá'); const b = tr.querySelector('.edit1'); if (!b || typeof b.onclick !== 'function') throw new Error('tlačítko ✎ v novém řádku bez obsluhy'); if (document.querySelectorAll('tr.devrow[data-id="9002"]').length !== 1) throw new Error('řádek je tam vícekrát'); window.__p = 1`);
+      // neznámé zařízení (není vykreslené) → swapRow false (volající udělá celé překreslení)
+      await run(`if (swapRow({ id: 9999, host: 'x' })) throw new Error('swapRow pro nevykreslený kus měl vrátit false'); window.__p = 1`);
+      // 60s tiker: refreshAgo přepíše relativní časy podle data-ago, bez překreslení
+      await run(`const el = document.querySelector('tr.devrow[data-id="9002"] [data-ago]'); if (!el) throw new Error('data-ago chybí'); el.textContent = 'xxx'; refreshAgo(); if (el.textContent === 'xxx' || !/h|min|s|d/.test(el.textContent)) throw new Error('refreshAgo nepřepsal čas: ' + el.textContent); window.__p = 1`);
+      await run(`state.devices = []; state.advanced = window.__adv; render(); window.__p = 1`); await sleep(200);
+    } catch (e) { err = e && e.message || String(e); }
+    check('Výměna jednoho řádku po skenu (swapRow) + relativní časy', !err && !errors.slice(before).length, [err, errors.slice(before).join('; ')].filter(Boolean).join(' | '));
+  }
   if (fail) { console.error(`UI real DOM: ${fail} chyb`); process.exit(1); }
   console.log('UI real DOM OK');
   process.exit(0);

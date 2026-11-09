@@ -20,6 +20,13 @@ for p in /api/whoami /api/state /api/stats /api/progress /api/settings /api/jobs
 done
 curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:28999/mikrotik/prehled.html | grep -q 200 || { echo "prehled.html se nepodává"; exit 1; }
 curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:28999/mikrotik/rbdb.html | grep -q 200 || { echo "rbdb.html se nepodává"; exit 1; }
+# statika s ETag: druhé načtení nezměněného souboru = 304 (9.11.2026)
+ET=$(curl -s -D - -o /dev/null http://127.0.0.1:28999/mikrotik/app.js | tr -d '\r' | awk 'tolower($1)=="etag:"{print $2}')
+[ -n "$ET" ] || { echo "app.js bez ETag"; exit 1; }
+curl -s -o /dev/null -w '%{http_code}' -H "If-None-Match: $ET" http://127.0.0.1:28999/mikrotik/app.js | grep -q 304 || { echo "app.js s If-None-Match nevrací 304"; exit 1; }
+curl -s -o /dev/null -w '%{http_code}' -H 'If-None-Match: W/"neplatny"' http://127.0.0.1:28999/mikrotik/app.js | grep -q 200 || { echo "app.js s cizím ETagem nevrací 200"; exit 1; }
+curl -s -b "$J" http://127.0.0.1:28999/mikrotik/api/devices | grep -q '^\[' || { echo "/api/devices nevrací pole"; exit 1; }
+curl -s -b "$J" http://127.0.0.1:28999/mikrotik/api/links | grep -q '"rows"' || { echo "/api/links nevrací rows"; exit 1; }
 curl -s -X PUT -b "$J" -H 'content-type: application/json' -d '{"min_uptime_min":11}' http://127.0.0.1:28999/mikrotik/api/settings/mine | grep -q '"min_uptime_min":11' || { echo "uložení nastavení selhalo"; exit 1; }
 grep -iE "error|TypeError|ReferenceError" "$T/server.log" | grep -v ExperimentalWarning && { echo "chyby v logu serveru"; exit 1; }
 echo "3/4 vykreslení UI v opravdovém DOM (jsdom) proti serveru nanečisto"
@@ -48,6 +55,7 @@ node tools/test-access.js || { echo "kontrola sdíleného přístupu podle APčk
 node tools/test-schedule.js || { echo "kontrola souběhu a pořadí uvnitř jobu selhala"; exit 1; }
 node tools/test-db-perf.js || { echo "kontrola databáze (indexy, transakce, keše) selhala"; exit 1; }
 node tools/test-start-fast.js || { echo "kontrola rychlého startu (verze, přístup, SSE filtr) selhala"; exit 1; }
+node tools/test-wave3.js || { echo "kontrola štíhlého seznamu, indexu topologie a škrcení událostí selhala"; exit 1; }
 node tools/test-topo-lock.js || { echo "kontrola zámku předek-potomek napříč dávkami selhala"; exit 1; }
 node tools/test-harden-services.js || { echo "kontrola ochrany služeb na RouterOS 6 selhala"; exit 1; }
 node tools/test-dup-skip.js || { echo "kontrola přeskočení dalšího rozhraní téhož kusu selhala"; exit 1; }

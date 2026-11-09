@@ -118,8 +118,12 @@ let pendingRender = false, lastRenderedView = '';
 function userBusy() { try { const el = document.activeElement; if (!el || el === document.body) return false; const t = el.tagName; return (t === 'SELECT' || t === 'INPUT' || t === 'TEXTAREA') && el.type !== 'checkbox' && el.type !== 'radio' && !!el.closest('#app'); } catch { return false; } }
 try { document.addEventListener('focusout', () => { if (pendingRender) setTimeout(() => { if (pendingRender && !userBusy() && !state.modal) { pendingRender = false; render(); } }, 250); }); } catch {}
 /** překreslení z pozadí (živé události, minutový refresh): odloží se, když uživatel právě něco vybírá nebo píše; akce uživatele volají render() přímo */
+let devById = new Map(), usersById = new Map(); // indexy nad state.devices / state.users pro vykreslení (find per řádek = O(n²))
+function indexState() { devById = new Map(state.devices.map(d => [d.id, d])); usersById = new Map((state.users || []).map(u => [u.id, u])); }
+let rendering = false, vfMemo = null; // vfInfo se během jednoho vykreslení volá vícekrát (filtr i hlavička s počty) → spočítat jednou
+function render() { indexState(); rendering = true; vfMemo = null; try { renderInner(); } finally { rendering = false; vfMemo = null; } }
 function renderLive() { if (state.authed && userBusy()) { pendingRender = true; return; } render(); }
-function render() {
+function renderInner() {
   const app = $('#app');
   pendingRender = false;
   watchJob();
@@ -189,16 +193,56 @@ function latestBar() {
 const genericIdentity = (d) => { const id = String(d.identity || '').trim(); if (!id || /^mikrotik$/i.test(id)) return true; return [d.board_name, d.model].map(x => String(x || '').trim().toLowerCase()).filter(Boolean).includes(id.toLowerCase()); };
 /** nenápadná poznámka „vlastní X“ u zařízení jiného uživatele (správce vidí všechna zařízení; běžný uživatel jen svoje, takže se mu neukáže) */
 /** nenápadná poznámka u zařízení, které vlastní někdo jiný: správce nástroje vidí všechna („vlastní X“); běžný uživatel vidí cizí jen tehdy, když je pod APčkem jeho oblasti — pak je spravují společně („společné s X“) */
-const foreignChip = (d) => { const me = (state.auth.user || {}).id; if (!d.owner_id || !me || d.owner_id === me) return ''; const u = (state.users || []).find(x => x.id === d.owner_id); const nm = u ? (u.userdb_nick || u.name) : (d.owner_name || '#' + d.owner_id); return state.admin ? ` <span class="muted" title="zařízení má u sebe jiný uživatel — upgrade mu spustí on nebo kolega z jeho oblasti; převzít jde tužkou ✎ (vlastník) nebo ⇄ Přesunout vybrané">· vlastní ${esc(nm)}</span>` : ` <span class="muted" title="zařízení naimportoval kolega z tvé oblasti (správce nebo zástupce) — je pod APčkem tvé oblasti, spravujete ho společně">· společné s ${esc(nm)}</span>`; };
+const foreignChip = (d) => { const me = (state.auth.user || {}).id; if (!d.owner_id || !me || d.owner_id === me) return ''; const u = usersById.get(d.owner_id); const nm = u ? (u.userdb_nick || u.name) : (d.owner_name || '#' + d.owner_id); return state.admin ? ` <span class="muted" title="zařízení má u sebe jiný uživatel — upgrade mu spustí on nebo kolega z jeho oblasti; převzít jde tužkou ✎ (vlastník) nebo ⇄ Přesunout vybrané">· vlastní ${esc(nm)}</span>` : ` <span class="muted" title="zařízení naimportoval kolega z tvé oblasti (správce nebo zástupce) — je pod APčkem tvé oblasti, spravujete ho společně">· společné s ${esc(nm)}</span>`; };
 const devLabel = (d) => { if (!d) return ''; const name = d.name !== undefined ? d.name : d.dev_name; return genericIdentity(d) ? (name || d.identity || d.host || '') : d.identity; };
 const devName = devLabel;
+/** jeden řádek tabulky zařízení (d už nese strom-dekorace _depth/_prefix/_last/_kids/_ctx z treeOrder) — používá ho celé vykreslení i výměna jednoho řádku po skenu (swapRow) */
+function deviceRow(d) { const adv = state.advanced; const ps = plainStatus(d); const sc = d.scan_status === 'unreachable' && /^ssh vypnuté/i.test(d.scan_error || '') ? ['b-err', 'ssh vypnuté'] : d.scan_status === 'unreachable' && /^ssh blokuje/i.test(d.scan_error || '') ? ['b-err', 'ssh za firewallem'] : STATUS_LABEL[d.scan_status] || ['b-muted', d.scan_status]; const scanning = state.scanning.includes(d.id); const busy = (state.runner.busy || []).includes(d.id);
+    return `<tr class="devrow ${state.selected.has(d.id) ? 'selected' : ''} ${d.enabled ? '' : 'muted'} ${d._ctx ? 'ctx' : ''} ${state.sort === 'tree' && d._depth === 0 && d._kids ? 'root-row' : ''}" data-id="${d.id}" ${d._ctx ? 'title="nadřazený prvek mimo filtr — jen pro strukturu stromu"' : ''}>
+    <td class="cardsel">${d._ctx ? '' : `<input type="checkbox" class="sel" data-id="${d.id}" ${state.selected.has(d.id) ? 'checked' : ''}>`}</td>
+    <td class="clickable detail name cardhead" data-id="${d.id}">${d._depth > 0 ? `<span class="tree mono">${esc(d._prefix)}${d._last ? '└─' : '├─'}</span>` : ''}${d._depth === 0 && d._kids ? '<span class="rootmark" title="hlavní prvek — napájí/připojuje podřízené">▣</span>' : ''}<b>${esc(devLabel(d))}</b>${d._kids ? ` <span class="muted" title="počet přímo podřízených">(${d._kids})</span>` : ''}${foreignChip(d)}${schedIcon(d)}${busy ? ' <span class="badge b-info">právě se upgraduje</span>' : ''}${d.enabled ? '' : ' <span class="badge b-muted">vypnuto</span>'}${d.track === 'v6-long-term' ? ' <span class="chip" title="zůstává na v6, na sedmičku se neupgraduje">zůstává na v6</span>' : trackOf(d) === 'v6-long-term' ? ((d.no_v7 || []).length ? ` <span class="chip" title="hardware bez v7 (${esc(String((d.no_v7 || [])[0] || '').split(':')[0])}) — cíl je poslední v6; v7 jde povolit tužkou u zařízení">zůstává na v6 (HW)</span>` : ' <span class="chip" title="nastavení „zůstat na v6“: zařízení na RouterOS 6 jdou jen na poslední v6 long-term">zůstává na v6 (nastavení)</span>') : d.track === 'hold' ? ' <span class="chip" title="nikdy neupgradovat">hold</span>' : ''}${d.userdb_member ? ` <span class="chip" title="zařízení člena (userdb uživatel ${d.userdb_member}) pod APčkem ${esc(d.userdb_ap)}">člen</span>` : ''}${d.parent_foreign ? ` <span class="chip" title="nadřazený prvek patří jinému uživateli — pořadí i zámky se hlídají i přes hranici účtů">pod: ${esc(d.parent_foreign.name)}${d.parent_foreign.user ? ` (${esc(d.parent_foreign.user)})` : ''}</span>` : ''}${d.dup_of ? ` <span class="chip" title="stejné sériové číslo jako ${esc((devById.get(d.dup_of) || {}).host || '#' + d.dup_of)} — jeden fyzický kus pod více IP, upgraduje se jen hlavní záznam">stejný kus jako ${esc((devById.get(d.dup_of) || {}).name || (devById.get(d.dup_of) || {}).host || '#' + d.dup_of)}</span>` : ''}<span class="sub"><span class="mono">${esc(d.host)}${d.port !== 22 ? ':' + d.port : ''}</span>${d.group_name ? ` · ${esc(d.group_name)}` : ''}${d.name && d.identity && d.name !== d.identity ? ` · ${esc(devLabel(d) === d.identity ? d.name : d.identity)}` : ''}</span></td>
+    <td data-l="model">${esc(d.board_name || d.model)}${adv && d.arch ? `<span class="sub">${esc(d.arch)}</span>` : ''}</td>
+    <td class="mono" data-l="RouterOS">${d.dup_of ? `<span class="muted" title="stejný kus (shodné sériové číslo) jako hlavní záznam — verze i upgrade jsou u něj${d.dup_foreign ? `; hlavní záznam ${esc(d.dup_foreign.host)} má ${esc(d.dup_foreign.user || 'jiný správce')}` : ''}">viz hlavní${d.dup_foreign ? ` (u ${esc(d.dup_foreign.user || 'jiného správce')})` : ''}</span>` : `<b>${esc(d.version || '—')}</b>${adv && d.channel ? ` <span class="muted">${esc(d.channel)}</span>` : ''}${adv && d.uptime_sec ? `<span class="sub" title="uptime">${upt(d.uptime_sec)}</span>` : ''}`}</td>
+    <td data-l="stav">${scanning ? '<span class="badge b-info">kontroluji…</span>' : `<span class="badge ${ps.cls}" title="${esc(ps.title || d.scan_error || '')}">${esc(ps.txt)}</span>`}</td>
+    ${adv ? `<td class="mono" data-l="firmware">${d.dup_of ? '' : `${esc(d.fw_current || '—')}${d.fw_upgrade && d.fw_current !== d.fw_upgrade ? ` <span class="badge b-warn" title="k dispozici ${esc(d.fw_upgrade)}">→${esc(d.fw_upgrade)}</span>` : ''}`}</td>
+    <td data-l="flash / RAM">${d.total_hdd ? `<span title="flash volné / celkem">${mb(d.free_hdd)}/${mb(d.total_hdd)}</span>${d.flags && d.flags.flash_dir ? '<span class="muted" title="kořen FS v RAM, adresář flash">ᶠ</span>' : ''} <span class="muted">·</span> <span title="RAM volná / celkem">${mb(d.free_mem)}/${mb(d.total_mem)}</span> <span class="muted">MB</span>` : '—'}</td>
+    <td class="parent" data-l="nadřazený">${parentCell(d)}</td>
+    <td data-l="kanál">${d.managed ? `<select class="track small" data-id="${d.id}">${state.tracks.map(t => `<option value="${t}" ${t === d.track ? 'selected' : ''}>${t.replace('long-term', 'LT')}</option>`).join('')}</select>` : '<span class="badge b-muted">neřízený</span>'}</td>
+    <td data-l="sken">${!d.managed ? '<span class="muted">—</span>' : `<span class="badge ${sc[0]}" title="${esc(d.scan_error)}">${esc(sc[1])}</span> <span class="muted" data-ago="${d.last_seen_at || 0}" title="naposledy viděno ${fmtTs(d.last_seen_at)}">${ago(d.last_seen_at)}</span>`}</td>${state.admin && state.users ? `<td class="muted" data-l="vlastník">${esc((usersById.get(d.owner_id) || {}).name || '—')}</td>` : ''}` : ''}
+    <td class="acts">${ps.act === 'upgrade' && !busy ? `<button class="small ok up1" data-id="${d.id}">▶ Upgradovat</button>` : ''} ${ps.act === 'scan' ? `<button class="small scan1" data-id="${d.id}">⟳ Zkontrolovat</button>` : adv ? `<button class="small scan1" data-id="${d.id}" title="zkontrolovat">⟳</button>` : ''} <button class="small edit1" data-id="${d.id}" title="upravit">✎</button></td></tr>`; }
+/** co je právě vykresleno: id řádků + jejich strom-dekorace (pro výměnu jednoho řádku bez celého překreslení) */
+function indexRendered(list) { state.renderedIds = new Set(list.map(d => d.id)); state.renderedDeco = new Map(list.map(d => [d.id, { _depth: d._depth, _prefix: d._prefix, _last: d._last, _kids: d._kids, _ctx: d._ctx }])); }
+/** výsledek skenu jednoho zařízení: vyměnit jen jeho řádek (tabulka 3884 řádků přes innerHTML každé 2 s během kontroly sítě byla znát); strom/řazení/počty dožene pomalé celkové překreslení (renderSoonSlow) */
+function swapRow(dev) {
+  try {
+    if (state.modal || userBusy()) return false;
+    const deco = state.renderedDeco && state.renderedDeco.get(dev.id); const tr = document.querySelector(`tr.devrow[data-id="${dev.id}"]`);
+    if (!deco || !tr) return false;
+    const tb = document.createElement('tbody'); tb.innerHTML = deviceRow({ ...dev, ...deco }); const nt = tb.firstElementChild; if (!nt) return false;
+    tr.replaceWith(nt); bindRows(nt); return true;
+  } catch { return false; }
+}
+let renderSlowT = null;
+function renderSoonSlow() { if (renderSlowT) return; renderSlowT = setTimeout(() => { renderSlowT = null; if (!state.modal) renderLive(); }, 15000); }
+/** relativní časy „naposledy viděno“ (60 s tiker) — jen texty, ne celé překreslení */
+function refreshAgo() { try { document.querySelectorAll('[data-ago]').forEach(el => { el.textContent = ago(+el.dataset.ago); }); } catch {} }
 function parentCell(d) {
-  const par = d.parent_id ? state.devices.find(x => x.id === d.parent_id) : null;
+  const par = d.parent_id ? devById.get(d.parent_id) : null;
   const sp = d.suggested_parent;
   let html = par ? `<span title="nadřazený prvek">${esc(devName(par))}</span>` : '<span class="muted">—</span>';
   if (sp && sp.id && sp.id !== d.parent_id) html += ` <button class="small acceptp" data-id="${d.id}" data-pid="${sp.id}" title="detekováno: uplink ${esc(sp.via)} → ${esc(sp.identity || sp.address)}">⇡ ${esc(sp.name)}?</button>`;
   else if (sp && !sp.id && !par) html += ` <span class="muted" title="soused na uplinku ${esc(sp.via)} není v seznamu">(${esc(sp.identity || sp.address)})</span>`;
   return html;
+}
+/** obsluha tlačítek a polí v řádcích zařízení (celá tabulka po vykreslení, nebo jeden vyměněný řádek) */
+function bindRows(root) {
+  root.querySelectorAll('.acceptp').forEach(b => b.onclick = async () => { try { await api(`/devices/${b.dataset.id}`, { method: 'PUT', body: { parent_id: +b.dataset.pid } }); await loadState(); render(); } catch (e) { toast(e.message, true); } });
+  root.querySelectorAll('.sel').forEach(c => c.onchange = (e) => { const id = +c.dataset.id; e.target.checked ? state.selected.add(id) : state.selected.delete(id); render(); });
+  root.querySelectorAll('.detail').forEach(c => c.onclick = () => openDetail(+c.dataset.id));
+  root.querySelectorAll('.up1').forEach(b => b.onclick = () => openModal({ type: 'newjob', ids: [+b.dataset.id] }));
+  root.querySelectorAll('.scan1').forEach(b => b.onclick = async () => { b.disabled = true; state.scanning.push(+b.dataset.id); render(); try { const r = await api(`/devices/${b.dataset.id}/scan`, { method: 'POST' }); if (r.skipped) toast(r.skipped, true); else if (!r.ok) toast('kontrola selhala: ' + r.error, true); } catch (e) { toast(e.message, true); } state.scanning = state.scanning.filter(x => x !== +b.dataset.id); });
+  root.querySelectorAll('.edit1').forEach(b => b.onclick = () => openModal({ type: 'edit', id: +b.dataset.id }));
+  root.querySelectorAll('.track').forEach(s => s.onchange = async () => { try { await api(`/devices/${s.dataset.id}`, { method: 'PUT', body: { track: s.value } }); toast('track uložen'); } catch (e) { toast(e.message, true); } });
 }
 function treeOrder(devs) {
   // hloubkové procházení: kořeny (bez rodiče, nebo rodič mimo výběr) → potomci; každý dostane depth a tree-značky
@@ -222,11 +266,13 @@ function treeOrder(devs) {
 }
 // filtr podle verze/stavu: vše / v6 / v7 / k upgradu / aktuální / nedostupné (sdílí ho seznam i hlavička s počty)
 function vfInfo() {
+  if (rendering && vfMemo) return vfMemo;
   const vf = state.vf || '';
   const vfMatch = (d) => { if (!vf) return true; const v = String(d.version || ''); if (vf === 'v6') return v.startsWith('6.'); if (vf === 'v7') return v.startsWith('7.'); if (vf === 'need') return needsUpgrade(d); if (vf === 'crit') return criticalUpgrade(d); if (vf === 'ok') return plainStatus(d).cls === 'b-ok'; if (vf === 'bad') return !!d.scan_status && !['ok', 'never'].includes(d.scan_status); return true; };
   const base = state.devices.filter(d => (!state.owner || d.owner_id === state.owner) && (!state.group || d.group_name === state.group));
   const vfCounts = { v6: base.filter(d => String(d.version || '').startsWith('6.')).length, v7: base.filter(d => String(d.version || '').startsWith('7.')).length, need: base.filter(needsUpgrade).length, crit: base.filter(criticalUpgrade).length, ok: base.filter(d => plainStatus(d).cls === 'b-ok').length, bad: base.filter(d => !!d.scan_status && !['ok', 'never'].includes(d.scan_status)).length };
-  return { vf, vfMatch, base, vfCounts };
+  const out = { vf, vfMatch, base, vfCounts }; if (rendering) vfMemo = out;
+  return out;
 }
 function filteredDevices() {
   const f = state.filter.toLowerCase();
@@ -311,19 +357,7 @@ function renderDevices(m) {
     <select id="sort"><option value="tree" ${state.sort === 'tree' ? 'selected' : ''}>řadit: strom (topologie)</option><option value="priority" ${state.sort === 'priority' ? 'selected' : ''}>priorita</option><option value="name" ${state.sort === 'name' ? 'selected' : ''}>název</option><option value="version" ${state.sort === 'version' ? 'selected' : ''}>verze</option><option value="model" ${state.sort === 'model' ? 'selected' : ''}>model</option><option value="seen" ${state.sort === 'seen' ? 'selected' : ''}>naposledy viděno</option><option value="status" ${state.sort === 'status' ? 'selected' : ''}>stav</option><option value="firmware" ${state.sort === 'firmware' ? 'selected' : ''}>firmware</option><option value="host" ${state.sort === 'host' ? 'selected' : ''}>IP adresa</option></select>
     <input id="filter" placeholder="hledat…" value="${esc(state.filter)}" style="width:170px"></div>
   <div class="tablewrap"><table class="cards devs"><thead><tr><th><input type="checkbox" id="selall" ${allSel ? 'checked' : ''}></th>${th('name', 'Zařízení')}${th('model', 'Model')}${th('version', 'RouterOS')}${th('status', 'Stav')}${adv ? th('firmware', 'Firmware') + '<th class="c-flash">Flash · RAM volné</th><th class="c-parent">Nadřazený</th>' + th('track', 'Track') + '<th class="c-scan">Sken</th>' + (state.admin && state.users ? th('owner', 'Vlastník') : '') : ''}<th></th></tr></thead><tbody>
-  ${(state.renderedIds = new Set(list.map(d => d.id)), '')}${list.map(d => { const ps = plainStatus(d); const sc = d.scan_status === 'unreachable' && /^ssh vypnuté/i.test(d.scan_error || '') ? ['b-err', 'ssh vypnuté'] : d.scan_status === 'unreachable' && /^ssh blokuje/i.test(d.scan_error || '') ? ['b-err', 'ssh za firewallem'] : STATUS_LABEL[d.scan_status] || ['b-muted', d.scan_status]; const scanning = state.scanning.includes(d.id); const busy = (state.runner.busy || []).includes(d.id);
-    return `<tr class="${state.selected.has(d.id) ? 'selected' : ''} ${d.enabled ? '' : 'muted'} ${d._ctx ? 'ctx' : ''} ${state.sort === 'tree' && d._depth === 0 && d._kids ? 'root-row' : ''}" data-id="${d.id}" ${d._ctx ? 'title="nadřazený prvek mimo filtr — jen pro strukturu stromu"' : ''}>
-    <td class="cardsel">${d._ctx ? '' : `<input type="checkbox" class="sel" data-id="${d.id}" ${state.selected.has(d.id) ? 'checked' : ''}>`}</td>
-    <td class="clickable detail name cardhead" data-id="${d.id}">${d._depth > 0 ? `<span class="tree mono">${esc(d._prefix)}${d._last ? '└─' : '├─'}</span>` : ''}${d._depth === 0 && d._kids ? '<span class="rootmark" title="hlavní prvek — napájí/připojuje podřízené">▣</span>' : ''}<b>${esc(devLabel(d))}</b>${d._kids ? ` <span class="muted" title="počet přímo podřízených">(${d._kids})</span>` : ''}${foreignChip(d)}${schedIcon(d)}${busy ? ' <span class="badge b-info">právě se upgraduje</span>' : ''}${d.enabled ? '' : ' <span class="badge b-muted">vypnuto</span>'}${d.track === 'v6-long-term' ? ' <span class="chip" title="zůstává na v6, na sedmičku se neupgraduje">zůstává na v6</span>' : trackOf(d) === 'v6-long-term' ? ((d.no_v7 || []).length ? ` <span class="chip" title="hardware bez v7 (${esc(String((d.no_v7 || [])[0] || '').split(':')[0])}) — cíl je poslední v6; v7 jde povolit tužkou u zařízení">zůstává na v6 (HW)</span>` : ' <span class="chip" title="nastavení „zůstat na v6“: zařízení na RouterOS 6 jdou jen na poslední v6 long-term">zůstává na v6 (nastavení)</span>') : d.track === 'hold' ? ' <span class="chip" title="nikdy neupgradovat">hold</span>' : ''}${d.userdb_member ? ` <span class="chip" title="zařízení člena (userdb uživatel ${d.userdb_member}) pod APčkem ${esc(d.userdb_ap)}">člen</span>` : ''}${d.parent_foreign ? ` <span class="chip" title="nadřazený prvek patří jinému uživateli — pořadí i zámky se hlídají i přes hranici účtů">pod: ${esc(d.parent_foreign.name)}${d.parent_foreign.user ? ` (${esc(d.parent_foreign.user)})` : ''}</span>` : ''}${d.dup_of ? ` <span class="chip" title="stejné sériové číslo jako ${esc((state.devices.find(x => x.id === d.dup_of) || {}).host || '#' + d.dup_of)} — jeden fyzický kus pod více IP, upgraduje se jen hlavní záznam">stejný kus jako ${esc((state.devices.find(x => x.id === d.dup_of) || {}).name || (state.devices.find(x => x.id === d.dup_of) || {}).host || '#' + d.dup_of)}</span>` : ''}<span class="sub"><span class="mono">${esc(d.host)}${d.port !== 22 ? ':' + d.port : ''}</span>${d.group_name ? ` · ${esc(d.group_name)}` : ''}${d.name && d.identity && d.name !== d.identity ? ` · ${esc(devLabel(d) === d.identity ? d.name : d.identity)}` : ''}</span></td>
-    <td data-l="model">${esc(d.board_name || d.model)}${adv && d.arch ? `<span class="sub">${esc(d.arch)}</span>` : ''}</td>
-    <td class="mono" data-l="RouterOS">${d.dup_of ? `<span class="muted" title="stejný kus (shodné sériové číslo) jako hlavní záznam — verze i upgrade jsou u něj${d.dup_foreign ? `; hlavní záznam ${esc(d.dup_foreign.host)} má ${esc(d.dup_foreign.user || 'jiný správce')}` : ''}">viz hlavní${d.dup_foreign ? ` (u ${esc(d.dup_foreign.user || 'jiného správce')})` : ''}</span>` : `<b>${esc(d.version || '—')}</b>${adv && d.channel ? ` <span class="muted">${esc(d.channel)}</span>` : ''}${adv && d.uptime_sec ? `<span class="sub" title="uptime">${upt(d.uptime_sec)}</span>` : ''}`}</td>
-    <td data-l="stav">${scanning ? '<span class="badge b-info">kontroluji…</span>' : `<span class="badge ${ps.cls}" title="${esc(ps.title || d.scan_error || '')}">${esc(ps.txt)}</span>`}</td>
-    ${adv ? `<td class="mono" data-l="firmware">${d.dup_of ? '' : `${esc(d.fw_current || '—')}${d.fw_upgrade && d.fw_current !== d.fw_upgrade ? ` <span class="badge b-warn" title="k dispozici ${esc(d.fw_upgrade)}">→${esc(d.fw_upgrade)}</span>` : ''}`}</td>
-    <td data-l="flash / RAM">${d.total_hdd ? `<span title="flash volné / celkem">${mb(d.free_hdd)}/${mb(d.total_hdd)}</span>${d.flags && d.flags.flash_dir ? '<span class="muted" title="kořen FS v RAM, adresář flash">ᶠ</span>' : ''} <span class="muted">·</span> <span title="RAM volná / celkem">${mb(d.free_mem)}/${mb(d.total_mem)}</span> <span class="muted">MB</span>` : '—'}</td>
-    <td class="parent" data-l="nadřazený">${parentCell(d)}</td>
-    <td data-l="kanál">${d.managed ? `<select class="track small" data-id="${d.id}">${state.tracks.map(t => `<option value="${t}" ${t === d.track ? 'selected' : ''}>${t.replace('long-term', 'LT')}</option>`).join('')}</select>` : '<span class="badge b-muted">neřízený</span>'}</td>
-    <td data-l="sken">${!d.managed ? '<span class="muted">—</span>' : `<span class="badge ${sc[0]}" title="${esc(d.scan_error)}">${esc(sc[1])}</span> <span class="muted" title="naposledy viděno ${fmtTs(d.last_seen_at)}">${ago(d.last_seen_at)}</span>`}</td>${state.admin && state.users ? `<td class="muted" data-l="vlastník">${esc((state.users.find(u => u.id === d.owner_id) || {}).name || '—')}</td>` : ''}` : ''}
-    <td class="acts">${ps.act === 'upgrade' && !busy ? `<button class="small ok up1" data-id="${d.id}">▶ Upgradovat</button>` : ''} ${ps.act === 'scan' ? `<button class="small scan1" data-id="${d.id}">⟳ Zkontrolovat</button>` : adv ? `<button class="small scan1" data-id="${d.id}" title="zkontrolovat">⟳</button>` : ''} <button class="small edit1" data-id="${d.id}" title="upravit">✎</button></td></tr>`; }).join('')}
+  ${(indexRendered(list), '')}${list.map(d => deviceRow(d)).join('')}
   ${list.length ? '' : `<tr><td colspan="${adv ? 11 : 6}" class="empty">Zatím žádná zařízení. Přidej je skenem: zadáš IP adresy nebo rozsahy a loginy, nalezená zařízení se založí sama.</td></tr>`}
   </tbody></table></div></div>`;
   on('#discover', () => openModal({ type: 'discover' }));
@@ -336,7 +370,6 @@ function renderDevices(m) {
     if (!confirm(`Smazat ${ids.length} zařízení ze seznamu včetně historie a evidence záloh?\n\n${names.slice(0, 15).join('\n')}${names.length > 15 ? `\n… a dalších ${names.length - 15}` : ''}`)) return;
     try { const r = await api('/devices/bulk-delete', { method: 'POST', body: { ids } }); state.selected.clear(); toast(`smazáno ${r.deleted}${r.skipped.length ? `, přeskočeno: ${r.skipped.join('; ')}` : ''}`, r.skipped.length > 0); await loadState(); render(); } catch (e) { toast(e.message, true); }
   });
-  m.querySelectorAll('.acceptp').forEach(b => b.onclick = async () => { try { await api(`/devices/${b.dataset.id}`, { method: 'PUT', body: { parent_id: +b.dataset.pid } }); await loadState(); render(); } catch (e) { toast(e.message, true); } });
   const g = $('#group'); if (g) g.onchange = (e) => { state.group = e.target.value; render(); };
   const vfs = $('#vfilter'); if (vfs) vfs.onchange = (e) => { state.vf = e.target.value; state.selected.clear(); try { localStorage.setItem('mtu_vf', state.vf); } catch {} render(); };
   const of = $('#ownerf'); if (of) of.onchange = (e) => { state.owner = +e.target.value; try { localStorage.setItem('mtu_owner', String(state.owner)); } catch {} state.selected.clear(); render(); };
@@ -346,12 +379,7 @@ function renderDevices(m) {
   m.querySelectorAll('th.sorth').forEach(h => h.onclick = () => { const k = h.dataset.sort; if (state.sort === k && state.sortDir === 'desc') { state.sort = 'tree'; state.sortDir = 'asc'; } else if (state.sort === k) state.sortDir = 'desc'; else { state.sort = k; state.sortDir = 'asc'; } render(); });
   $('#filter').oninput = (e) => { state.filter = e.target.value; const pos = e.target.selectionStart; render(); const f = $('#filter'); f.focus(); f.setSelectionRange(pos, pos); };
   $('#selall').onchange = (e) => { for (const d of list) { if (d._ctx) continue; e.target.checked ? state.selected.add(d.id) : state.selected.delete(d.id); } render(); };
-  m.querySelectorAll('.sel').forEach(c => c.onchange = (e) => { const id = +c.dataset.id; e.target.checked ? state.selected.add(id) : state.selected.delete(id); render(); });
-  m.querySelectorAll('.detail').forEach(c => c.onclick = () => openDetail(+c.dataset.id));
-  m.querySelectorAll('.up1').forEach(b => b.onclick = () => openModal({ type: 'newjob', ids: [+b.dataset.id] }));
-  m.querySelectorAll('.scan1').forEach(b => b.onclick = async () => { b.disabled = true; state.scanning.push(+b.dataset.id); render(); try { const r = await api(`/devices/${b.dataset.id}/scan`, { method: 'POST' }); if (r.skipped) toast(r.skipped, true); else if (!r.ok) toast('kontrola selhala: ' + r.error, true); } catch (e) { toast(e.message, true); } state.scanning = state.scanning.filter(x => x !== +b.dataset.id); });
-  m.querySelectorAll('.edit1').forEach(b => b.onclick = () => openModal({ type: 'edit', id: +b.dataset.id }));
-  m.querySelectorAll('.track').forEach(s => s.onchange = async () => { try { await api(`/devices/${s.dataset.id}`, { method: 'PUT', body: { track: s.value } }); toast('track uložen'); } catch (e) { toast(e.message, true); } });
+  bindRows(m);
 }
 
 const JOB_PLAIN = { queued: 'připraven ke spuštění', running: 'probíhá', paused: 'zastaven', waiting: 'čeká na potvrzení', scheduled: 'naplánován', 'waiting-window': 'čeká na servisní okno', 'batch-hold': 'čeká na předchozí dávku', done: 'hotovo', cancelled: 'zrušen' };
@@ -1223,7 +1251,7 @@ function defaultJobName(devs) {
   return `Upgrade ${devs.length}× ${where} ${date}`;
 }
 function canRepartition(d) { const f = d.flags || {}; return d.managed && d.enabled && d.scan_status === 'ok' && f.routerboard && d.total_hdd >= 128 * MB && (f.partitions || 0) < 2 && !state.runner.running; }
-function depthOf(d) { let n = 0, cur = d; const seen = new Set(); while (cur && cur.parent_id && !seen.has(cur.id) && n < 50) { seen.add(cur.id); cur = state.devices.find(x => x.id === cur.parent_id); n++; } return n; }
+function depthOf(d) { let n = 0, cur = d; const seen = new Set(); while (cur && cur.parent_id && !seen.has(cur.id) && n < 50) { seen.add(cur.id); cur = devById.get(cur.parent_id); n++; } return n; }
 function parentOptions(sel, selfId = 0) {
   const list = state.devices.filter(d => d.id !== selfId).sort((a, b) => devName(a).localeCompare(devName(b)));
   const cur = sel ? state.devices.find(d => d.id === sel) : null; const self = selfId ? state.devices.find(d => d.id === selfId) : null;
@@ -1360,8 +1388,8 @@ function connectSSE() {
   es.onmessage = (e) => {
     const ev = JSON.parse(e.data);
     // překreslit jen když je zařízení v právě zobrazeném seznamu (správce s filtrem na sebe by jinak při kontrole cizích zařízení překresloval 2000 řádků každou sekundu)
-    if (ev.type === 'device') { const i = state.devices.findIndex(d => d.id === ev.device.id); const wasNew = i < 0; if (i >= 0) state.devices[i] = { ...ev.device, suggested_parent: state.devices[i].suggested_parent }; else state.devices.push(ev.device); state.scanning = state.scanning.filter(x => x !== ev.device.id); if (state.view === 'devices' && (wasNew || !state.renderedIds || state.renderedIds.has(ev.device.id))) renderSoon(); }
-    else if (ev.type === 'device-deleted') { state.devices = state.devices.filter(d => d.id !== ev.id); state.selected.delete(ev.id); if (!state.modal) renderLive(); }
+    if (ev.type === 'device') { const i = state.devices.findIndex(d => d.id === ev.device.id); const wasNew = i < 0; const dev = i >= 0 ? { ...ev.device, suggested_parent: state.devices[i].suggested_parent } : ev.device; if (i >= 0) state.devices[i] = dev; else state.devices.push(dev); devById.set(dev.id, dev); state.scanning = state.scanning.filter(x => x !== dev.id); if (state.view === 'devices' && (wasNew || !state.renderedIds || state.renderedIds.has(dev.id))) { if (!wasNew && swapRow(dev)) renderSoonSlow(); else renderSoon(); } }
+    else if (ev.type === 'device-deleted') { state.devices = state.devices.filter(d => d.id !== ev.id); devById.delete(ev.id); state.selected.delete(ev.id); if (!state.modal) renderLive(); }
     else if (ev.type === 'job' && ev.job) { const i = state.jobs.findIndex(j => j.id === ev.job.id); if (i >= 0) state.jobs[i] = ev.job; else state.jobs.unshift(ev.job); if (state.job && state.job.job.id === ev.job.id) { state.job.job = { ...state.job.job, ...ev.job }; } if (state.view === 'jobs') render(); else scheduleReload(false); }
     else if (ev.type === 'item' && state.job && ev.item.job_id === state.job.job.id) { const i = state.job.items.findIndex(x => x.id === ev.item.id); if (i >= 0) state.job.items[i] = { ...state.job.items[i], ...ev.item }; if (state.view === 'jobs') renderJobDetail(); }
     else if (ev.type === 'log' && ev.log) onLog(ev.log);
@@ -1384,7 +1412,7 @@ function connectSSE() {
   try { const w = await api('/whoami'); state.authed = w.authed; state.netHint = w.netHint || '192.0.2'; state.auth = { build: w.build || null, sso: w.sso, passwordLogin: w.passwordLogin, registration: w.registration, user: w.user, userdb: w.userdb || { enabled: false }, serverStartedAt: w.serverStartedAt || 0, sourceIp: w.sourceIp || (window.MTU_LOCAL || {}).sourceIp || '', draining: !!w.draining, drainJobs: w.drainJobs || [] }; } catch { state.authed = false; }
   if (state.authed) { await loadState(); connectSSE(); }
   render();
-  setInterval(() => { if (state.authed && state.view === 'devices' && !state.modal) renderLive(); }, 60000);
+  setInterval(() => { if (state.authed && state.view === 'devices' && !state.modal) refreshAgo(); }, 60000); // dřív celé překreslení seznamu každou minutu
   // běžící hromadná kontrola: každou sekundu jen přepsat progress bar (uplynulý čas, odhad), ne celý seznam
   setInterval(() => { const p = state.checkProg; if (!p || p.finishedAt || (state.view !== 'devices' && state.view !== 'admin')) return; const el = $('#checkprog'); if (el) el.outerHTML = checkProgHtml(); }, 1000);
   setInterval(async () => { if (!state.authed) return; try { state.stats = await api('/stats'); const el = document.querySelector('.stats'); if (el) el.outerHTML = statsStrip(); } catch {} }, 30000);

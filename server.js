@@ -107,24 +107,33 @@ const userdb = require('./lib/userdb');
 const access = require('./lib/access'); // kdo smí na které zařízení: vlastník + správci oblasti jeho APčka (SO i ZSO)
 const rbdb = require('./lib/rbdb');
 const linksQ = require('./lib/links');
-/** do seznamu zařízení jdou jen příznaky, které UI používá; velké struktury (sousedé, rádia, balíčky) zůstávají v detailu zařízení */
-const SLIM_FLAG_KEYS = ['bgp', 'caps_client', 'capsman', 'device_mode', 'vlan_mgmt', 'flash_dir', 'mpls', 'ospf', 'platform', 'poe_ports', 'routing_filter', 'wifi', 'wireless', 'partitions', 'partitions_list', 'routerboard', 'w60g', 'wifiwave2', 'protected_routerboot', 'voltage', 'temperature', 'user_policy_missing', 'log_symptoms'];
+/** do seznamu zařízení (a událostí 'device') jdou jen příznaky, které UI v seznamu opravdu čte: flash_dir (značka ᶠ), device_mode (úprava: flagged),
+ * routerboard + partitions (rozdělení flashe). Vše ostatní (uplink, PoE děti, rádia, sousedé, balíčky, teploty…) dává detail zařízení GET /api/devices/:id
+ * s plnými flags. 9.11.2026: flags tvořily 3,2 MB ze 7,5 MB odpovědi správce. */
+const SLIM_FLAG_KEYS = ['device_mode', 'flash_dir', 'partitions', 'routerboard'];
 function slimFlags(f) {
   if (!f || typeof f !== 'object') return f;
   const o = {};
   for (const k of SLIM_FLAG_KEYS) if (k in f) o[k] = f[k];
-  if (f.uplink) o.uplink = { gateway: f.uplink.gateway, iface: f.uplink.iface, neighbor: f.uplink.neighbor || null };
-  if (Array.isArray(f.poe_children)) o.poe_children = f.poe_children.map(k => ({ iface: k.iface, address: k.address, identity: k.identity }));
   return o;
 }
 const slimDevice = (d) => d && d.flags ? { ...d, flags: slimFlags(d.flags), packages: undefined } : d;
 // nastavení podle vlastníka zařízení (per uživatel), načtené jednou za volání — ne dotaz do DB na každé zařízení
 function settingsByOwner() { const m = new Map(); return (uid) => { const k = uid || 0; if (!m.has(k)) m.set(k, db.getSettings(k || undefined)); return m.get(k); }; }
 let adminDevCache = null; // { ver, at, json }
-/** JSON seznamu zařízení pro odpověď /api/state: správce dostane společnou keš — přestaví se hned po uživatelské úpravě zařízení či nastavení, jinak nejvýš jednou za 5 s (výsledky skenů chodí i klientům průběžně přes události 'device'); uživatel svůj seznam rovnou */
+const userDevCache = new Map(); // id účtu → { ver, at, json } — běžný správce (withSuggestions nad 250 kusy ≈ 37 ms při každém načtení)
+/** JSON seznamu zařízení pro odpověď /api/state a /api/devices: keš per účet (správce společná) — přestaví se hned po uživatelské úpravě zařízení či nastavení,
+ * jinak nejvýš jednou za 5 s (výsledky skenů chodí klientům průběžně přes události 'device') */
 function adminDevicesJson(req) {
-  if (!isAdmin(req)) return JSON.stringify(withSuggestions(visDevices(req)));
   const ver = db.dataVersion();
+  if (!isAdmin(req)) {
+    const uid = req.user.id; const c = userDevCache.get(uid);
+    if (c && c.ver === ver && Date.now() - c.at < 5000) return c.json;
+    if (userDevCache.size > 500) userDevCache.clear();
+    const json = JSON.stringify(withSuggestions(visDevices(req)));
+    userDevCache.set(uid, { ver, at: Date.now(), json });
+    return json;
+  }
   if (!adminDevCache || adminDevCache.ver !== ver || Date.now() - adminDevCache.at > 5000) adminDevCache = { ver, at: Date.now(), json: JSON.stringify(withSuggestions(db.listDevices())) };
   return adminDevCache.json;
 }
@@ -153,6 +162,7 @@ function withSuggestions(devs) {
 
 const { targetFor } = require('./lib/planner');
 let statsCache = { at: 0, value: null };
+let linksCache = null; // { ver, at, built } — /api/links
 /** statistika sítě pro proužek nahoře — počítá se nejvýš jednou za 15 s (prochází všechna zařízení; ptá se každý otevřený prohlížeč)
  */
 function networkStats() {
@@ -718,12 +728,15 @@ async function api(req, res, method, p, url) {
   }
 
   // zařízení
-  if (method === 'GET' && p === '/api/devices') return send(res, 200, withSuggestions(visDevices(req)));
+  if (method === 'GET' && p === '/api/devices') return send(res, 200, adminDevicesJson(req), { 'Content-Type': 'application/json; charset=utf-8' });
   // sken rozsahů
   // kvalita rádiových spojů z posledního snímku rádií (stanice ↔ sektor, klienti sektorů, 60 GHz); správce vše, uživatel spoje svých kusů
   if (method === 'GET' && p === '/api/links') {
     const all = db.listDevices();
-    const { rows, thresholds } = linksQ.buildLinks(all, db.getSettings());
+    // sestavení spojů nad všemi zařízeními (24 ms, 1,4 MB u správce) jednou za verzi dat (včetně výsledků skenů) a nejvýš 30 s; filtr per účet až nad hotovým
+    const lv = db.devVersion() + '|' + db.dataVersion();
+    if (!linksCache || linksCache.ver !== lv || Date.now() - linksCache.at > 30000) linksCache = { ver: lv, at: Date.now(), built: linksQ.buildLinks(all, db.getSettings()) };
+    const { rows, thresholds } = linksCache.built;
     // hlavní správce (role admin) vidí vše; správce oblasti jen spoje svých kusů — protistrana jiného správce se ukáže jen jako název + kdo ji má (bez IP, bez odkazu),
     // stejně jako cizí nadřazený prvek v seznamu zařízení
     const adm = isAdmin(req), uid = req.user.id;
@@ -1373,8 +1386,12 @@ const server = http.createServer(async (req, res) => {
     // statika
     if (p === '/') p = '/index.html';
     const file = path.join(cfg.publicDir, path.normalize(p));
-    if (!file.startsWith(cfg.publicDir) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) return send(res, 404, 'not found');
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+    if (!file.startsWith(cfg.publicDir) || !fs.existsSync(file)) return send(res, 404, 'not found');
+    const st = fs.statSync(file); if (st.isDirectory()) return send(res, 404, 'not found');
+    // slabý ETag (velikost + mtime): prohlížeč se ptá vždy (no-cache), ale nezměněný soubor dostane 304 místo celých 200 kB app.js
+    const etag = `W/"${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}"`;
+    if (req.headers['if-none-match'] === etag) { res.writeHead(304, { ETag: etag, 'Cache-Control': 'no-cache' }); return res.end(); }
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache', ETag: etag });
     fs.createReadStream(file).pipe(res);
   } catch (e) {
     if (!res.headersSent) send(res, 400, { error: e.message });
