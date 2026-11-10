@@ -29,6 +29,8 @@ for (const adv of [false, true]) {
   for (const vf of ['', 'v6', 'v7', 'need', 'crit', 'ok', 'bad']) { S.vf = vf; run(`zařízení filtr=${vf || 'vše'}`, renderDevices); }
   S.vf = ''; S.owner = 1; run(`zařízení vlastník adv=${adv}`, renderDevices); S.owner = 0;
   run(`zařízení stav ssh adv=${adv}`, (el) => { renderDevices(el); for (const t of ['SSH vypnuté (Winbox jede)', 'SSH blokuje firewall (Winbox jede)']) if (!el.innerHTML.includes(t)) throw new Error('chybí ' + t); });
+  run(`zařízení vedlejší záznam téhož kusu skrytý adv=${adv}`, (el) => { renderDevices(el); const h = el.innerHTML; if (h.includes('data-id="4"')) throw new Error('vedlejší záznam (dup_of) je v seznamu'); if (!h.includes('+1 další adresa') || !h.includes('10.0.0.4')) throw new Error('chybí štítek s další adresou u hlavního'); if (!h.includes('data-id="6"')) throw new Error('vedlejší záznam s hlavním u jiného správce zmizel');
+    S.filter = '10.0.0.4'; try { renderDevices(el); if (!el.innerHTML.includes('data-id="1"') || el.innerHTML.includes('data-id="4"')) throw new Error('hledání podle další adresy nenašlo hlavní záznam'); } finally { S.filter = ''; } });
   run(`zařízení duplicita u jiného správce adv=${adv}`, (el) => { renderDevices(el); if (!el.innerHTML.includes('viz hlavní (u jiný)')) throw new Error('chybí „viz hlavní (u …)“'); });
   run(`upgrady adv=${adv}`, renderJobs);
   run(`nastavení adv=${adv}`, (el) => renderSettings(el));
