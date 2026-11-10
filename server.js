@@ -767,6 +767,7 @@ async function api(req, res, method, p, url) {
         // výsledek hledání SSH portu (lib/portscan.js): podle IP, jinak podle další adresy téhož routeru
         const sp = sshscan.get(x.ip) || (x.dups || []).map(ip => sshscan.get(typeof ip === 'string' ? ip : ip && ip.ip)).find(Boolean) || null;
         return { ...x, device: d ? { id: d.id, owner: users.get(d.owner_id) || '', version: d.version, scan_status: d.scan_status } : null, userdb: u ? { ap: u.ap, apId: u.apId, area: u.area, areaId: u.areaId, member: u.member } : null,
+          sshq: sshscan.pending(x.ip) || undefined,
           ssh: sp ? { port: sp.port, banner: sp.banner, ros: sp.ros, mode: sp.mode, at: sp.at, others: (sp.ssh || []).slice(1, 6), open: (sp.open || []).slice(0, 20), filtered: sp.filtered, scanned: sp.scanned, error: sp.error || '' } : null };
       });
       const sum = { total: rows.length, inUpgrader: rows.filter(x => x.device).length, inUserdb: rows.filter(x => x.userdb).length, importable: rows.filter(x => !x.device && x.userdb && !x.swos).length, nowhere: rows.filter(x => !x.device && !x.userdb).length, swos: rows.filter(x => x.swos).length };
@@ -793,14 +794,13 @@ async function api(req, res, method, p, url) {
       const ips = [...new Set((Array.isArray(b.ips) ? b.ips : []).map(x => String(x || '').trim()).filter(x => /^\d+\.\d+\.\d+\.\d+$/.test(x)))];
       const mode = b.mode === 'full' ? 'full' : 'quick';
       if (!ips.length) return send(res, 400, { error: 'vyber aspoň jedno zařízení' });
-      const max = mode === 'full' ? 20 : 300;
-      if (ips.length > max) return send(res, 400, { error: `najednou nejvýš ${max} adres (${mode === 'full' ? 'všechny porty' : 'obvyklé porty'})` });
+      const max = 500; // fronta: další adresy jde přidat i během běhu
+      if (ips.length > max) return send(res, 400, { error: `najednou nejvýš ${max} adres` });
       const bad = ips.filter(h => !hostAllowed(h, cfg.scanAllow));
       if (bad.length) return send(res, 400, { error: `adresy mimo povolené rozsahy (${cfg.scanAllow}): ${bad.slice(0, 5).join(', ')}` });
-      if (sshscan.running) return send(res, 409, { error: 'hledání SSH portu už běží, počkej na dokončení' });
-      const st = sshscan.start({ ips, mode, by: req.user.name });
-      audit(req, 'RB-DB: hledání SSH portu', `${ips.length} IP, ${mode === 'full' ? 'všechny porty 1–65535' : 'obvyklé porty'}: ${ips.slice(0, 20).join(' ')}${ips.length > 20 ? ' …' : ''}`);
-      return send(res, 200, { state: st });
+      const r = sshscan.enqueue({ ips, mode, by: req.user.name });
+      audit(req, 'RB-DB: hledání SSH portu', `${r.added} IP do fronty${r.skipped ? ` (${r.skipped} už čekalo)` : ''}, ${mode === 'full' ? 'všechny porty 1–65535' : 'obvyklé porty'}: ${ips.slice(0, 20).join(' ')}${ips.length > 20 ? ' …' : ''}`);
+      return send(res, 200, r);
     }
     if (method === 'POST' && p === '/api/rbdb/import') {
       if (!userdb.enabled()) throw new Error('napojení na userdb není nakonfigurováno (MTU_USERDB_USER/PASS)');
@@ -1351,7 +1351,7 @@ const server = http.createServer(async (req, res) => {
     const authed = !!req.user;
     if (method === 'POST' && p === '/api/logout') return send(res, 200, { ok: true }, { 'Set-Cookie': `mtu_session=; Path=${cfg.basePath || '/'}; HttpOnly; Max-Age=0` });
     // pro deploy: co právě běží (bez přihlášení, jen počty) — restart služby by to přerušil
-    if (p === '/api/busy') return send(res, 200, { jobs: runner.running().length, discovery: discovery.busy || sshscan.running, scanning: scanner.inProgress.size, draining: runner.draining });
+    if (p === '/api/busy') return send(res, 200, { jobs: runner.running().length, discovery: discovery.busy, scanning: scanner.inProgress.size, draining: runner.draining });
     // pro deploy (jen přímo z localhostu): drain = běžící joby dokončí aktuální zařízení a pozastaví se, nové se jen zařadí; po restartu pokračují
     if (p === '/api/drain') {
       const sock = req.socket && req.socket.remoteAddress;
