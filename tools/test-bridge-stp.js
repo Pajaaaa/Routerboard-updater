@@ -12,7 +12,7 @@ check(Runner.bridgeStpChanges([]).length === 0 && Runner.bridgeStpChanges(null).
 check(Runner.bridgeStpChanges([B('b', 'RSTP')]).length === 1, 'velikost písmen nevadí');
 (async () => {
   const log = [], cmds = [];
-  const fake = { list: async () => [B('bridge', 'rstp'), B('bridge1', 'none'), B('x y', 'rstp')], exec: async (cmd) => { cmds.push(cmd); return ''; } };
+  const fake = { list: async () => [B('bridge', 'rstp'), B('bridge1', 'none'), B('x y', 'rstp')], exec: async (cmd) => { if (cmd === Runner.STP_PORTS_CMD) return 'STP|bridge|ether1|root-port|false|true|in-bridge\nSTP|bridge|wlan1|designated-port|true|true|in-bridge\nSTP|x y|ether2|designated-port|true|true|in-bridge\n'; cmds.push(cmd); return ''; } };
   const r = Object.create(Runner.prototype);
   await r.disableBridgeStp(fake, (lv, m) => log.push(lv + ': ' + m), (m) => log.push('warn: ' + m), { bridge_stp_off: true }, false);
   check(cmds.length === 1 && cmds[0] === '/interface bridge set [find name="bridge"] protocol-mode=none', 'pošle se jen set na bridge s rstp: ' + cmds.join(' | '));
@@ -33,6 +33,26 @@ check(Runner.bridgeStpChanges([B('b', 'RSTP')]).length === 1, 'velikost písmen 
   check(log.length === 1 && /nemá bridge/.test(log[0]), 'bez bridge = poznámka'); log.length = 0;
   await r.disableBridgeStp({ list: async () => [B('bridge1', 'none')], exec: async () => '' }, (lv, m) => log.push(m), (m) => log.push(m), { bridge_stp_off: true }, false);
   check(log.length === 1 && /nic k vypnutí/.test(log[0]), 'už none = jen poznámka');
+  // pojistka proti smyčce (11.11.2026 Lhota1)
+  const P = (bridge, iface, role, edge, fwd, status = 'in-bridge') => `STP|${bridge}|${iface}|${role}|${edge}|${fwd}|${status}`;
+  const run = async (portsOut, dry = false) => { cmds.length = 0; log.length = 0; await r.disableBridgeStp({ list: async () => [B('bridge', 'rstp')], exec: async (cmd) => { if (cmd === Runner.STP_PORTS_CMD) { if (portsOut instanceof Error) throw portsOut; return portsOut; } cmds.push(cmd); return ''; } }, (lv, m) => log.push(m), (m) => log.push(m), { bridge_stp_off: true }, dry); };
+  // switch čp96: root, dvě vlákna k sousedům s RSTP (sfp9, sfp11 ne-edge), ostatní porty edge nebo neaktivní
+  await run([P('bridge', 'ether1', '', '', '', 'inactive'), P('bridge', 'ether2', 'designated-port', 'true', 'true'), P('bridge', 'sfp9', 'designated-port', 'false', 'true'), P('bridge', 'sfp11', 'designated-port', 'false', 'true')].join('\n'));
+  check(cmds.length === 0 && log.length === 1 && /nechávám zapnuté.*sfp9, sfp11.*sousedé s RSTP/.test(log[0]), 'dva porty se sousedy s RSTP (switch čp96) = nevypíná se: ' + log.join(' | '));
+  await run([P('bridge', 'ether1', 'root-port', 'false', 'true'), P('bridge', 'ether2', 'alternate-port', 'false', 'false')].join('\n'));
+  check(cmds.length === 0 && /ether2 \(alternate-port, nepropouští\).*smyčka/.test(log[0] || ''), 'alternate port = nevypíná se: ' + log.join(' | '));
+  await run([P('bridge', 'ether1', 'root-port', 'false', 'true'), P('bridge', 'ether2', 'designated-port', 'true', 'false')].join('\n'));
+  check(cmds.length === 0 && /nepropouští/.test(log[0] || ''), 'aktivní port, který nepropouští = nevypíná se');
+  await run([P('bridge', 'ether1', 'root-port', 'false', 'true'), P('bridge', 'wlan1', 'designated-port', 'true', 'true'), P('bridge', 'ether3', 'disabled-port', 'false', 'false'), P('jiny', 'ether5', 'alternate-port', 'false', 'false')].join('\n'));
+  check(cmds.length === 1 && /protocol-mode=none/.test(cmds[0]) && log.some(l => /vypnuto RSTP/.test(l)), 'sektor: jeden soused s RSTP na uplinku, zbytek edge = vypne se (cizí bridge se nepočítá)');
+  await run('STP|ERR\n');
+  check(cmds.length === 0 && /nejde přečíst/.test(log[0] || ''), 'stav portů nejde přečíst = nevypíná se');
+  await run(new Error('timeout'));
+  check(cmds.length === 0 && /nejde přečíst/.test(log[0] || ''), 'chyba čtení portů = nevypíná se');
+  await run('');
+  check(cmds.length === 1, 'bridge bez aktivních portů = vypne se');
+  await run([P('bridge', 'sfp9', 'designated-port', 'false', 'true'), P('bridge', 'sfp11', 'designated-port', 'false', 'true')].join('\n'), true);
+  check(cmds.length === 0 && log.length === 1 && !/DRY RUN/.test(log[0]), 'dry run s pojistkou: jen poznámka, žádné „vypnulo by se“');
   console.log(bad ? `SELHALO: ${bad}` : 'bridge STP OK');
   process.exit(bad ? 1 : 0);
 })();
