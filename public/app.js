@@ -566,7 +566,21 @@ try { window.addEventListener('resize', updatePageNav); new MutationObserver(() 
 let LOGFOLLOW = false;
 try { window.addEventListener('scroll', () => { LOGFOLLOW = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 120; }, { passive: true }); } catch {}
 let LOGIMP = false; try { LOGIMP = localStorage.getItem('mtu_logimp') === '1'; } catch {}
-async function openJob(id) { if (!state.job || state.job.job.id !== id) { state.logOpen = undefined; state.logDev = 0; LOGFOLLOW = false; } state.job = await api(`/jobs/${id}`); state.jobLog = state.job.log; state.view = 'jobs'; render(); }
+async function openJob(id) { if (!state.job || state.job.job.id !== id) { state.logOpen = undefined; state.logDev = 0; LOGFOLLOW = false; } state.job = await api(`/jobs/${id}`); state.jobLog = state.job.log; state.view = 'jobs'; render(); logRest(id); }
+// server posílá log po 2000 řádcích — velký job (Lhota 11.11.2026: 7813 řádků) se musí dočíst celý, jinak výpis končí uprostřed noci
+async function logRest(id) {
+  if (!state.job || state.job.job.id !== id || !state.jobLog || !state.jobLog.length) return;
+  let after = state.jobLog[state.jobLog.length - 1].id; // vlastní ukazatel: živé řádky ze SSE mezitím přibývají na konec a nesmí dočítání přeskočit
+  for (let n = 0; n < 200; n++) {
+    let rows; try { rows = await api(`/jobs/${id}/log?after=${after}`); } catch { return; }
+    if (!state.job || state.job.job.id !== id || !rows.length) return;
+    after = rows[rows.length - 1].id;
+    const tail = state.jobLog.length ? state.jobLog[state.jobLog.length - 1].id : 0;
+    if (rows[0].id > tail) for (const l of rows) onLog(l);
+    else { const have = new Set(state.jobLog.map(l => l.id)); const add = rows.filter(l => !have.has(l.id)); if (add.length) { state.jobLog = state.jobLog.concat(add).sort((x, y) => x.id - y.id); render(); } }
+    if (rows.length < 2000) return;
+  }
+}
 
 /** RB-DB (jen správce): výpis kriticky neaktuálních kusů z nezávislého scanneru sítě proti upgraderu a userdb.
  * Stav „v upgraderu“ se bere živě ze state.devices podle IP (po skenu se tabulka sama aktualizuje), vazba na userdb ze serveru. */
@@ -1434,7 +1448,7 @@ function connectSSE() {
   esJob = state.view === 'jobs' && state.job ? state.job.job.id : 0;
   es = new EventSource(BASE + '/api/events?job=' + esJob);
   // po (znovu)připojení dočíst řádky, které mezitím mohly utéct
-  es.onopen = () => { const id = esJob; if (id && state.job && state.job.job.id === id && state.jobLog) { const last = state.jobLog.length ? state.jobLog[state.jobLog.length - 1].id : 0; api(`/jobs/${id}/log?after=${last}`).then(rows => { if (esJob === id) for (const l of rows) onLog(l); }).catch(() => {}); } };
+  es.onopen = () => { const id = esJob; if (id && state.job && state.job.job.id === id && state.jobLog) { const last = state.jobLog.length ? state.jobLog[state.jobLog.length - 1].id : 0; if (esJob === id) logRest(id); } };
   es.onmessage = (e) => {
     const ev = JSON.parse(e.data);
     // překreslit jen když je zařízení v právě zobrazeném seznamu (správce s filtrem na sebe by jinak při kontrole cizích zařízení překresloval 2000 řádků každou sekundu)
