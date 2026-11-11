@@ -88,6 +88,36 @@ p = pick();
 chk('mimo fázi kanárků se C1 vezme', p.item && p.item.device_id === C1);
 
 console.log('pracovníci v runneru (stubovaný upgrade):');
+// Lhota 10./11.11.: sektory/PtP v režimu AP, pod kterými visí infrastruktura (stanice bez člena, spoj) — kruh „sektor čeká na potomka,
+// potomek čeká na cizí sektor“ nesmí vzniknout; celý job musí doběhnout a rodič vždy až po potomcích
+{
+  const ap = (h, n, par) => dev(h, n, { links: { aps: [{ iface: 'wlan1', clients: [{ mac: '00:11:22:33:55:01' }] }] } }, par ? { parent_id: par } : {});
+  const LR = dev('10.7.0.1', 'Lhota1-router', { links: {} });
+  const LA = ap('10.7.0.2', 'Lhota1-spoj-Hvozdnice-AP', LR);
+  const LAs = dev('10.7.0.3', 'Hvozdnice-spoj-Lhota1-STA', { links: { stations: [{}] } }, { parent_id: LA });
+  const LB = ap('10.7.0.4', 'Lhota3-spoj-Lhota1b-AP');
+  const LBs = dev('10.7.0.5', 'Lhota1b-spoj-Lhota3-STA', { links: { stations: [{}] } }, { parent_id: LB });
+  const LS = ap('10.7.0.6', 'Lhota7-sektor-s28');
+  const LSl = dev('10.7.0.7', 'Lhota1-spoj-Lhota7', { links: { stations: [{}] } }, { parent_id: LS });
+  const LSW = dev('10.7.0.8', 'Lhota4-switch', {});
+  const ids = [LR, LA, LAs, LB, LBs, LS, LSl, LSW];
+  const j = db.createJob('lhota', { parallel: 4 }, ids, 1);
+  const cls = S.classMap(db.getJobItems(j)); const c2 = { classOf: (id) => cls.get(id) };
+  console.log('sektory nad infrastrukturou (Lhota):');
+  chk('PtP v režimu AP = sector, stanice pod ním = infra', cls.get(LA) === 'sector' && cls.get(LAs) === 'infra' && cls.get(LS) === 'sector' && cls.get(LSl) === 'infra');
+  const order = [];
+  for (let n = 0; n < 20; n++) {
+    const r = S.pickNext(db.getJobItems(j), c2);
+    if (!r.item) break;
+    order.push(r.item.device_id); db.updateJobItem(r.item.id, { status: 'done', finished_at: db.now() });
+  }
+  const left = db.getJobItems(j).filter(i => i.status === 'pending').map(i => i.dev_name);
+  chk('job se sektory nad infrastrukturou doběhne celý (žádný kruh čekání)', order.length === ids.length && !left.length, 'zbylo: ' + left.join(', '));
+  const pos = (id) => order.indexOf(id);
+  chk('potomek vždy před rodičem', pos(LAs) < pos(LA) && pos(LA) < pos(LR) && pos(LBs) < pos(LB) && pos(LSl) < pos(LS));
+  chk('uvolněný sektor jde před zbylou nesouvisející infrastrukturou', pos(LS) < pos(LR));
+}
+
 (async () => {
   const pool = new RunnerPool();
   const log = []; let active = 0, maxActive = 0; const t0 = Date.now();
