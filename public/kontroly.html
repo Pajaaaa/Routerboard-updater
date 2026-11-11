@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<!--
+  MikroTik upgrader — co se kontroluje před upgradem, při něm a po něm; přehled ochranných mechanismů.
+  Statická textová stránka bez přihlášení.
+  Autor: Pavel Vlček, hkfree.org, 2026.
+-->
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="author" content="Pavel Vlček (hkfree.org)">
+<title>Kontroly a pojistky — MikroTik upgrader</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .wrap{max-width:820px;margin:0 auto;padding:18px 16px 48px;line-height:1.5}
+  h1{font-size:22px;margin:0 0 4px}
+  h2{font-size:17px;margin:28px 0 6px;padding-top:14px;border-top:1px solid var(--line)}
+  h3{font-size:14px;margin:16px 0 4px}
+  ul,ol{margin:4px 0 0;padding-left:22px}
+  li{margin:3px 0}
+  .lead{color:var(--muted);margin:0 0 6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Kontroly a pojistky upgraderu</h1>
+<p class="lead">Co nástroj ověřuje na každém zařízení před upgradem RouterOS, jak upgrade probíhá a co hlídá potom. Stav k 11. 11. 2026.</p>
+<p><a href="./">← zpět do upgraderu</a></p>
+
+<h2>Před upgradem</h2>
+
+<h3>Totožnost a přístup</h3>
+<ul>
+<li>Připojení přes SSH (až 3 pokusy); když nejde, zkusí se oprava klíče, algoritmů nebo login z userdb.</li>
+<li>Sériové číslo a identita musí sedět s evidencí, jinak položka končí chybou.</li>
+<li>Účet nástroje musí mít potřebná práva, jinak blokátor.</li>
+</ul>
+
+<h3>Verze a cíl</h3>
+<ul>
+<li>Čitelná verze, žádný downgrade, respektuje se „hold“ a „zůstat na v6“.</li>
+<li>Hardware bez v7 (málo RAM, MIPS-LE, staré RB4xx) cílí na poslední v6.</li>
+<li>Zakázané verze a verze se známou regresí pro daný hardware blokují.</li>
+<li>Čerstvé vydání blokuje (x.y.0 až po 14 dnech).</li>
+<li>Pro architekturu musí existovat všechny balíčky; kombinace wireless + wifi-qcom blokuje.</li>
+</ul>
+
+<h3>Zdroje a stav kusu</h3>
+<ul>
+<li>Volná flash a RAM pro každý hop.</li>
+<li>Uptime nad minimem (po čerstvém restartu se počká).</li>
+<li>Vadné bloky flash nad 5 % blokují, růst od minulého skenu varuje.</li>
+<li>Cizí .npk v kořeni a rozpracovaný vlastní download.</li>
+<li>Device-mode flagged, otisky zneužití SSH v logu, hlášky o hardwaru a paměti.</li>
+<li>Nízké napájecí napětí, protected-routerboot, aktivní oddíl jiný než běžící.</li>
+</ul>
+
+<h3>Konfigurace a okolí</h3>
+<ul>
+<li>Switch s VLAN filtrováním, kde by správní adresa po upgradu přestala být dosažitelná.</li>
+<li>Dynamický routing při přechodu 6→7, sektor na v7 dřív než klienti.</li>
+<li>Stanice × sektor: country, frequency-mode a indoor/outdoor musí odpovídat.</li>
+<li>Kvalita rádia: signál, CCQ, 60 GHz MCS, slabí klienti sektoru.</li>
+<li>Druhý konec 60 GHz spoje, CAPsMAN upgrade-policy, aktivní SFP při přechodu přes 7.12.</li>
+<li>Neovladatelný PoE prvek nad zařízením (podle modelu a portu).</li>
+<li>Vlastní restartovací skripty, netwatch a ping-watchdog.</li>
+</ul>
+
+<h2>Při upgradu</h2>
+<ol>
+<li>Smazání cizích .npk a nový plán.</li>
+<li>Při málo RAM vypnutí nepoužívaných balíčků a restart; při málo flash odinstalace nepoužívaných balíčků mimo bundle.</li>
+<li>Hardening, pokud je zapnutý: služby, syslog, NTP, SNMP, DNS a vypnutí RSTP s pojistkou na kruh.</li>
+<li>Preventivní restart při dlouhém uptime.</li>
+<li>Záloha (export + binární) před jakýmkoli zásahem.</li>
+<li>Device-mode; před skokem 6→7 nejdřív RouterBOOT ještě na v6.</li>
+<li>Kopie běžícího systému do záložního oddílu, pokud ho kus má.</li>
+<li>Nahrání balíčků přes SFTP a ověření názvu, velikosti a typu „package“ na routeru.</li>
+<li>Vypnutí PoE watchdogu na rodiči a vlastních restartovacích skriptů, čekání na cizí job na sousedním kusu.</li>
+<li>Restart a čekání na návrat (15 min, pomalé kusy 25–60 min).</li>
+<li>Ověření po restartu, pak RouterBOOT s dalším restartem.</li>
+<li>Vrácení watchdogů a skriptů do původního stavu.</li>
+</ol>
+
+<h2>Po restartu</h2>
+<ul>
+<li>Stejné sériové číslo a očekávaná verze.</li>
+<li>Log zařízení: chyby instalace, kernel failure, pokusy o zneužití.</li>
+<li>Balíčky, které před upgradem běžely, nesmí být vypnuté.</li>
+<li>Rozhraní a IP adresy proti stavu před upgradem.</li>
+<li>Počty položek konfigurace (tichá ztráta nastavení).</li>
+<li>Ping na bránu ze zařízení a sousedé.</li>
+<li>Spoje: stanice zpět na stejném AP, aspoň 80 % klientů sektoru, 60 GHz MCS ≥ 1, CAP registrován.</li>
+<li>Čekání na potomky v topologii.</li>
+</ul>
+
+<h2>Ochranné mechanismy</h2>
+<ul>
+<li>Bez ověřených balíčků se nikdy nerestartuje.</li>
+<li>Záloha vždy před prvním zásahem, jednou na verzi.</li>
+<li>Rodič se nerestartuje, dokud potomci neskončí; chyba potomka rodiče zablokuje.</li>
+<li>Zařízení nesmí být ve dvou jobech; kus se stejným sériovým číslem pod více IP jde jen jednou.</li>
+<li>Předběžná kontrola celého jobu po naplánování a znovu před startem.</li>
+<li>Běh nanečisto a kanárci: po prvních kusech job čeká na potvrzení.</li>
+<li>Připnuté cílové verze a bezpečnostní minimum kanálu; nové vydání se samo nenasadí.</li>
+<li>Mezikroky pro rizikové přechody (60 GHz, CCR2004, 16 MB flash 6→7).</li>
+<li>Druhý restart při „not enough space“ a jeden opakovaný pokus, než položka selže.</li>
+<li>Po neúspěchu se naše balíčky ze zařízení uklidí, aby se nenainstalovaly později.</li>
+<li>Změněný host key po vlastním restartu je jen varování; jiné sériové číslo znamená stop.</li>
+<li>SSH se hardeningem nikdy nevypne; adresy služeb se použijí jen s IP serveru a vždy se soukromými rozsahy.</li>
+<li>RSTP se nevypne v kruhu, mezi sousedy s RSTP, ani když stav portů nejde přečíst.</li>
+<li>Chyba jednoho kusu job nezastaví; nedotčený kus neblokuje rodiče.</li>
+<li>Nasazení nové verze upgraderu nechá rozpracované kusy doběhnout a po restartu služby se stav jobů obnoví.</li>
+</ul>
+</div>
+</body>
+</html>
