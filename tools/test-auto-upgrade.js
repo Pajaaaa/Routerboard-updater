@@ -99,7 +99,7 @@ const mkDev = (owner, f = {}) => { const id = db.insertDevice({ host: `10.9.0.${
   { const st0 = auto.statusFor(me); chk(st0.groups.map(g => g.order).join() === st0.groups.map((g, i) => i + 1).join(), 'stav: joby jsou očíslované podle pořadí'); }
   await auto.tick(new Date(2026, 10, 25, 1, 30)); await tickWait();
   chk(started.length === 2, 'další noc se čeká, dokud nejsou joby z minulé uzavřené');
-  chk(mails.length === 2 && /„Kanárci“ 24\. 11\.: 2 zařízení upgradováno/.test(mails[1].subject), 'po uzavření jobu přijde souhrn (' + (mails[1] && mails[1].subject) + ')');
+  chk(mails.length === 1, 'souhrn se neposílá za každý job zvlášť — čeká se, až doběhne celá noc');
   let st = auto.statusFor(me);
   chk(st.allowed && st.history.length === 1 && st.history[0].ok === 2 && st.history[0].group === 'Kanárci' && st.open.length === 1 && st.groups.find(g => g.id === gK.id).next.length === 0, 'stav: historie, rozjetý job, hotová skupina už nic neplánuje');
   chk(auto.statusFor(other).allowed === false, 'nepovolený účet stav nedostane');
@@ -109,7 +109,7 @@ const mkDev = (owner, f = {}) => { const id = db.insertDevice({ host: `10.9.0.${
   st = auto.statusFor(me);
   chk(started.length === 2 && /nevrátilo se/.test(st.halted) && /Zbytek/.test(st.halted) && st.failed.length === 1, 'po chybě se automat zastaví a nic dalšího nespustí');
   await tickWait();
-  chk(mails.length === 3 && /AUTOMAT ZASTAVEN/.test(mails[2].subject) && /nevrátilo se po restartu/.test(mails[2].text), 'chyba: e-mail o zastavení s důvodem');
+  chk(mails.length === 2 && /AUTOMAT ZASTAVEN/.test(mails[1].subject) && /nevrátilo se po restartu/.test(mails[1].text) && /2 jobů/.test(mails[1].text) && /1\. „Kanárci“ \(job #\d+\): 2 v pořádku/.test(mails[1].text), 'chyba: jeden e-mail za noc — zastavení s důvodem i výsledek předchozího jobu (' + (mails[1] && mails[1].subject) + ')');
   auto.skipNight(me, true); st = auto.statusFor(me); chk(st.nextNight && st.skipNight === st.nextNight, 'vynechání nejbližší noci se zapíše'); auto.skipNight(me, false);
   chk(!!auto.validate({ auto_mail_to: 'neni-adresa' }).error && auto.validate({ auto_mail_to: 'a@b.cz; c@d.cz' }).values.auto_mail_to === 'a@b.cz, c@d.cz', 'kontrola adres pro hlášení');
   auto.release(me.id);

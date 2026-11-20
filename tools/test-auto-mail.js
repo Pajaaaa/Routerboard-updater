@@ -267,7 +267,7 @@ async function testAutomat() {
   const two = mkUser('dva@x.cz', 'dva'); auto.saveGroup(two.id, { name: 'První', deviceIds: [mkDev(two.id).id] }); auto.saveGroup(two.id, { name: 'Druhá', deviceIds: [mkDev(two.id).id] }); db.setUserSettings(two.id, { auto_enable: true });
   for (const m of [30, 35]) { await auto.tick(D(1, m, 25)); for (const l of US(two).open) { for (const it of db.getJobItems(l.jobId)) db.updateJobItem(it.id, { status: 'done' }); db.updateJob(l.jobId, { status: 'done' }); } } // joby jdou po sobě
   await auto.tick(D(5, 0, 25)); await sleep(80);
-  chk(mailsFor(two).map(p => dec2047(p.H.subject)).sort().join(' | ') === '[upgrader] „Druhá“ 25. 11.: 1 zařízení upgradováno | [upgrader] „První“ 25. 11.: 1 zařízení upgradováno', 'dva joby po sobě = dva souhrny');
+  chk(mailsFor(two).map(p => dec2047(p.H.subject)).join(' | ') === '[upgrader] noc 25. 11.: 2 zařízení upgradováno v 2 jobech', `dva joby po sobě = jeden souhrnný e-mail za noc (${mailsFor(two).map(p => dec2047(p.H.subject)).join(' | ')})`);
 
   console.log('automat: selhání odeslání');
   const H = mk('fail'), L = mk('ztraceny');
