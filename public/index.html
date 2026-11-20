@@ -14,7 +14,20 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="app"></div>
+<!-- úvodní načítání: je přímo v HTML (styly inline), aby bylo vidět dřív, než dorazí style.css a app.js; první render() obsah #app přepíše -->
+<div id="app"><div id="boot" style="max-width:340px;margin:22vh auto 0;padding:0 16px;text-align:center;font:15px system-ui,-apple-system,'Segoe UI',sans-serif">
+  <div style="font-size:19px;font-weight:600;margin-bottom:14px">MikroTik upgrader</div>
+  <div role="progressbar" aria-label="načítání" style="height:8px;border-radius:4px;background:rgba(128,128,128,.28);overflow:hidden"><div id="bootbar" style="height:100%;width:8%;border-radius:4px;background:#2b7de9;transition:width .5s ease"></div></div>
+  <div id="boottxt" style="margin-top:10px;opacity:.75">načítám aplikaci…</div>
+  <noscript><div style="margin-top:10px">Aplikace potřebuje zapnutý JavaScript.</div></noscript>
+</div></div>
+<script>
+// postup načítání: bootStep(procenta, text); mezi kroky se pruh pomalu sune dál, aby bylo vidět, že se něco děje
+(function () {
+  var cur = 8, cap = 30, t = setInterval(function () { var b = document.getElementById('bootbar'); if (!b) { clearInterval(t); return; } if (cur < cap) { cur += (cap - cur) * 0.08; b.style.width = cur + '%'; } }, 300);
+  window.bootStep = function (pct, text, next) { var b = document.getElementById('bootbar'), x = document.getElementById('boottxt'); if (!b) return; cur = Math.max(cur, pct); cap = next || Math.min(98, pct + 25); b.style.width = cur + '%'; if (x && text) x.textContent = text; };
+})();
+</script>
 <script src="local.js"></script>
 <script src="app.js"></script>
 </body>

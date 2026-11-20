@@ -1596,9 +1596,11 @@ function connectSSE() {
   };
   es.onerror = () => { setTimeout(() => { if (state.authed) connectSSE(); }, 5000); };
 }
+const bootStep = (pct, text, next) => { try { if (window.bootStep) window.bootStep(pct, text, next); } catch {} };
 (async () => {
+  bootStep(35, 'ověřuji přihlášení…', 50);
   try { const w = await api('/whoami'); state.authed = w.authed; state.netHint = w.netHint || '192.0.2'; state.auth = { build: w.build || null, sso: w.sso, passwordLogin: w.passwordLogin, registration: w.registration, user: w.user, userdb: w.userdb || { enabled: false }, serverStartedAt: w.serverStartedAt || 0, sourceIp: w.sourceIp || (window.MTU_LOCAL || {}).sourceIp || '', draining: !!w.draining, drainJobs: w.drainJobs || [] }; } catch { state.authed = false; }
-  if (state.authed) { await loadState(); connectSSE(); }
+  if (state.authed) { bootStep(55, 'načítám zařízení a joby…', 96); await loadState(); bootStep(98, 'vykresluji…'); connectSSE(); }
   render();
   setInterval(() => { if (state.authed && state.view === 'devices' && !state.modal) refreshAgo(); }, 60000); // dřív celé překreslení seznamu každou minutu
   // běžící hromadná kontrola: každou sekundu jen přepsat progress bar (uplynulý čas, odhad), ne celý seznam
