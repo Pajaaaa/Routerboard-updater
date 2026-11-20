@@ -20,7 +20,7 @@ async function api(path, opts = {}) {
   const r = await fetch(BASE + '/api' + path, { headers: { 'Content-Type': 'application/json' }, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
   const ct = r.headers.get('content-type') || '';
   const data = ct.includes('json') ? await r.json() : await r.text();
-  if (r.status === 401) { state.authed = false; render(); throw new Error('nepřihlášen'); }
+  if (r.status === 401) { state.authed = false; try { resetAuto(); } catch {} render(); throw new Error('nepřihlášen'); }
   if (!r.ok) throw new Error(data.error || r.statusText);
   return data;
 }
@@ -129,13 +129,14 @@ function renderInner() {
   watchJob();
   const sameView = lastRenderedView === state.view; lastRenderedView = state.view;
   const keepY = sameView ? window.scrollY : 0;
+  try { const w = document.getElementById('autogwrap'); if (w && state.autoEdit) state.autoEdit.top = w.scrollTop; } catch {} // posun v seznamu zařízení editoru automatu přežije překreslení
   let openKeys = new Set(); try { if (sameView) [...document.querySelectorAll('#main details')].forEach((d, i) => { if (d.open) openKeys.add(d.id || 'i' + i); }); } catch {}
   if (!state.authed) { app.innerHTML = `<div class="login panel"><h2>MikroTik upgrader</h2><p>Bezpečný hromadný upgrade RouterOS.</p>
       ${state.auth.sso ? `<a class="ssobtn" href="${BASE}/auth/login">Přihlásit přes hkfree SSO</a>` : ''}
       ${state.auth.passwordLogin ? `${state.auth.sso ? '<div class="hint" style="margin:14px 0 6px">nebo účtem</div>' : ''}<form id="loginf"><input type="text" id="un" placeholder="uživatel" autocomplete="username" ${state.auth.sso ? '' : 'autofocus'}><input type="password" id="pw" placeholder="heslo" autocomplete="current-password"><button class="${state.auth.sso ? '' : 'primary'}" style="width:100%">Přihlásit</button></form>
       ${state.auth.registration ? `<details id="regbox" style="margin-top:14px"><summary class="hint">Nemáš účet? Zaregistruj se</summary><form id="regf" style="margin-top:8px"><input type="text" id="run" placeholder="jméno (2–64 znaků)" autocomplete="username"><input type="password" id="rpw" placeholder="heslo (aspoň 8 znaků)" autocomplete="new-password"><input type="password" id="rpw2" placeholder="heslo znovu" autocomplete="new-password"><button style="width:100%">Založit účet a přihlásit</button><div class="hint" style="margin-top:6px">Uvidíš jen zařízení, která si sám přidáš.</div></form></details>` : ''}` : ''}
       ${location.search.includes('sso_error') ? '<div class="banner err">Přihlášení přes SSO se nezdařilo.</div>' : ''}</div>`;
-    const lf = $('#loginf'); if (lf) lf.onsubmit = async (e) => { e.preventDefault(); try { await api('/login', { method: 'POST', body: { username: $('#un').value, password: $('#pw').value } }); state.authed = true; await loadState(); connectSSE(); render(); } catch (e2) { toast(e2.message, true); } };
+    const lf = $('#loginf'); if (lf) lf.onsubmit = async (e) => { e.preventDefault(); try { await api('/login', { method: 'POST', body: { username: $('#un').value, password: $('#pw').value } }); resetAuto(); state.authed = true; await loadState(); connectSSE(); render(); } catch (e2) { toast(e2.message, true); } };
     const rf = $('#regf'); if (rf) rf.onsubmit = async (e) => { e.preventDefault(); if ($('#rpw').value !== $('#rpw2').value) return toast('hesla se neshodují', true); try { await api('/register', { method: 'POST', body: { username: $('#run').value, password: $('#rpw').value } }); state.authed = true; await loadState(); connectSSE(); render(); toast('účet založen'); } catch (e2) { toast(e2.message, true); } };
     return; }
   const running = state.runner.running;
@@ -160,7 +161,7 @@ function renderInner() {
   updatePageNav();
   app.querySelectorAll('nav button').forEach(b => b.onclick = () => { state.view = b.dataset.view; render(); });
   app.querySelectorAll('.copyip').forEach(el => el.onclick = () => { try { navigator.clipboard.writeText(el.dataset.ip); toast('IP zkopírována: ' + el.dataset.ip); } catch {} });
-  $('#logout').onclick = async () => { await api('/logout', { method: 'POST' }); state.authed = false; render(); };
+  $('#logout').onclick = async () => { await api('/logout', { method: 'POST' }); resetAuto(); state.authed = false; render(); };
   $('#refreshver').onclick = async () => { state.latest = { ...await api('/versions/refresh', { method: 'POST' }), floor: (state.latest || {}).floor }; toast('verze obnoveny'); render(); };
   document.querySelectorAll('#runnerpill [data-job]').forEach(el => el.onclick = () => openJob(+el.dataset.job));
   const va = $('#viewas'); if (va) va.onclick = async (e) => { e.preventDefault(); try { await api('/view-as', { method: 'POST', body: { user: !state.auth.user.asUser } }); location.reload(); } catch (err) { toast(err.message); } };
@@ -1004,6 +1005,7 @@ function adminPanelsHtml(s) {
 // ---------- automatický upgrade (stránka Automat; jen účty povolené správcem nástroje) ----------
 const AUTO_DAYS = [[1, 'po'], [2, 'út'], [3, 'st'], [4, 'čt'], [5, 'pá'], [6, 'so'], [0, 'ne']];
 const autoDt = (ms) => new Date(ms).toLocaleString('cs-CZ', { weekday: 'short', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
+const autoDays = (n) => { n = Number(n); return `${String(n).replace('.', ',')} ${n === 1 ? 'den' : n >= 2 && n <= 4 && Number.isInteger(n) ? 'dny' : 'dní'}`; };
 const autoD1 = (sec) => new Date(sec * 1000).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric' });
 /** editor jednoho automatického jobu: název, zpoždění, výběr zařízení (stav drží state.autoEdit, překreslení ho neztratí) */
 function autoEditorHtml(a) {
@@ -1012,39 +1014,44 @@ function autoEditorHtml(a) {
   const q = (e.q || '').toLowerCase();
   const devs = state.devices.filter(d => ok.has(d.id)).sort((x, y) => String(x.userdb_ap || '').localeCompare(String(y.userdb_ap || ''), 'cs') || String(x.name || x.identity || x.host).localeCompare(String(y.name || y.identity || y.host), 'cs'));
   const rows = devs.map(d => { const txt = [d.name, d.identity, d.host, d.model, d.board_name, d.userdb_ap, d.version].filter(Boolean).join(' ').toLowerCase();
-    return `<tr data-txt="${esc(txt)}" ${q && !txt.includes(q) ? 'hidden' : ''}><td><input type="checkbox" data-gdev="${d.id}" ${e.sel.has(d.id) ? 'checked' : ''}></td><td data-l="zařízení"><b>${esc(d.name || d.identity || d.host)}</b> <span class="muted">${esc(d.host)}</span></td><td data-l="model">${esc(d.model || d.board_name || '')}</td><td data-l="verze">${esc(d.version || '?')}</td><td data-l="APčko">${esc(d.userdb_ap || '')}</td><td data-l="teď v jobu">${inOther.has(d.id) ? `<span class="badge b-warn">${esc(inOther.get(d.id))}</span>` : ''}</td></tr>`; }).join('');
+    return `<tr data-txt="${esc(txt)}" ${q && !txt.includes(q) ? 'hidden' : ''}><td><input type="checkbox" aria-label="${esc(d.name || d.identity || d.host)}" data-gdev="${d.id}" ${e.sel.has(d.id) ? 'checked' : ''}></td><td data-l="zařízení"><b>${esc(d.name || d.identity || d.host)}</b> <span class="muted">${esc(d.host)}</span></td><td data-l="model">${esc(d.model || d.board_name || '')}</td><td data-l="verze">${esc(d.version || '?')}</td><td data-l="APčko">${esc(d.userdb_ap || '')}</td><td data-l="teď v jobu">${inOther.has(d.id) ? `<span class="badge b-warn">${esc(inOther.get(d.id))}</span>` : ''}</td></tr>`; }).join('');
+  const shown = devs.filter(d => e.sel.has(d.id)).length, gone = e.sel.size - shown;
   return `<div class="panel" id="autoedit"><h2>${e.id ? 'Upravit automatický job' : 'Nový automatický job'}</h2>
     <form id="autog" class="form">
       <label>název<input name="name" type="text" maxlength="80" value="${esc(e.name)}" placeholder="např. Kanárci, Klienti Sokol, Páteř"></label>
       <label>zpoždění po vydání (dní; prázdné = výchozí ${esc(String(a.settings.auto_delay_days))})<input name="delay_days" type="number" min="0" max="365" step="1" value="${esc(e.delay)}"></label>
       <label class="check wide"><input type="checkbox" name="enabled" ${e.enabled ? 'checked' : ''}> job je zapnutý</label>
-      <div class="wide row"><input type="search" id="autogq" placeholder="hledat (název, IP, model, APčko, verze)" value="${esc(e.q || '')}" style="flex:1;min-width:180px"><button type="button" class="small" id="autogall">označit zobrazené</button><button type="button" class="small" id="autognone">odznačit zobrazené</button><span class="hint">vybráno <b id="autogcnt">${e.sel.size}</b> z ${devs.length}</span></div>
-      <div class="wide tablewrap" style="max-height:55vh;overflow:auto"><table class="cards"><thead><tr><th></th><th>zařízení</th><th>model</th><th>verze</th><th>APčko</th><th>teď v jobu</th></tr></thead><tbody id="autogrows">${rows || '<tr><td colspan="6" class="muted">nemáš žádná zařízení</td></tr>'}</tbody></table></div>
+      <div class="wide row"><input type="search" id="autogq" aria-label="hledat zařízení" placeholder="hledat (název, IP, model, APčko, verze)" value="${esc(e.q || '')}" style="flex:1;min-width:180px"><button type="button" class="small" id="autogall">označit zobrazené</button><button type="button" class="small" id="autognone">odznačit zobrazené</button><span class="hint">vybráno <b id="autogcnt">${shown}</b> z ${devs.length}${gone ? ` (+ ${gone} teď nedostupných v jobu zůstává)` : ''}</span></div>
+      <div class="wide tablewrap" id="autogwrap" style="max-height:55vh;overflow:auto"><table class="cards"><thead><tr><th></th><th>zařízení</th><th>model</th><th>verze</th><th>APčko</th><th>teď v jobu</th></tr></thead><tbody id="autogrows">${rows || '<tr><td colspan="6" class="muted">nemáš žádná zařízení</td></tr>'}</tbody></table></div>
       <div class="wide hint">Zařízení může být jen v jednom jobu — uložením se z ostatních přesune sem. Pořadí uvnitř noci si upgrader určí sám podle topologie (potomci před rodiči).</div>
-      <div class="wide row"><button class="primary">Uložit job</button><button type="button" id="autogcancel">Zrušit</button></div>
+      <div class="wide row"><button class="primary" ${state.autoSaving ? 'disabled' : ''}>Uložit job</button><button type="button" id="autogcancel">Zrušit</button></div>
     </form></div>`;
 }
 function autoGroupHtml(g, a) {
   const tg = Object.entries(g.targets || {}).map(([t, x]) => `${esc(t)} <b>${esc(x.version)}</b> ${x.blocked ? `<span class="badge b-err">${esc(x.blocked)}</span>` : x.mature ? '<span class="badge b-ok">zralá</span>' : x.matureAt ? `<span class="badge b-warn">dozraje ${autoD1(x.matureAt)}</span>` : '<span class="badge b-muted">neznámé datum vydání</span>'}`).join(' · ');
   const sk = Object.entries(g.skipped || {}).map(([k, n]) => `${n}× ${esc(k)}`).join(', ');
-  const wait = {}; for (const w of g.waiting || []) (wait[`${w.to} (dozraje ${autoD1(w.matureAt)})`] = wait[`${w.to} (dozraje ${autoD1(w.matureAt)})`] || []).push(w.name);
+  const wait = {}; for (const w of g.waiting || []) { const k = `${w.to} (${w.matureAt ? 'dozraje ' + autoD1(w.matureAt) : 'neznámé datum vydání'})`; (wait[k] = wait[k] || []).push(w.name); }
+  const next = g.next || [], devices = g.devices || [], gdevs = g.devs || [];
+  const idle = !g.enabled ? 'Job je vypnutý — kdyby běžel, šlo by' : !a.settings.auto_enable ? 'Automat je vypnutý — jinak by nejbližší noc šlo' : a.halted ? 'Automat je zastavený — po uvolnění půjde' : a.skipped ? 'Nejbližší noc je vynechaná — jinak by šlo' : 'Nejbližší noc půjde';
   return `<div class="panel" data-group="${g.id}"><div class="row" style="justify-content:space-between"><h2 style="margin:0">${esc(g.name)} ${g.enabled ? '' : '<span class="badge b-muted">vypnutý</span>'}</h2>
       <span class="row"><button class="small" data-gedit="${g.id}">Upravit</button><button class="small" data-gtoggle="${g.id}">${g.enabled ? 'Vypnout' : 'Zapnout'}</button><button class="small danger" data-gdel="${g.id}">Smazat</button></span></div>
-    <div class="hint" style="margin:6px 0">${g.devs.length} zařízení · zpoždění ${g.delay_days === null ? `výchozí (${esc(String(a.settings.auto_delay_days))} dní)` : esc(String(g.delay_days)) + ' dní'}${tg ? ' · ' + tg : ''}</div>
-    ${g.next.length ? `<div><b>Nejbližší noc půjde ${g.next.length}:</b></div><div class="tablewrap"><table class="cards"><thead><tr><th>zařízení</th><th>model</th><th>teď</th><th>cíl</th></tr></thead><tbody>${g.next.map(x => `<tr><td data-l="zařízení"><b>${esc(x.name)}</b> <span class="muted">${esc(x.host)}</span></td><td data-l="model">${esc(x.model)}</td><td data-l="teď">${esc(x.version)}</td><td data-l="cíl">${esc(x.to)}</td></tr>`).join('')}</tbody></table></div>` : `<div class="hint">Nejbližší noc nic nepůjde${Object.keys(wait).length || sk ? '' : ' — všechno je na poslední verzi'}.</div>`}
+    <div class="hint" style="margin:6px 0">${gdevs.length} zařízení · zpoždění ${g.delay_days === null || g.delay_days === undefined ? `výchozí (${autoDays(a.settings.auto_delay_days)})` : autoDays(g.delay_days)}${tg ? ' · ' + tg : ''}</div>
+    ${next.length ? `<div><b>${idle} ${next.length}:</b></div><div class="tablewrap"><table class="cards"><thead><tr><th>zařízení</th><th>model</th><th>teď</th><th>cíl</th></tr></thead><tbody>${next.map(x => `<tr><td data-l="zařízení"><b>${esc(x.name)}</b> <span class="muted">${esc(x.host)}</span></td><td data-l="model">${esc(x.model)}</td><td data-l="teď">${esc(x.version)}</td><td data-l="cíl">${esc(x.to)}</td></tr>`).join('')}</tbody></table></div>` : `<div class="hint">Nejbližší noc nic nepůjde${Object.keys(wait).length || sk ? '' : ' — všechno je na poslední verzi'}.</div>`}
     ${Object.entries(wait).map(([k, n]) => `<div class="hint">Čeká na dozrání ${esc(k)}: ${n.length} zařízení.</div>`).join('')}
     ${sk ? `<div class="hint">Vynecháno: ${sk}.</div>` : ''}
-    <details style="margin-top:6px"><summary class="hint">zařízení v jobu (${g.devices.length})</summary><div class="hint">${g.devices.map(d => `${esc(d.name)}${d.host ? ` <span class="muted">${esc(d.host)}${d.version ? ', ' + esc(d.version) : ''}</span>` : ''}`).join(' · ')}</div></details>
+    <details id="autogd${g.id}" style="margin-top:6px"><summary class="hint">zařízení v jobu (${devices.length})</summary><div class="hint">${devices.map(d => `${esc(d.name)}${d.host ? ` <span class="muted">${esc(d.host)}${d.version ? ', ' + esc(d.version) : ''}</span>` : ''}`).join(' · ')}</div></details>
   </div>`;
 }
 function autoPanelHtml() {
   const a = state.auto; if (!a || !a.allowed) return '';
+  if (!a.settings) a.settings = {};
   if (state.autoEdit) return autoEditorHtml(a);
-  const s = a.settings, days = String(s.auto_days || '').split(',').map(Number), dt = autoDt;
-  const groups = a.groups || []; const inGroups = new Set(groups.flatMap(g => g.devs)); const free = (a.pickable || []).filter(id => !inGroups.has(id)).length;
+  const dt = autoDt, mail = a.mail || {};
+  const s = { ...(a.settings || {}), ...(state.autoDraft || {}) }, days = String(s.auto_days || '').split(',').filter(Boolean).map(Number); // rozepsané hodnoty přežijí překreslení
+  const groups = a.groups || []; const inGroups = new Set(groups.flatMap(g => g.devs || [])); const free = (a.pickable || []).filter(id => !inGroups.has(id)).length;
   const off = !s.auto_enable ? 'Automat je vypnutý — joby níže jsou jen náhled, co by se dělo.' : a.paused ? 'Správce nástroje automat pozastavil všem (nouzová brzda ve Správě).' : '';
-  const skipped = a.nextNight && a.skipNight === a.nextNight;
-  const total = groups.filter(g => g.enabled).reduce((n, g) => n + g.next.length, 0);
+  const skipped = a.skipped !== undefined ? !!a.skipped : !!(a.nextNight && a.skipNight === a.nextNight);
+  const total = groups.filter(g => g.enabled).reduce((n, g) => n + (g.next || []).length, 0);
   return `<div class="panel" id="autopanel"><h2>Automatický upgrade</h2>
     <div class="hint" style="margin-bottom:8px">Sestav si vlastní <b>automatické joby</b> — skupiny svých zařízení. Když MikroTik vydá novou verzi kanálu a uplyne zpoždění jobu, automat v nočním okně upgraduje všechna jeho zařízení, která jsou pod touto verzí. Postup si tak řídíš sám: třeba job „Kanárci“ se zpožděním 3 dny a zbytek s delším. Zařízení mimo joby se automaticky neupgradují. Zakládají se běžné joby (najdeš je v Upgradech), takže platí všechny kontroly, zálohy a pořadí podle topologie; jen v rámci stejné hlavní verze (6 → 7 nikdy). Při první chybě se automat zastaví a čeká, až ho uvolníš.</div>
     ${a.halted ? `<div class="banner err"><b>Automat je zastavený po chybě</b>${a.haltedAt ? ` (${dt(a.haltedAt)})` : ''}: ${esc(a.halted)}<div class="row" style="margin-top:8px"><button id="autorelease" class="small">Zkontroloval jsem, uvolnit</button><span class="hint">selhané kusy se znovu zařadí, pokračuje se další noc</span></div></div>` : ''}
@@ -1053,31 +1060,46 @@ function autoPanelHtml() {
     ${a.lastError ? `<div class="banner warn">Poslední pokus o spuštění selhal (${dt(a.lastError.at)}): ${esc(a.lastError.error)}</div>` : ''}
     <form id="autof" class="form">
       <label class="check wide"><input type="checkbox" name="auto_enable" ${s.auto_enable ? 'checked' : ''}> zapnout automatický upgrade (spouští zapnuté joby níže)</label>
-      <label>výchozí zpoždění po vydání (dní)<input name="auto_delay_days" type="number" min="0" max="365" step="1" value="${esc(String(s.auto_delay_days))}"></label>
-      <label>noční okno<input name="auto_window" type="text" value="${esc(s.auto_window)}" placeholder="01:00-04:30"></label>
+      <label>výchozí zpoždění po vydání (dní)<input name="auto_delay_days" type="number" min="0" max="365" step="1" value="${esc(String(s.auto_delay_days ?? ''))}"></label>
+      <label>noční okno<input name="auto_window" type="text" value="${esc(s.auto_window || '')}" placeholder="01:00-04:30"></label>
       <div class="wide">noci, kdy okno smí začít: ${AUTO_DAYS.map(([n, l]) => `<label class="check" style="display:inline-flex;margin-right:10px"><input type="checkbox" name="auto_day" value="${n}" ${days.includes(n) ? 'checked' : ''}> ${l}</label>`).join('')}</div>
       <label class="check wide"><input type="checkbox" name="auto_mail" ${s.auto_mail ? 'checked' : ''}> posílat e-mailem hlášení: odpoledne před nocí, co půjde, a po noci souhrn (při chybě hned)</label>
-      <label class="wide">adresa pro hlášení (víc adres čárkou; prázdné = e-mail účtu)<input name="auto_mail_to" type="text" value="${esc(s.auto_mail_to || '')}" placeholder="${esc(a.mail.to || 'účet nemá e-mail')}"></label>
-      ${!a.mail.enabled ? '<div class="wide hint">Server nemá nastavené odesílání e-mailů (MTU_SMTP_HOST) — hlášení se neposílají.</div>' : ''}
-      ${a.mail.error ? `<div class="wide banner warn">Poslední e-mail se nepodařilo odeslat (${dt(a.mail.error.at)}): ${esc(a.mail.error.error)}</div>` : ''}
-      <div class="wide row"><button class="primary">Uložit</button>${a.mail.enabled ? '<button type="button" id="automail">Poslat zkušební e-mail</button>' : ''}${a.nextWindow && s.auto_enable && !a.halted && !a.paused ? `<span class="hint">nejbližší okno: ${dt(a.nextWindow)}${skipped ? ' — <b>vynecháno</b>' : `, půjde ${total} zařízení`}</span><button type="button" class="small" id="autoskip">${skipped ? 'Vrátit tuto noc' : 'Tuto noc vynechat'}</button>` : ''}</div>
+      <label class="wide">adresa pro hlášení (víc adres čárkou; prázdné = e-mail účtu)<input name="auto_mail_to" type="text" value="${esc(s.auto_mail_to || '')}" placeholder="${esc(mail.to || 'účet nemá e-mail')}"></label>
+      ${!mail.enabled ? '<div class="wide hint">Server nemá nastavené odesílání e-mailů (MTU_SMTP_HOST) — hlášení se neposílají.</div>' : ''}
+      ${mail.enabled && mail.error ? `<div class="wide banner warn">Poslední e-mail se nepodařilo odeslat (${dt(mail.error.at)}): ${esc(mail.error.error)}${a.outbox ? ` — ${a.outbox} hlášení čeká na další pokus` : ''}</div>` : ''}
+      <div class="wide row"><button class="primary">Uložit</button>${mail.enabled ? '<button type="button" id="automail">Poslat zkušební e-mail</button>' : ''}${a.nextWindow && s.auto_enable && !a.halted && !a.paused ? `<span class="hint">nejbližší okno: ${dt(a.nextWindow)}${skipped ? ' — <b>vynecháno</b>' : `, půjde ${total} zařízení`}</span><button type="button" class="small" id="autoskip">${skipped ? 'Vrátit vynechanou noc' : 'Nejbližší noc vynechat'}</button>` : ''}</div>
     </form>
     ${Object.keys(a.quarantine || {}).length ? `<div class="banner warn" style="margin-top:8px">Verze v karanténě (selhaly víc správcům, automat je nenasazuje nikomu): ${Object.entries(a.quarantine).map(([v, r]) => `<b>${esc(v)}</b> — ${esc(r)}${state.admin ? ` <button class="small" data-unq="${esc(v)}">zrušit karanténu</button>` : ''}`).join('; ')}</div>` : ''}
   </div>
   <div class="row" style="justify-content:space-between;margin:14px 0 6px"><h2 style="margin:0">Moje automatické joby (${groups.length})</h2><button class="primary" id="autognew">+ Nový job</button></div>
   ${groups.length ? groups.map(g => autoGroupHtml(g, a)).join('') : '<div class="panel hint">Zatím žádný job — dokud si nějaký nevytvoříš, automat nic neupgraduje.</div>'}
   ${free ? `<div class="hint" style="margin:6px 0">Mimo joby zůstává ${free} tvých zařízení — ta se automaticky neupgradují.</div>` : ''}
-  ${(a.open || []).length ? `<div class="hint" style="margin-top:6px">Rozjeté joby automatu: ${a.open.map(o => `<a href="#" data-autojob="${o.jobId}">#${o.jobId}</a> „${esc(o.group)}“ (${esc(o.status)})`).join(', ')}.</div>` : ''}
-  ${(a.history || []).length ? `<div class="panel"><h2>Minulé noci</h2><div class="tablewrap"><table class="cards"><thead><tr><th>noc</th><th>job</th><th>skupina</th><th>cíl</th><th>kusů</th><th>v pořádku</th><th>chyby</th><th>nedostupné</th><th>přeskočeno</th></tr></thead><tbody>${a.history.map(h => `<tr><td data-l="noc">${esc(h.night)}</td><td data-l="job"><a href="#" data-autojob="${h.jobId}">#${h.jobId}</a></td><td data-l="skupina">${esc(h.group || '')}</td><td data-l="cíl">${esc(Object.values(h.targets || {}).join(', '))}</td><td data-l="kusů">${h.total}</td><td data-l="v pořádku">${h.ok}</td><td data-l="chyby">${h.failed ? `<span class="badge b-err">${h.failed}</span>` : 0}</td><td data-l="nedostupné">${h.unreachable || 0}</td><td data-l="přeskočeno">${h.skipped || 0}</td></tr>`).join('')}</tbody></table></div></div>` : ''}`;
+  ${(a.open || []).length ? `<div class="hint" style="margin-top:6px">Rozjeté joby automatu: ${a.open.map(o => `<a href="#" data-autojob="${o.jobId}">#${o.jobId}</a> „${esc(o.group)}“ (${esc(JOB_PLAIN[o.status] || o.status)})`).join(', ')}. Dokud nedoběhnou, další noc se nic nového nespustí.</div>` : ''}
+  ${(a.history || []).length ? `<div class="panel"><h2>Minulé noci</h2><div class="tablewrap"><table class="cards"><thead><tr><th>noc</th><th>běh</th><th>job</th><th>cíl</th><th>kusů</th><th>v pořádku</th><th>chyby</th><th>nedostupné</th><th>přeskočeno</th></tr></thead><tbody>${a.history.map(h => `<tr><td data-l="noc">${esc(h.night)}</td><td data-l="běh"><a href="#" data-autojob="${h.jobId}">#${h.jobId}</a></td><td data-l="job">${esc(h.group || '')}</td><td data-l="cíl">${esc(Object.values(h.targets || {}).join(', '))}</td><td data-l="kusů">${h.total}</td><td data-l="v pořádku">${h.ok}</td><td data-l="chyby">${h.failed ? `<span class="badge b-err">${h.failed}</span>` : 0}</td><td data-l="nedostupné">${h.unreachable || 0}</td><td data-l="přeskočeno">${h.skipped || 0}</td></tr>`).join('')}</tbody></table></div></div>` : ''}`;
 }
-function drawAuto() {
+/** force = akce uživatele (překreslit vždy); bez něj jde o obnovu z pozadí, která nesmí přepsat rozepsané pole */
+function drawAuto(force) {
   const box = $('#autobox'); if (!box) return;
-  const ae = document.activeElement; if (ae && box.contains && box.contains(ae) && ['INPUT', 'SELECT'].includes(ae.tagName) && ae.type !== 'checkbox') return; // nepřepisovat rozepsaný formulář
-  box.innerHTML = autoPanelHtml();
-  const put = async (path, opts, msg) => { try { state.auto = await api(path, opts); state.autoAt = Date.now(); toast(msg); const el = document.activeElement; if (el && el.blur) el.blur(); drawAuto(); return true; } catch (e) { toast(e.message, true); return false; } };
+  const ae = document.activeElement;
+  if (!force && ae && box.contains && box.contains(ae) && ['INPUT', 'SELECT'].includes(ae.tagName) && ae.type !== 'checkbox') return;
+  // co se překreslením nesmí ztratit: posun v seznamu zařízení a rozbalené detaily
+  // (drží se ve stavu, ne jen v DOM: celostránkové překreslení obsah stránky zahodí dřív, než se sem dojde)
+  const wrap0 = $('#autogwrap'); if (wrap0 && state.autoEdit) state.autoEdit.top = wrap0.scrollTop;
+  const keepTop = state.autoEdit ? state.autoEdit.top || 0 : 0;
+  const openD = state.autoOpen || (state.autoOpen = new Set()); try { box.querySelectorAll('details[id]').forEach(d => { if (d.open) openD.add(d.id); }); } catch {}
+  box.innerHTML = state.autoErr && !state.auto ? `<div class="panel banner err">Stav automatu se nepodařilo načíst: ${esc(state.autoErr)} <button class="small" id="autoretry">Zkusit znovu</button></div>` : (autoPanelHtml() || '<div class="panel hint">načítám…</div>');
+  on('#autoretry', () => { state.autoErr = ''; state.autoAt = 0; loadAuto(); });
+  try {
+    openD.forEach(id => { const d = document.getElementById(id); if (d) d.open = true; });
+    box.querySelectorAll('details[id]').forEach(d => { d.ontoggle = () => { if (d.open) openD.add(d.id); else openD.delete(d.id); }; });
+    const w = $('#autogwrap'); if (w) { if (keepTop) w.scrollTop = keepTop; w.onscroll = () => { if (state.autoEdit) state.autoEdit.top = w.scrollTop; }; }
+  } catch {}
+  const blur = () => { const el = document.activeElement; if (el && el.blur) el.blur(); };
+  const put = async (path, opts, msg) => { try { state.auto = await api(path, opts); state.autoAt = Date.now(); toast(msg); blur(); drawAuto(true); return true; } catch (e) { toast(e.message, true); return false; } };
   const g = $('#autog');
   if (g) { // editor jobu
-    const e = state.autoEdit; const cnt = () => { const c = $('#autogcnt'); if (c) c.textContent = e.sel.size; };
+    const e = state.autoEdit; const ok = new Set(state.auto.pickable || []);
+    const cnt = () => { const c = $('#autogcnt'); if (c) c.textContent = [...e.sel].filter(id => ok.has(id)).length; };
     g.elements.name.oninput = () => { e.name = g.elements.name.value; };
     g.elements.delay_days.oninput = () => { e.delay = g.elements.delay_days.value; };
     g.elements.enabled.onchange = () => { e.enabled = g.elements.enabled.checked; };
@@ -1087,32 +1109,45 @@ function drawAuto() {
     box.querySelectorAll('[data-gdev]').forEach(c => c.onchange = () => { const id = +c.dataset.gdev; if (c.checked) e.sel.add(id); else e.sel.delete(id); cnt(); });
     const bulk = (v) => { rows().filter(r => !r.hidden).forEach(r => { const c = r.querySelector('[data-gdev]'); c.checked = v; const id = +c.dataset.gdev; if (v) e.sel.add(id); else e.sel.delete(id); }); cnt(); };
     on('#autogall', () => bulk(true)); on('#autognone', () => bulk(false));
-    on('#autogcancel', () => { state.autoEdit = null; drawAuto(); });
-    g.onsubmit = async (ev) => { ev.preventDefault(); const body = { id: e.id || undefined, name: e.name, delay_days: e.delay === '' ? null : e.delay, enabled: e.enabled, deviceIds: [...e.sel] };
-      try { state.auto = await api('/auto/groups', { method: 'POST', body }); state.autoAt = Date.now(); state.autoEdit = null; toast('job uložen'); const el = document.activeElement; if (el && el.blur) el.blur(); drawAuto(); } catch (er) { toast(er.message, true); } };
+    on('#autogcancel', () => { state.autoEdit = null; blur(); drawAuto(true); });
+    g.onsubmit = async (ev) => { ev.preventDefault(); if (state.autoSaving) return; // dvojklik nesmí poslat job dvakrát
+      const body = { id: e.id || undefined, name: e.name, delay_days: e.delay === '' ? null : e.delay, enabled: e.enabled, deviceIds: [...e.sel] };
+      state.autoSaving = true;
+      try { state.auto = await api('/auto/groups', { method: 'POST', body }); state.autoAt = Date.now(); state.autoEdit = null; toast('job uložen'); blur(); state.autoSaving = false; drawAuto(true); }
+      catch (er) { state.autoSaving = false; toast(er.message, true); } };
     return;
   }
   const f = $('#autof'); if (!f) return;
-  f.onsubmit = (e) => { e.preventDefault();
-    const body = { auto_enable: f.elements.auto_enable.checked, auto_delay_days: parseFloat(f.elements.auto_delay_days.value), auto_window: f.elements.auto_window.value, auto_mail: f.elements.auto_mail.checked, auto_mail_to: f.elements.auto_mail_to.value, auto_days: [...f.querySelectorAll('input[name=auto_day]:checked')].map(x => x.value).join(',') };
+  const read = () => ({ auto_enable: f.elements.auto_enable.checked, auto_delay_days: f.elements.auto_delay_days.value, auto_window: f.elements.auto_window.value, auto_mail: f.elements.auto_mail.checked, auto_mail_to: f.elements.auto_mail_to.value, auto_days: [...f.querySelectorAll('input[name=auto_day]:checked')].map(x => x.value).join(',') });
+  f.oninput = f.onchange = () => { state.autoDraft = read(); };
+  f.onsubmit = async (e) => { e.preventDefault();
+    const body = read();
+    if (String(body.auto_delay_days).trim() === '' || !Number.isFinite(Number(body.auto_delay_days))) return toast('vyplň výchozí zpoždění (počet dní 0–365)', true);
+    body.auto_delay_days = Number(body.auto_delay_days);
     if (body.auto_enable && !state.auto.settings.auto_enable && !confirm(`Zapnout automatický upgrade? V nočním okně ${body.auto_window} začne automat sám upgradovat zařízení z tvých zapnutých jobů.`)) return;
-    put('/auto', { method: 'PUT', body }, 'automatický upgrade uložen'); };
+    try { state.auto = await api('/auto', { method: 'PUT', body }); state.autoAt = Date.now(); state.autoDraft = null; toast('automatický upgrade uložen'); blur(); drawAuto(true); } catch (er) { toast(er.message, true); } };
   const grp = (id) => (state.auto.groups || []).find(x => x.id === +id);
-  on('#autognew', () => { state.autoEdit = { id: 0, name: '', delay: '', enabled: true, sel: new Set(), q: '' }; drawAuto(); });
-  box.querySelectorAll('[data-gedit]').forEach(b => b.onclick = () => { const x = grp(b.dataset.gedit); if (!x) return; state.autoEdit = { id: x.id, name: x.name, delay: x.delay_days === null ? '' : String(x.delay_days), enabled: x.enabled, sel: new Set(x.devs), q: '' }; drawAuto(); });
-  box.querySelectorAll('[data-gtoggle]').forEach(b => b.onclick = () => { const x = grp(b.dataset.gtoggle); if (x) put('/auto/groups', { method: 'POST', body: { id: x.id, name: x.name, delay_days: x.delay_days, enabled: !x.enabled, deviceIds: x.devs } }, x.enabled ? 'job vypnut' : 'job zapnut'); });
+  on('#autognew', () => { state.autoEdit = { id: 0, name: '', delay: '', enabled: true, sel: new Set(), q: '' }; blur(); drawAuto(true); });
+  box.querySelectorAll('[data-gedit]').forEach(b => b.onclick = () => { const x = grp(b.dataset.gedit); if (!x) return; state.autoEdit = { id: x.id, name: x.name, delay: x.delay_days === null || x.delay_days === undefined ? '' : String(x.delay_days), enabled: x.enabled, sel: new Set(x.devs || []), q: '' }; blur(); drawAuto(true); });
+  // zapnutí/vypnutí posílá jen příznak — seznam zařízení se tím nesmí měnit
+  box.querySelectorAll('[data-gtoggle]').forEach(b => b.onclick = () => { const x = grp(b.dataset.gtoggle); if (x) put('/auto/groups', { method: 'POST', body: { id: x.id, enabled: !x.enabled } }, x.enabled ? 'job vypnut' : 'job zapnut'); });
   box.querySelectorAll('[data-gdel]').forEach(b => b.onclick = () => { const x = grp(b.dataset.gdel); if (x && confirm(`Smazat automatický job „${x.name}“? Zařízení zůstanou, jen se přestanou automaticky upgradovat.`)) put('/auto/groups/' + x.id, { method: 'DELETE' }, 'job smazán'); });
   on('#autorelease', () => put('/auto/release', { method: 'POST' }, 'automat uvolněn'));
-  on('#autoskip', () => { const sk = state.auto.nextNight && state.auto.skipNight === state.auto.nextNight; put('/auto/skip-night', { method: 'POST', body: { skip: !sk } }, sk ? 'noc vrácena' : 'nejbližší noc se vynechá'); });
-  on('#automail', async () => { try { const r = await api('/auto/test-mail', { method: 'POST' }); state.auto = r; toast('zkušební e-mail odeslán na ' + r.sent); drawAuto(); } catch (e) { toast(e.message, true); } });
+  on('#autoskip', () => { const a = state.auto; const sk = a.skipped !== undefined ? !!a.skipped : !!(a.nextNight && a.skipNight === a.nextNight); put('/auto/skip-night', { method: 'POST', body: { skip: !sk } }, sk ? 'noc vrácena' : 'nejbližší noc se vynechá'); });
+  // zkušební e-mail jde na adresu, která je právě v poli (i neuložená)
+  on('#automail', async () => { try { const r = await api('/auto/test-mail', { method: 'POST', body: { to: f.elements.auto_mail_to.value } }); state.auto = r; state.autoAt = Date.now(); toast('zkušební e-mail odeslán na ' + r.sent); drawAuto(true); } catch (e) { toast(e.message, true); } });
   box.querySelectorAll('[data-unq]').forEach(b => b.onclick = () => put('/auto/unquarantine', { method: 'POST', body: { version: b.dataset.unq } }, 'karanténa zrušena'));
-  box.querySelectorAll('[data-autojob]').forEach(x => x.onclick = (e) => { e.preventDefault(); openJob(+x.dataset.autojob); });
+  box.querySelectorAll('[data-autojob]').forEach(x => x.onclick = (e) => { e.preventDefault(); Promise.resolve().then(() => openJob(+x.dataset.autojob)).catch(er => toast('job #' + x.dataset.autojob + ': ' + er.message, true)); });
 }
+/** stav automatu je per účet — při odhlášení / přihlášení / změně pohledu se musí zahodit */
+function resetAuto() { state.autoOpen = null; state.autoSig = undefined; state.auto = null; state.autoAt = 0; state.autoEdit = null; state.autoDraft = null; state.autoErr = ''; state.autoSaving = false; }
 function loadAuto() {
+  // změna seznamu zařízení nebo jobů = plán na stránce je zastaralý, keš neplatí
+  { const sig = `${state.devices.length}:${state.devices.reduce((a, d) => (a + d.id * 31 + String(d.version || '').length) % 1000003, 0)}:${(state.jobs[0] || {}).id || 0}`; if (sig !== state.autoSig) { if (state.autoSig !== undefined) state.autoAt = 0; state.autoSig = sig; } }
   drawAuto();
   if (state.autoLoading || (state.autoAt && Date.now() - state.autoAt < 30000)) return;
   state.autoLoading = true;
-  api('/auto').then(a => { state.auto = a; state.autoAt = Date.now(); }).catch(() => {}).finally(() => { state.autoLoading = false; drawAuto(); });
+  api('/auto').then(a => { state.auto = a; state.autoAt = Date.now(); state.autoErr = ''; }).catch((e) => { state.autoErr = e.message || 'chyba spojení'; }).finally(() => { state.autoLoading = false; drawAuto(); });
 }
 function renderAuto(m) { m.innerHTML = '<h1>Automat</h1><div id="autobox"><div class="panel hint">načítám…</div></div>'; loadAuto(); }
 function renderSettings(m, adminMode = false) {
@@ -1592,6 +1627,8 @@ function connectSSE() {
     else if (ev.type === 'devices-changed') scheduleReload();
     else if (ev.type === 'latest') { api('/versions').then(l => { state.latest = l; renderLive(); }).catch(() => {}); } // cíl je per uživatel (vlastní připnutí nad společným) → každý si stáhne svůj
     else if (ev.type === 'scan-done') { toast(`sken hotov (${ev.count} zařízení)`); scheduleReload(); }
+    // stránka Automat: po změně zařízení / jobu jsou skupiny a plán noci zastaralé — načíst znovu (nejvýš jednou za 5 s, ne během editace)
+    if (['scan-done', 'devices-changed', 'device-deleted', 'job'].includes(ev.type)) { state.autoAt = 0; if (state.view === 'auto' && !state.autoEdit && Date.now() - (state.autoPoke || 0) > 5000) { state.autoPoke = Date.now(); loadAuto(); } }
     if ((ev.type === 'scan-done' || ev.type === 'devices-changed') && state.view === 'links' && state.links && !state.linksLoading) loadLinks(); // nová čísla po kontrole
   };
   es.onerror = () => { setTimeout(() => { if (state.authed) connectSSE(); }, 5000); };
@@ -1602,7 +1639,8 @@ const bootStep = (pct, text, next) => { try { if (window.bootStep) window.bootSt
   try { const w = await api('/whoami'); state.authed = w.authed; state.netHint = w.netHint || '192.0.2'; state.auth = { build: w.build || null, sso: w.sso, passwordLogin: w.passwordLogin, registration: w.registration, user: w.user, userdb: w.userdb || { enabled: false }, serverStartedAt: w.serverStartedAt || 0, sourceIp: w.sourceIp || (window.MTU_LOCAL || {}).sourceIp || '', draining: !!w.draining, drainJobs: w.drainJobs || [] }; } catch { state.authed = false; }
   if (state.authed) { bootStep(55, 'načítám zařízení a joby…', 96); await loadState(); bootStep(98, 'vykresluji…'); connectSSE(); }
   render();
-  setInterval(() => { if (state.authed && state.view === 'devices' && !state.modal) refreshAgo(); }, 60000); // dřív celé překreslení seznamu každou minutu
+  setInterval(() => { if (state.authed && state.view === 'devices' && !state.modal) refreshAgo(); }, 60000);
+  setInterval(() => { if (state.authed && state.view === 'auto' && !state.autoEdit) { state.autoAt = 0; loadAuto(); } }, 60000); // plán noci a stav jobů se mění i bez události // dřív celé překreslení seznamu každou minutu
   // běžící hromadná kontrola: každou sekundu jen přepsat progress bar (uplynulý čas, odhad), ne celý seznam
   setInterval(() => { const p = state.checkProg; if (!p || p.finishedAt || (state.view !== 'devices' && state.view !== 'admin')) return; const el = $('#checkprog'); if (el) el.outerHTML = checkProgHtml(); }, 1000);
   setInterval(async () => { if (!state.authed) return; try { state.stats = await api('/stats'); const el = document.querySelector('.stats'); if (el) el.outerHTML = statsStrip(); } catch {} }, 30000);

@@ -36,6 +36,10 @@ echo "4/4 vykreslení UI (náhrada DOM, všechna řazení a filtry)"
 node tools/test-auto-upgrade.js > /dev/null 2>&1 || { echo "kontrola automatického upgradu selhala (node tools/test-auto-upgrade.js)"; exit 1; }
 node tools/test-view-as.js > /dev/null 2>&1 || { echo "kontrola pohledu řadového správce selhala (node tools/test-view-as.js)"; exit 1; }
 node tools/test-mail.js > /dev/null 2>&1 || { echo "kontrola odesílání e-mailů selhala (node tools/test-mail.js)"; exit 1; }
+node tools/test-auto-groups.js > /dev/null 2>&1 || { echo "kontrola jobů automatu (API, stavy) selhala (node tools/test-auto-groups.js)"; exit 1; }
+node tools/test-auto-night.js > /dev/null 2>&1 || { echo "kontrola nočního běhu automatu selhala (node tools/test-auto-night.js)"; exit 1; }
+node tools/test-auto-mail.js > /dev/null 2>&1 || { echo "kontrola hlášení automatu selhala (node tools/test-auto-mail.js)"; exit 1; }
+node tools/test-auto-ui.js > /dev/null 2>&1 || { echo "kontrola stránky Automat selhala (node tools/test-auto-ui.js)"; exit 1; }
 node tools/test-ssh-retry.js || { echo "kontrola opakování SSH selhala"; exit 1; }
 node tools/test-vlan-mgmt.js || { echo "kontrola VLAN managementu selhala"; exit 1; }
 node tools/test-no-v7.js || { echo "kontrola seznamu hardware bez v7 selhala"; exit 1; }
