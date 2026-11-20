@@ -207,12 +207,8 @@ const noJunk = (where) => { const t = txt('#main'); const m = t.match(/undefined
     confirms.length = 0; confirmAnswer = false; calls.length = 0; f().elements.auto_enable.click(); f().querySelector('button.primary').click(); await sleep(40);
     chk(confirms.length === 1 && /01:00-04:30/.test(confirms[0]) && !calls.some(c => c.method === 'PUT'), 'zapnutí: potvrzovací dialog, odmítnutí nic neodešle');
     confirmAnswer = true; f().querySelector('button.primary').click(); await sleep(40);
-    chk(db.getSettings(me.id).auto_enable === true && !!$('#autoskip'), 'zapnutí po potvrzení: uloženo, nabídne se „Tuto noc vynechat“');
+    chk(db.getSettings(me.id).auto_enable === true && !$('#autoskip') && /nejbližší okno/.test(txt('#autof')), 'zapnutí po potvrzení: uloženo, ukáže nejbližší okno (tlačítko „vynechat noc“ zrušeno)');
     noJunk('zapnutý automat');
-    $('#autoskip').click(); await sleep(40);
-    chk(/vynecháno/.test(txt('#autof')) && /Vrátit/.test($('#autoskip').textContent) && us().skipNight, '„Tuto noc vynechat“ noc vynechá a nabídne vrácení');
-    $('#autoskip').click(); await sleep(40);
-    chk(!us().skipNight && /Nejbližší noc vynechat/.test($('#autoskip').textContent), '„Vrátit vynechanou noc“ vynechání zruší');
     type(f().elements.auto_mail_to, 'a@b.test, <x>"@c'); hideToast(); f().querySelector('button.primary').click(); await sleep(40);
     chk(toast() && toast().err && /e-mail/.test(toast().text), 'neplatná adresa pro hlášení: chyba');
     { // BUG: public/app.js:1107 + lib/autoupgrade.js:339 — zkušební e-mail jde na ULOŽENOU adresu; rozepsanou ignoruje (bez uložené adresy hlásí „vyplň adresu“, i když vyplněná je) a po úspěchu ji překreslení smaže

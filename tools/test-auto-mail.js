@@ -255,13 +255,13 @@ async function testAutomat() {
   let s1 = await scen('vse-ok', [ok, ok, ok], 25);
   chk(s1.subj === '[upgrader] „Skupina vse-ok“ 25. 11.: 3 zařízení upgradováno' && /3 v pořádku, 0 chyb, 0 nedostupných, 0 přeskočeno/.test(s1.text) && (s1.text.match(/7\.24\.4 → 7\.24\.6/g) || []).length === 3 && !/Neprovedeno|Chyby|ZASTAVIL/.test(s1.text) && s1.text.includes(`https://upgrader.example/mikrotik/ (Upgrady → #${s1.jobId})`), 'vše v pořádku: předmět, počty, seznam, odkaz na job');
   s1 = await scen('mix', [ok, fail, skip, unr], 25);
-  chk(s1.subj === '[upgrader] AUTOMAT ZASTAVEN: 1 chyba v noci 25. 11.' && /1 v pořádku, 1 chyba, 1 nedostupných, 1 přeskočeno/.test(s1.text) && /AUTOMAT SE ZASTAVIL/.test(s1.text) && /Chyby:\r\n {2}mix-1 \(10\.9\.\d+\.\d+\): nevrátilo se po restartu/.test(s1.text) && /Neprovedeno:\r\n {2}mix-2 {2}\(10\.9\.\d+\.\d+\): konec okna\r\n {2}mix-3 {2}\(10\.9\.\d+\.\d+\): nedostupné \(SSH timeout\)\r\n\r\n/.test(s1.text) && !!US(s1.u).halted, 'ok + chyba + přeskočeno + nedostupné: AUTOMAT ZASTAVEN, počty sedí s tělem, „Neprovedeno“ má právě přeskočené a nedostupné');
+  chk(s1.subj === '[upgrader] CHYBY: „Skupina mix“ 25. 11.: 1 chyba, 1 upgradováno, 2 neprovedeno' && /1 v pořádku, 1 chyba, 1 nedostupných, 1 přeskočeno/.test(s1.text) && /POZOR, CHYBY\. Automat pokračoval dál/.test(s1.text) && /Chyby:\r\n {2}mix-1 \(10\.9\.\d+\.\d+\): nevrátilo se po restartu/.test(s1.text) && /Neprovedeno:\r\n {2}mix-2 {2}\(10\.9\.\d+\.\d+\): konec okna\r\n {2}mix-3 {2}\(10\.9\.\d+\.\d+\): nedostupné \(SSH timeout\)\r\n\r\n/.test(s1.text) && !US(s1.u).halted, 'ok + chyba + přeskočeno + nedostupné: CHYBY (' + s1.subj + '), počty sedí s tělem, „Neprovedeno“ má právě přeskočené a nedostupné');
   s1 = await scen('nedostupne', [ok, unr, skip, skip], 25);
   chk(s1.subj === '[upgrader] „Skupina nedostupne“ 25. 11.: 1 zařízení upgradováno, 3 neprovedeno' && /1 v pořádku, 0 chyb, 1 nedostupných, 2 přeskočeno/.test(s1.text) && (s1.text.split('Neprovedeno:\r\n')[1] || '').split('\r\n\r\n')[0].split('\r\n').length === 3 && !US(s1.u).halted, 'nedostupné kusy nejsou chyba: automat běží dál, „3 neprovedeno“ = 3 řádky v těle');
   s1 = await scen('castecne', [ok, part], 25);
   chk(!/castecne-1 {2}\(10\.9\.\d+\.\d+\): done/.test(s1.text) && /částečn/i.test(s1.text), 'částečně upgradovaný kus (zůstal na mezikroku) je v souhrnu popsaný jako částečný'); // BUG: počítá se do „přeskočeno“ a v „Neprovedeno“ je řádek „castecne-1 (…): done“
   s1 = await scen('evil-err', [{ status: 'failed', error: 'chyba\r\n.\r\nRCPT TO:<evil@x.cz>\r\n' + 'E'.repeat(5000) }, ok], 25);
-  chk(s1.p && s1.p.rcpt.join() === 'RCPT TO:<evil-err@x.cz>' && maxLine(s1.p) <= 76 && US(s1.u).halted.length <= 600, 'text chyby ze zařízení s CRLF, tečkou a 5000 znaky: obálka beze změny, řádky ≤ 76');
+  chk(s1.p && s1.p.rcpt.join() === 'RCPT TO:<evil-err@x.cz>' && maxLine(s1.p) <= 76 && !US(s1.u).halted && Object.values(US(s1.u).failed)[0].error.length <= 300, 'text chyby ze zařízení s CRLF, tečkou a 5000 znaky: obálka beze změny, řádky ≤ 76');
   s1 = await scen('big', Array.from({ length: 300 }, (_, i) => i % 50 === 7 ? unr : i % 60 === 3 ? skip : ok), 25);
   chk(/289 zařízení upgradováno, 11 neprovedeno/.test(s1.subj) && s1.text.split('\r\n').filter(l => /^ {2}big-\d+ /.test(l)).length === 300 && s1.p.body.length < 100000 && maxLine(s1.p) <= 76, 'job s 300 zařízeními: všech 300 řádků, zpráva ' + (s1.p ? s1.p.body.length : 0) + ' B');
   const two = mkUser('dva@x.cz', 'dva'); auto.saveGroup(two.id, { name: 'První', deviceIds: [mkDev(two.id).id] }); auto.saveGroup(two.id, { name: 'Druhá', deviceIds: [mkDev(two.id).id] }); db.setUserSettings(two.id, { auto_enable: true });
@@ -283,10 +283,10 @@ async function testAutomat() {
   await auto.testMail(H); chk(!US(H).mailError, 'zkušební e-mail chybu smaže');
   await S.stop(); S = await fake({ MAIL: '451 4.3.0 try later\r\n' }).start();
   await closeJob(L, [fail], D(6, 0, 26));
-  chk(!!US(L).halted && US(L).open.length === 0 && !!US(L).mailError, 'souhrn „AUTOMAT ZASTAVEN“ při výpadku SMTP: automat se zastaví, chyba e-mailu se zapíše');
+  chk(Object.keys(US(L).failed).length === 1 && US(L).open.length === 0 && !!US(L).mailError, 'souhrn s chybami při výpadku SMTP: chyba e-mailu se zapíše');
   await S.stop(); S = await fake().start();
   await quiet(async () => { await auto.tick(D(7, 0, 26)); await auto.tick(D(9, 0, 26)); }); await sleep(80);
-  chk(mailsFor(L).some(p => /AUTOMAT ZASTAVEN/.test(dec2047(p.H.subject))), 'souhrn „AUTOMAT ZASTAVEN“, který se nepovedlo odeslat, se po obnově SMTP doručí'); // BUG: jediný pokus, žádná fronta — o zastaveném automatu se správce e-mailem nedozví vůbec
+  chk(mailsFor(L).some(p => /CHYBY/.test(dec2047(p.H.subject))), 'souhrn s chybami, který se nepovedlo odeslat, se po obnově SMTP doručí'); // BUG: jediný pokus, žádná fronta — o zastaveném automatu se správce e-mailem nedozví vůbec
   await S.stop(); S = await fake({ banner: 'silent' }).start();
   for (const u of db.listUsers()) db.setUserSettings(u.id, { auto_enable: false }); // ať oznámení čekají jen tři nové účty
   const J = mk('ticho1'), K = mk('ticho2'), K3 = mk('ticho3'); const t0 = Date.now();

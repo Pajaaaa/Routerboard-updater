@@ -214,10 +214,10 @@ async function partLib() {
   await auto.tick(next);
   { const s = auto.statusFor(me); chk(s.open.length === 0 && s.history.length === 2 && s.history.some(h => h.group === 'A') && s.history.some(h => h.group === 'B'), 'po uzavření: historie nese jména skupin z doby spuštění (i smazané / přejmenované)'); }
   chk(auto.statusFor(other).allowed === false && groupsOf(other.id).length === 1, 'odebrané povolení: stav { allowed:false }, skupiny zůstávají uložené');
-  { const uo = auto._state().users[other.id]; chk(uo.open.length === 0 && !!uo.halted, 'BUG: uživateli s odebraným povolením se rozjetý job automatu nevyhodnotí (selhání se nezapíše, nezastaví ho, nepočítá do karantény verze), dokud ho správce znovu nepovolí'); } // BUG: lib/autoupgrade.js:292 — continue před evaluate()
+  { const uo = auto._state().users[other.id]; chk(uo.open.length === 0 && Object.keys(uo.failed).length === 1, 'BUG: uživateli s odebraným povolením se rozjetý job automatu nevyhodnotí (selhání se nezapíše, nezastaví ho, nepočítá do karantény verze), dokud ho správce znovu nepovolí'); } // BUG: lib/autoupgrade.js:292 — continue před evaluate()
   db.setSettings({ auto_users: 'pajavlk, jiny' });
   await auto.tick(new Date(next.getTime() + 60e3));
-  { const uo = auto._state().users[other.id]; chk(uo.open.length === 0 && /nevrátilo se/.test(uo.halted), 'po opětovném povolení se selhaný job vyhodnotí a automat se uživateli zastaví'); }
+  { const uo = auto._state().users[other.id]; chk(uo.open.length === 0 && !uo.halted && /nevrátilo se/.test((Object.values(uo.failed)[0] || {}).error || ''), 'po opětovném povolení je selhaný kus v evidenci a automat se nezastavil'); }
   // karanténa: text s cizím zařízením
   { const st = auto._state(); const ver = '7.24.6'; st.fails[ver] = [999]; // jiný správce už na téže verzi selhal
     const d9 = mkDev(me.id, { name: 'TAJNE-JMENO-PAJA' }); auto.release(me.id); const us = auto._state().users[me.id];

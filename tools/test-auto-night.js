@@ -312,7 +312,7 @@ const since = (n0) => started.slice(n0);
     // po 14 dnech úklid joby zruší → vyhodnocení
     db.stmt('UPDATE jobs SET created_at=? WHERE id IN (?,?)').run(db.now() - 15 * day, js[0], js[1]); db.closeStaleJobs(14);
     await auto.tick(at(2026, 12, 9, 12, 0));
-    chk(/server restartován/.test(US(u1).halted || '') && Object.keys(US(u1).failed).length === 1, 'po úklidu se „unknown“ položka vyhodnotí jako chyba a automat se zastaví (stav kusu je opravdu nejistý)');
+    chk(!US(u1).halted && Object.keys(US(u1).failed).length === 1, 'po úklidu se „unknown“ položka vyhodnotí jako chyba — kus se sám znovu nezkouší (stav je opravdu nejistý), automat běží dál');
     // BUG: (vysoká) pád serveru zasáhne všechny správce naráz → „selhala u 2 různých správců“ → nevinná verze jde do karantény pro všechny
     bug(!auto._state().quarantine['7.24.6'], `pád serveru nesmí poslat verzi do karantény (karanténa: ${JSON.stringify(auto._state().quarantine)})`);
   });
@@ -324,7 +324,7 @@ const since = (n0) => started.slice(n0);
     fin(j, () => ({ status: 'skipped', error: 'noční okno skončilo — půjde další noc' })); await auto.tick(at(2026, 11, 24, 5, 0)); await sleep(20);
     let h = US(u).history[0];
     chk(h && h.total === 5 && h.ok === 0 && h.skipped === 5 && h.failed === 0 && !US(u).halted && US(u).open.length === 0, 'job se samými přeskočenými: historie 0 OK / 5 přeskočeno, automat běží dál');
-    chk(mails.length === 1 && !/ZASTAVEN/.test(mails[0].subject) && /0 zařízení upgradováno, 5 neprovedeno/.test(mails[0].subject), 'souhrnný e-mail (' + (mails[0] && mails[0].subject) + ')');
+    { const my = mails.filter(m => m.to.includes(u.name)); chk(my.length === 1 && !/CHYBY/.test(my[0].subject) && /0 zařízení upgradováno, 5 neprovedeno/.test(my[0].subject), 'souhrnný e-mail (' + (my[0] && my[0].subject) + ')'); }
     n0 = started.length; await auto.tick(at(2026, 11, 25, 1, 30)); j = since(n0)[0];
     chk(j && db.getJobItems(j).length === 5, 'další noc se zbytek vezme znovu');
     // směs: OK, částečně, nedostupné (untouched), blokované, přeskočené
@@ -339,12 +339,13 @@ const since = (n0) => started.slice(n0);
     fin(j, (it) => it.id === it0.id ? { status: 'failed', error: 'nevrátilo se po restartu' } : { status: 'skipped', error: 'automat zastaven po chybě — čeká na uvolnění' });
     mails.length = 0; await auto.tick(at(2026, 11, 26, 5, 0)); await sleep(20);
     const f = US(u).failed[it0.device_id];
-    chk(/nevrátilo se/.test(US(u).halted) && f && f.version === '7.24.6' && auto._state().fails['7.24.6'].join() === String(u.id) && mails.length === 1 && /AUTOMAT ZASTAVEN/.test(mails[0].subject), 'chyba: halted, failed s verzí, počítadlo selhání verze, e-mail');
+    { const my = mails.filter(m => m.to.includes(u.name)); chk(!US(u).halted && f && /nevrátilo se/.test(f.error) && f.version === '7.24.6' && auto._state().fails['7.24.6'].join() === String(u.id) && my.length === 1 && /CHYBY: .*1 chyba/.test(my[0].subject) && /nevrátilo se po restartu/.test(my[0].text), 'chyba: automat se nezastaví, failed s verzí, počítadlo selhání verze, e-mail s chybou (' + (my[0] && my[0].subject) + ')'); }
     n0 = started.length; await auto.tick(at(2026, 11, 27, 1, 30)); await auto.tick(at(2026, 11, 30, 1, 30));
-    chk(since(n0).length === 0 && !US(u).lastNight.startsWith('2026-11-27'), 'zastavený automat nic nespouští');
+    chk(since(n0).length === 1 && !db.getJobItems(since(n0)[0]).some(i => i.device_id === it0.device_id), 'po chybě jde automat další noc dál, selhaný kus vynechá');
+    fin(since(n0)[0], () => 'done');
     auto.release(u.id); chk(!US(u).halted && Object.keys(US(u).failed).length === 0, 'release uvolní zastavení i seznam selhaných kusů');
     reload(); chk(!US(u).halted, 'uvolnění přežije restart');
-    await auto.tick(at(2026, 12, 1, 1, 30)); j = since(n0)[0];
+    await auto.tick(at(2026, 12, 1, 1, 30)); j = since(n0)[1];
     chk(j && db.getJobItems(j).some(i => i.device_id === it0.device_id), 'po uvolnění jde selhaný kus znovu');
     fin(j, () => 'skipped');
     // karanténa: stejná verze selže druhému správci
@@ -385,18 +386,19 @@ const since = (n0) => started.slice(n0);
     chk(!threw, 'tick nespadne, když účet mezitím zmizel');
     // BUG: (nízká) vyhodnocení (evaluate) se dělá až za kontrolou allowed() — účtu vyřazenému z auto_users se chyba nočního jobu nevyhodnotí:
     // žádné halted, žádný e-mail, selhání se nezapočte do karantény verze (a u smazaného účtu zůstane záznam viset navždy)
-    bug(!!US(keepU).halted, `job doběhl s chybou po vyřazení účtu z auto_users: chyba se přesto vyhodnotí (halted „${US(keepU).halted || ''}“, open ${US(keepU).open.length})`);
+    bug(Object.keys(US(keepU).failed).length === 1, `job doběhl s chybou po vyřazení účtu z auto_users: chyba se přesto vyhodnotí (halted „${US(keepU).halted || ''}“, open ${US(keepU).open.length})`);
     db.setSettings({ auto_users: '*' }); await auto.tick(at(2027, 3, 2, 5, 1));
-    chk(!!US(keepU).halted, 'po vrácení do auto_users se vyhodnotí dodatečně');
+    chk(Object.keys(US(keepU).failed).length === 1 && !US(keepU).halted, 'po vrácení do auto_users je selhaný kus v evidenci');
   });
 
   await scene('VYHODNOCENÍ — chyba v jednom jobu a ostatní rozjeté joby téže noci', async () => {
     const u = mkUser(); const a = mkDev(u), b = mkDev(u), c = mkDev(u); grp(u, 'A', [a]); grp(u, 'B', [b, c]);
+    auto.unquarantine('7.24.6'); // počítadlo selhání z předchozích scén
     const n0 = started.length; await auto.tick(at(2026, 11, 24, 1, 30)); const [ja] = since(n0);
     chk(since(n0).length === 1 && /„A“/.test(db.getJob(ja).name), 'spustí se jen první job v pořadí');
     fin(ja, () => ({ status: 'failed', error: 'nevrátilo se po restartu' })); await auto.tick(at(2026, 11, 24, 1, 40)); await auto.tick(at(2026, 11, 24, 1, 45));
-    // joby jdou po sobě: chyba v prvním zastaví automat dřív, než se job s nižší prioritou vůbec rozjede
-    chk(!!US(u).halted && US(u).open.length === 0 && since(n0).length === 1, 'job A selhal → automat zastaven, job B se tu noc vůbec nezaloží');
+    chk(!US(u).halted && since(n0).length === 2 && /„B“/.test(db.getJob(since(n0)[1]).name) && Object.keys(US(u).failed).length === 1, 'job A selhal → automat se nezastaví a pokračuje jobem B');
+    fin(since(n0)[1], () => 'skipped'); await auto.tick(at(2026, 11, 24, 1, 50));
     // pořadí: po uvolnění a posunu B nahoru jde další noc první B
     auto.release(u.id); auto.unquarantine('7.24.6'); // (karanténa: počítadlo selhání z předchozích scén)
     auto.moveGroup(u.id, US(u).groups.find(g => g.name === 'B').id, 'up');
@@ -559,10 +561,10 @@ const since = (n0) => started.slice(n0);
     startHook = (id) => { const o = db.getJob(id).options; db.updateJob(id, { options: { ...o, parallel: 1 } }); };
     await auto.tick(new Date()); const j = since(n0)[0]; const job = await waitJob(j); const its = db.getJobItems(j); const by = (d) => its.find(i => i.device_id === d.id);
     chk(job.status === 'done' && by(y2).status === 'failed' && /identita/.test(by(y2).error), `chyba na 2. kusu (${by(y2).status}: ${by(y2).error}); job se uzavřel (${job.status}: ${job.status_note})`);
-    chk(by(y1).status === 'done' && by(y3).status === 'skipped' && /automat zastaven po chybě/.test(by(y3).error) && conns[y3.host] === 1, '1. kus hotový, 3. se po chybě už nezačal (stop_on_failure)');
+    chk(by(y1).status === 'done' && by(y3).status !== 'skipped' && !/automat zastaven/.test(by(y3).error || ''), `1. kus hotový, 3. se po chybě na 2. normálně zkusil (${by(y3).status}: ${by(y3).error || ''})`);
     await auto.tick(new Date());
-    chk(/identita/.test(US(u).halted || '') && US(u).failed[y2.id] && US(u).failed[y2.id].version === '7.24.6' && US(u).open.length === 0, 'automat zastaven, selhaný kus s verzí v evidenci');
-    const m0 = started.length; await auto.tick(tomorrow()); chk(started.length === m0, 'další noc se nic nespustí, dokud správce neuvolní');
+    chk(!US(u).halted && US(u).failed[y2.id] && /identita/.test(US(u).failed[y2.id].error) && US(u).failed[y2.id].version === '7.24.6' && US(u).open.length === 0, 'automat se nezastavil, selhaný kus s verzí v evidenci');
+    const m0 = started.length; await auto.tick(tomorrow()); chk(!started.slice(m0).some(j => db.getJobItems(j).some(i => i.device_id === y2.id)), 'další noc se selhaný kus sám znovu nezkouší, dokud ho správce neuvolní');
   });
 
   await scene('RUNNER — na adrese je jiné zařízení už před předběžnou kontrolou', async () => {

@@ -93,7 +93,7 @@ const mkDev = (owner, f = {}) => { const id = db.insertDevice({ host: `10.9.0.${
   await auto.tick(new Date(NOW.getTime() + 5 * 60000)); await tickWait();
   chk(started.length === 2 && /„Kanárci“/.test(job.name), 'po doběhnutí prvního se založí druhý v pořadí');
   const items2 = db.getJobItems(started[1]);
-  chk(job.owner_id === me.id && /„Kanárci“/.test(job.name) && job.options.auto === true && job.options.targets['v7-long-term'] === '7.24.6' && job.options.stop_on_failure === true && job.options.stop_at > nowSec && items.length === 2 && items2.length === 3, `job: vlastník, název skupiny, auto, cíl 7.24.6, zastavit při chybě, konec okna, 2 + 3 kusy (${items.length} + ${items2.length})`);
+  chk(job.owner_id === me.id && /„Kanárci“/.test(job.name) && job.options.auto === true && job.options.targets['v7-long-term'] === '7.24.6' && job.options.stop_on_failure === false && job.options.stop_at > nowSec && items.length === 2 && items2.length === 3, `job: vlastník, název skupiny, auto, cíl 7.24.6, při chybě pokračovat, konec okna, 2 + 3 kusy (${items.length} + ${items2.length})`);
   chk(V.withTargets(V.getLatest({ pin_v7_long_term: '7.24.5' }), job.options.targets).versions['v7-long-term'].version === '7.24.6', 'cíl jobu přebije připnutou verzi');
   await auto.tick(new Date(NOW.getTime() + 6 * 60000)); chk(started.length === 2, 'tutéž noc se další joby nezakládají');
   { const st0 = auto.statusFor(me); chk(st0.groups.map(g => g.order).join() === st0.groups.map((g, i) => i + 1).join(), 'stav: joby jsou očíslované podle pořadí'); }
@@ -107,18 +107,19 @@ const mkDev = (owner, f = {}) => { const id = db.insertDevice({ host: `10.9.0.${
   db.updateJobItem(items2[0].id, { status: 'failed', error: 'nevrátilo se po restartu', finished_at: db.now() }); for (const it of items2.slice(1)) db.updateJobItem(it.id, { status: 'skipped', finished_at: db.now() }); db.updateJob(started[1], { status: 'done', finished_at: db.now() });
   await auto.tick(new Date(2026, 10, 25, 1, 31));
   st = auto.statusFor(me);
-  chk(started.length === 2 && /nevrátilo se/.test(st.halted) && /Zbytek/.test(st.halted) && st.failed.length === 1, 'po chybě se automat zastaví a nic dalšího nespustí');
+  chk(started.length === 3 && !st.halted && st.failed.length === 1 && /nevrátilo se/.test(st.failed[0].error) && db.getJobItems(started[2]).length === 2, 'po chybě se automat nezastaví: další noc jde dál, jen selhaný kus se sám znovu nezkouší');
+  for (const it of db.getJobItems(started[2])) db.updateJobItem(it.id, { status: 'skipped', finished_at: db.now() }); db.updateJob(started[2], { status: 'done', finished_at: db.now() });
   await tickWait();
-  chk(mails.length === 2 && /AUTOMAT ZASTAVEN/.test(mails[1].subject) && /nevrátilo se po restartu/.test(mails[1].text) && /2 jobů/.test(mails[1].text) && /1\. „Kanárci“ \(job #\d+\): 2 v pořádku/.test(mails[1].text), 'chyba: jeden e-mail za noc — zastavení s důvodem i výsledek předchozího jobu (' + (mails[1] && mails[1].subject) + ')');
+  chk(mails.length === 2 && /CHYBY: 1 chyba/.test(mails[1].subject) && /Automat pokračoval dál/.test(mails[1].text) && /nevrátilo se po restartu/.test(mails[1].text) && /2 jobů/.test(mails[1].text) && /1\. „Kanárci“ \(job #\d+\): 2 v pořádku/.test(mails[1].text), 'chyba: jeden e-mail za noc — chyby s důvodem i výsledek předchozího jobu (' + (mails[1] && mails[1].subject) + ')');
   auto.skipNight(me, true); st = auto.statusFor(me); chk(st.nextNight && st.skipNight === st.nextNight, 'vynechání nejbližší noci se zapíše'); auto.skipNight(me, false);
   chk(!!auto.validate({ auto_mail_to: 'neni-adresa' }).error && auto.validate({ auto_mail_to: 'a@b.cz; c@d.cz' }).values.auto_mail_to === 'a@b.cz, c@d.cz', 'kontrola adres pro hlášení');
   auto.release(me.id);
   auto.saveGroup(me.id, { id: gZ.id, name: 'Zbytek', enabled: false, deviceIds: gZ.devs });
   await auto.tick(new Date(2026, 10, 26, 1, 30));
-  chk(started.length === 2 && !auto.statusFor(me).halted, 'vypnutý job se nespouští');
+  chk(started.length === 3 && !auto.statusFor(me).halted && auto.statusFor(me).failed.length === 0, 'vypnutý job se nespouští; uvolnění vyprázdní seznam selhaných');
   auto.saveGroup(me.id, { id: gZ.id, name: 'Zbytek', enabled: true, deviceIds: gZ.devs });
   await auto.tick(new Date(2026, 10, 30, 1, 30));
-  chk(started.length === 3 && db.getJobItems(started[2]).length === 3, 'po uvolnění a zapnutí job pokračuje se zbylými kusy');
+  chk(started.length === 4 && db.getJobItems(started[3]).length === 3, 'po uvolnění a zapnutí job pokračuje se zbylými kusy včetně selhaného');
   // --- runner: job po konci okna nic nezačne a uzavře se
   const rp = new RunnerPool();
   const jid = db.createJob('po okně', { auto: true, stop_at: Math.floor(Date.now() / 1000) - 60, precheck: true, parallel: 2 }, [leafC.id], me.id);
