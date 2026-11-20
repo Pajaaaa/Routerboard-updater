@@ -112,7 +112,7 @@ const mkDev = (owner, f = {}) => { const id = db.insertDevice({ host: `10.9.0.${
   chk(started.length === 3 && !st.halted && st.failed.length === 1 && /nevrátilo se/.test(st.failed[0].error) && db.getJobItems(started[2]).length === 2, 'po chybě se automat nezastaví: další noc jde dál, jen selhaný kus se sám znovu nezkouší');
   for (const it of db.getJobItems(started[2])) db.updateJobItem(it.id, { status: 'skipped', finished_at: db.now() }); db.updateJob(started[2], { status: 'done', finished_at: db.now() });
   await tickWait();
-  chk(mails.length === 2 && /CHYBY: 1 chyba/.test(mails[1].subject) && /Automat pokračoval dál/.test(mails[1].text) && /nevrátilo se po restartu/.test(mails[1].text) && /2 jobů/.test(mails[1].text) && /1\. „Kanárci“ \(job #\d+\): 2 v pořádku/.test(mails[1].text), 'chyba: jeden e-mail za noc — chyby s důvodem i výsledek předchozího jobu (' + (mails[1] && mails[1].subject) + ')');
+  chk(mails.length === 2 && /CHYBY: 1 chyba/.test(mails[1].subject) && /Automat pokračoval dál/.test(mails[1].text) && /nevrátilo se po restartu/.test(mails[1].text) && /2 joby/.test(mails[1].text) && /1\. „Kanárci“ \(job #\d+\): 2 v pořádku/.test(mails[1].text), 'chyba: jeden e-mail za noc — chyby s důvodem i výsledek předchozího jobu (' + (mails[1] && mails[1].subject) + ')');
   auto.skipNight(me, true); st = auto.statusFor(me); chk(st.nextNight && st.skipNight === st.nextNight, 'vynechání nejbližší noci se zapíše'); auto.skipNight(me, false);
   chk(!!auto.validate({ auto_mail_to: 'neni-adresa' }).error && auto.validate({ auto_mail_to: 'a@b.cz; c@d.cz' }).values.auto_mail_to === 'a@b.cz, c@d.cz', 'kontrola adres pro hlášení');
   auto.release(me.id);
