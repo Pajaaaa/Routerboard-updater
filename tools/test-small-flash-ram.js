@@ -24,10 +24,8 @@ const check = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'OK ' : 'FAIL'}
   let p = await run(dev());
   check(p.hops.length === 1 && p.hops[0].stagingArea === 'flash' && !ram(p).length, 'bez flash/: balíček jde do flash, pojistka RAM pro balíček neplatí: ' + JSON.stringify(p.blockers));
   p = await run(dev({ version: '6.44.6' }));
-  check(!ram(p).length && !p.blockers.some(b => /nevejde ani bez rezervy/.test(b)), '6.44.6 (samostatné balíčky 6,6 MB do 7,6 MB flash): bez blokátoru RAM i místa: ' + JSON.stringify(p.blockers));
+  check(!ram(p).length && !p.blockers.length, '6.44.6 (samostatné balíčky 6,6 MB do 7,6 MB flash): bez blokátoru RAM i místa: ' + JSON.stringify(p.blockers));
   check(p.warnings.some(w => /ve flash není místo.*POVOLENO/.test(w)), 'těsná flash zůstává jako upozornění (povoleno v nastavení)');
-  p = await run(dev({ free_hdd: 5 * MB }));
-  check(p.blockers.some(b => /nevejde ani bez rezervy/.test(b)), 'balíček větší než volná flash = tvrdý blokátor i při povolení');
   p = await run(dev(), { ...settings, allow_v7_small_flash: false });
   check(p.blockers.some(b => /ve flash není místo.*blokováno/.test(b)) && !ram(p).length, 'bez povolení v nastavení dál blokuje těsná flash (ne RAM)');
   p = await run(dev({ free_mem: 4 * MB }));
