@@ -14,6 +14,9 @@ const db = require('../lib/db');
 const V = require('../lib/versions');
 const auto = require('../lib/autoupgrade');
 const { RunnerPool } = require('../lib/runner');
+const mail = require('../lib/mail');
+const mails = []; mail.enabled = () => true; mail.send = async (m) => { mails.push(m); return 'ok'; };
+const tickWait = () => new Promise(r => setTimeout(r, 20));
 let bad = 0;
 const chk = (ok, msg) => { if (!ok) { console.error('  ✗ ' + msg); bad++; } else console.log('  ✓ ' + msg); };
 const mkUser = (name, nick) => { const id = db.insertUser({ name, pass_hash: '', role: 'user' }); db.updateUser(id, { userdb_nick: nick }); return db.listUsers().find(u => u.id === id); };
@@ -21,7 +24,7 @@ let n = 0;
 const mkDev = (owner, f = {}) => { const id = db.insertDevice({ host: `10.9.0.${++n}`, port: 22, owner_id: owner, username: 'a', password: 'b' }); db.updateDevice(id, { version: '7.24.4', scan_status: 'ok', userdb_member: 1, model: 'SXTsq', board_name: 'SXTsq', track: 'v7-long-term', ...f }); return db.getDevice(id); };
 
 (async () => {
-  const me = mkUser('paja@x', 'pajavlk'), other = mkUser('jiny@x', 'jiny');
+  const me = mkUser('paja@x.cz', 'pajavlk'), other = mkUser('jiny@x', 'jiny');
   const S = () => db.getSettings(me.id);
   // --- povolené účty
   chk(auto.allowed(me) && !auto.allowed(other), 'automat smí jen účet ze seznamu auto_users (výchozí pajavlk)');
@@ -72,6 +75,11 @@ const mkDev = (owner, f = {}) => { const id = db.insertDevice({ host: `10.9.0.${
   db.setSettings({ auto_pause: true }); await auto.tick(NOW); chk(started.length === 0, 'nouzová brzda správce: nic se nespustí'); db.setSettings({ auto_pause: false });
   await auto.tick(new Date(2026, 10, 21, 1, 30)); chk(started.length === 0, 'sobotní noc není mezi povolenými dny');
   await auto.tick(new Date(2026, 10, 24, 4, 15)); chk(started.length === 0, 'čtvrt hodiny před koncem okna se už nezačíná');
+  chk(mails.length === 0, 'bez plánu na noc žádný e-mail');
+  await auto.tick(new Date(2026, 10, 23, 12, 0)); chk(mails.length === 0, 'v poledne (13 h před oknem) se ještě neoznamuje');
+  await auto.tick(new Date(2026, 10, 23, 18, 0));
+  chk(mails.length === 1 && /dnes v noci půjde 2 zařízení na 7\.24\.6/.test(mails[0].subject) && mails[0].to.join() === 'paja@x.cz' && /7\.24\.4 → 7\.24\.6/.test(mails[0].text), 'večer před nocí přijde oznámení se seznamem (' + (mails[0] && mails[0].subject) + ')');
+  await auto.tick(new Date(2026, 10, 23, 18, 30)); chk(mails.length === 1, 'oznámení jen jednou na noc');
   await auto.tick(NOW);
   chk(started.length === 1, 'v okně se založí a spustí job');
   const job = db.getJob(started[0]); const items = db.getJobItems(job.id);
@@ -84,6 +92,8 @@ const mkDev = (owner, f = {}) => { const id = db.insertDevice({ host: `10.9.0.${
   for (const it of items) db.updateDevice(it.device_id, { version: '7.24.6' });
   await auto.tick(new Date(2026, 10, 25, 1, 30));
   chk(started.length === 2 && db.getJobItems(started[1]).length === 2, 'po úspěšné noci jde další vlna (zbylé 2 kusy)');
+  await tickWait();
+  chk(mails.length === 2 && /noc 24\. 11\.: 2 zařízení upgradováno/.test(mails[1].subject), 'po noci přijde souhrn (' + (mails[1] && mails[1].subject) + ')');
   let st = auto.statusFor(me);
   chk(st.allowed && st.history.length === 1 && st.history[0].ok === 2 && st.tracks['v7-long-term'].wave === 1, 'stav: historie noci a posun vlny');
   chk(auto.statusFor(other).allowed === false, 'nepovolený účet stav nedostane');
@@ -93,6 +103,10 @@ const mkDev = (owner, f = {}) => { const id = db.insertDevice({ host: `10.9.0.${
   await auto.tick(new Date(2026, 10, 26, 1, 30));
   st = auto.statusFor(me);
   chk(started.length === 2 && /nevrátilo se/.test(st.halted) && st.failed.length === 1, 'po chybě se automat zastaví a další noc nic nespustí');
+  await tickWait();
+  chk(mails.length === 3 && /AUTOMAT ZASTAVEN/.test(mails[2].subject) && /nevrátilo se po restartu/.test(mails[2].text), 'chyba: e-mail o zastavení s důvodem');
+  auto.skipNight(me, true); st = auto.statusFor(me); chk(st.nextNight && st.skipNight === st.nextNight, 'vynechání nejbližší noci se zapíše'); auto.skipNight(me, false);
+  chk(!!auto.validate({ auto_mail_to: 'neni-adresa' }).error && auto.validate({ auto_mail_to: 'a@b.cz; c@d.cz' }).values.auto_mail_to === 'a@b.cz, c@d.cz', 'kontrola adres pro hlášení');
   auto.release(me.id);
   await auto.tick(new Date(2026, 10, 26, 1, 31));
   chk(started.length === 3 && !auto.statusFor(me).halted, 'po uvolnění pokračuje');

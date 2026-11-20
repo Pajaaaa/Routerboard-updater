@@ -36,6 +36,8 @@ async function call(p, opts = {}) {
     db.insertDevice({ host: '10.0.0.1', port: 22, owner_id: me.id }); db.insertDevice({ host: '10.0.0.2', port: 22, owner_id: kolega.id });
     // server drží seznam zařízení v keši → vynutit přes restart není třeba: /api/state čte db.listDevices (jiný proces zapisuje do téže SQLite)
     const devs = async () => ((await call('/api/state')).j.devices || []).map(d => d.host).sort().join(',');
+    // zařízení zapsal tento proces vedle běžícího serveru — ten drží seznam v keši až 60 s, tak chvíli počkat
+    for (let i = 0; i < 140 && await devs() !== '10.0.0.1,10.0.0.2'; i++) await new Promise(r => setTimeout(r, 500));
     const before = await devs();
     chk(before === '10.0.0.1,10.0.0.2', 'správce vidí obě zařízení (' + before + ')');
     const sw = await call('/api/view-as', { method: 'POST', body: { user: true } });

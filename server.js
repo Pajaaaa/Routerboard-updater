@@ -618,7 +618,7 @@ async function api(req, res, method, p, url) {
     if (!latest.fetchedAt) V.refreshLatest().then(() => bus.emit('event', { type: 'latest' })).catch(() => {});
     // ?nodevices=1: jen joby/runner/nastavení (klient si to stahuje při každé události runneru; seznam zařízení se mění zvlášť přes události 'device')
     const noDev = url.searchParams.get('nodevices') === '1';
-    const base = { latest: { ...V.getLatest(req.user.id), floor: pinsFor(null), min: minsFor() }, settings: db.getSettings(req.user.id), settingsOwn: db.getUserSettings(req.user.id), settingsGlobal: isAdmin(req) ? db.getSettings() : undefined, jobs: visJobs(req, 30), runner: runnerStatusFor(req), tracks: TRACKS, scanning: [...scanner.inProgress], checkProg: scanner.checkProgress(req.user.id), discovery: discoveryFor(req), admin: isAdmin(req), user: req.user };
+    const base = { latest: { ...V.getLatest(req.user.id), floor: pinsFor(null), min: minsFor() }, settings: db.getSettings(req.user.id), settingsOwn: db.getUserSettings(req.user.id), settingsGlobal: isAdmin(req) ? db.getSettings() : undefined, jobs: visJobs(req, 30), runner: runnerStatusFor(req), tracks: TRACKS, scanning: [...scanner.inProgress], checkProg: scanner.checkProgress(req.user.id), discovery: discoveryFor(req), admin: isAdmin(req), autoAllowed: auto.allowed(db.getUser(req.user.id)), user: req.user };
     if (noDev) return send(res, 200, base);
     // seznam zařízení správce (2000+ kusů, ~4 MB) se skládá až sekundu — jednou za verzi dat a sdílí se mezi všemi správci; JSON se vkládá hotový
     const devJson = adminDevicesJson(req);
@@ -656,6 +656,8 @@ async function api(req, res, method, p, url) {
       db.setUserSettings(req.user.id, { ...db.getUserSettings(req.user.id), ...v.values }); audit(req, 'automatický upgrade: nastavení', JSON.stringify(v.values));
       return send(res, 200, auto.statusFor(me));
     }
+    if (method === 'POST' && p === '/api/auto/skip-night') { const b = await readBody(req); auto.skipNight(me, b.skip !== false); audit(req, b.skip !== false ? 'automat: nejbližší noc vynechána' : 'automat: vynechání noci zrušeno', ''); return send(res, 200, auto.statusFor(me)); }
+    if (method === 'POST' && p === '/api/auto/test-mail') { try { const to = await auto.testMail(me); audit(req, 'automat: zkušební e-mail', to.join(', ')); return send(res, 200, { ...auto.statusFor(me), sent: to.join(', ') }); } catch (e) { return send(res, 502, { error: 'e-mail se nepodařilo odeslat: ' + e.message }); } }
     if (method === 'POST' && p === '/api/auto/release') { auto.release(req.user.id); audit(req, 'automatický upgrade uvolněn po chybě', ''); return send(res, 200, auto.statusFor(me)); }
     return send(res, 404, { error: 'neznámé API' });
   }

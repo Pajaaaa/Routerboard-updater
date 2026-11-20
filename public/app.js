@@ -143,7 +143,7 @@ function renderInner() {
   const navBtn = (v, ico, label) => `<button class="${state.view === v ? 'active' : ''}" data-view="${v}"><span class="ico">${ico}</span>${label}</button>`;
   app.innerHTML = `<div class="shell"><aside class="side">
     <div class="brand"><div class="mark">ROS</div><div><b>MikroTik upgrader</b><small>správa RouterOS</small></div></div>
-    <nav>${navBtn('devices', '▤', 'Zařízení')}${navBtn('jobs', '▶', 'Upgrady')}${navBtn('links', '⇆', 'Spoje')}<a class="navlink" href="prehled.html" target="_blank" title="postup upgradu po oblastech a APčkách (otevře se vedle)"><span class="ico">▦</span>Postup</a>${navBtn('help', '?', 'Nápověda')}${navBtn('settings', '⚙', 'Nastavení')}${state.admin ? navBtn('rbdb', '⌁', 'RB-DB') : ''}${state.admin ? navBtn('admin', '🛠', 'Správa') : ''}</nav>
+    <nav>${navBtn('devices', '▤', 'Zařízení')}${navBtn('jobs', '▶', 'Upgrady')}${state.autoAllowed ? navBtn('auto', '☾', 'Automat') : ''}${navBtn('links', '⇆', 'Spoje')}<a class="navlink" href="prehled.html" target="_blank" title="postup upgradu po oblastech a APčkách (otevře se vedle)"><span class="ico">▦</span>Postup</a>${navBtn('help', '?', 'Nápověda')}${navBtn('settings', '⚙', 'Nastavení')}${state.admin ? navBtn('rbdb', '⌁', 'RB-DB') : ''}${state.admin ? navBtn('admin', '🛠', 'Správa') : ''}</nav>
     <div class="versions">${latestBar()}</div>
     <div class="spacer"></div>
     <div class="runner-pill ${running ? 'live' : ''}" id="runnerpill">${running ? ownRuns.map(({ r, job, devs }) => `<div class="clickable" data-job="${r.jobId}"><span class="pulse"></span><b>job #${r.jobId}</b>${job ? ` ${esc(job.name).slice(0, 40)}` : ''}${devs.length ? `<br><span class="hint">${devs.slice(0, 4).map(d => esc(devName(d))).join(', ')}${devs.length > 4 ? ` +${devs.length - 4}` : ''}</span>` : ''}</div>`).join('') : 'žádný tvůj job neběží'}${(state.runner.others || []).length ? `<div class="hint" style="margin-top:6px;line-height:1.4">${state.runner.others.map(o => `<b>${esc(o.user || 'jiný uživatel')}</b>: ${o.jobs > 1 ? `${o.jobs} joby, ` : ''}upgrade ${o.total} zařízení${o.done ? `, hotovo ${o.done}` : ''}`).join('<br>')}</div>` : ''}</div>
@@ -172,6 +172,7 @@ function renderInner() {
   else if (state.view === 'help') renderHelp(m);
   else if (state.view === 'admin' && state.admin) renderSettings(m, true);
   else if (state.view === 'links') renderLinks(m);
+  else if (state.view === 'auto' && state.autoAllowed) renderAuto(m);
   else if (state.view === 'rbdb' && state.admin) renderRbdb(m);
   else renderSettings(m);
   m.insertAdjacentHTML('afterbegin', statsStrip());
@@ -1013,6 +1014,7 @@ function autoPanelHtml() {
   const sk = Object.entries(a.skipped || {}).map(([k, n]) => `${n}× ${esc(k)}`).join(', ');
   const CLS = { leaf: 'koncový kus', sector: 'sektor', infra: 'infrastruktura' };
   const off = !s.auto_enable ? 'Automat je vypnutý — níže je jen náhled, co by udělal.' : a.paused ? 'Správce nástroje automat pozastavil všem (nouzová brzda ve Správě).' : '';
+  const skipped = a.nextNight && a.skipNight === a.nextNight;
   return `<div class="panel" id="autopanel"><h2>Automatický upgrade</h2>
     <div class="hint" style="margin-bottom:8px">Když MikroTik vydá novou verzi kanálu a ta dozraje, automat ji v nočním okně po vlnách nasadí na <b>tvoje</b> zařízení: první noc pár kanárků různých modelů, další noci větší vlny. Zakládá běžné joby (najdeš je v Upgradech), takže platí všechny kontroly, zálohy a pořadí podle topologie. Jen v rámci stejné hlavní verze (6 → 7 nikdy), nikdy rodič s potomkem ani oba konce spoje v jedné noci. Při první chybě se zastaví a čeká, až ho uvolníš.</div>
     ${a.halted ? `<div class="banner err"><b>Automat je zastavený po chybě</b>${a.haltedAt ? ` (${dt(a.haltedAt)})` : ''}: ${esc(a.halted)}<div class="row" style="margin-top:8px"><button id="autorelease" class="small">Zkontroloval jsem, uvolnit</button><span class="hint">selhané kusy se znovu zařadí, pokračuje se další noc</span></div></div>` : ''}
@@ -1025,12 +1027,16 @@ function autoPanelHtml() {
       <label>kusů za noc po vlnách (pak bez omezení)<input name="auto_waves" type="text" value="${esc(s.auto_waves)}" placeholder="3,10,25"></label>
       <div class="wide">noci, kdy okno smí začít: ${AUTO_DAYS.map(([n, l]) => `<label class="check" style="display:inline-flex;margin-right:10px"><input type="checkbox" name="auto_day" value="${n}" ${days.includes(n) ? 'checked' : ''}> ${l}</label>`).join('')}</div>
       <label class="check wide"><input type="checkbox" name="auto_backbone" ${s.auto_backbone ? 'checked' : ''}> zahrnout i páteř a infrastrukturu (switche, routery, spoje, 60 GHz) — jinak jen koncové kusy a sektory</label>
-      <div class="wide row"><button class="primary">Uložit</button>${a.nextWindow && s.auto_enable && !a.halted && !a.paused ? `<span class="hint">nejbližší okno: ${dt(a.nextWindow)}</span>` : ''}</div>
+      <label class="check wide"><input type="checkbox" name="auto_mail" ${s.auto_mail ? 'checked' : ''}> posílat e-mailem hlášení: odpoledne před nocí, co půjde, a po noci souhrn (při chybě hned)</label>
+      <label class="wide">adresa pro hlášení (víc adres čárkou; prázdné = e-mail účtu)<input name="auto_mail_to" type="text" value="${esc(s.auto_mail_to || '')}" placeholder="${esc(a.mail.to || 'účet nemá e-mail')}"></label>
+      ${!a.mail.enabled ? '<div class="wide hint">Server nemá nastavené odesílání e-mailů (MTU_SMTP_HOST) — hlášení se neposílají.</div>' : ''}
+      ${a.mail.error ? `<div class="wide banner warn">Poslední e-mail se nepodařilo odeslat (${dt(a.mail.error.at)}): ${esc(a.mail.error.error)}</div>` : ''}
+      <div class="wide row"><button class="primary">Uložit</button>${a.mail.enabled ? '<button type="button" id="automail">Poslat zkušební e-mail</button>' : ''}${a.nextWindow && s.auto_enable && !a.halted && !a.paused ? `<span class="hint">nejbližší okno: ${dt(a.nextWindow)}${skipped ? ' — <b>vynecháno</b>' : ''}</span><button type="button" class="small" id="autoskip">${skipped ? 'Vrátit tuto noc' : 'Tuto noc vynechat'}</button>` : ''}</div>
     </form>
     <h2 style="margin-top:14px">Verze</h2>
     <div class="tablewrap"><table class="cards"><thead><tr><th>kanál</th><th>poslední verze MikroTiku</th><th>vydáno</th><th>stav</th><th>čeká kusů</th><th>vlna</th></tr></thead><tbody>${trackRows || '<tr><td colspan="6" class="muted">verze zatím nejsou načtené</td></tr>'}</tbody></table></div>
     ${sk ? `<div class="hint" style="margin-top:6px">Automat vynechává: ${sk}.</div>` : ''}
-    <h2 style="margin-top:14px">Příští noc by šlo (${a.preview.length})</h2>
+    <h2 style="margin-top:14px">${skipped ? 'Nejbližší noc je vynechaná — jinak by šlo' : 'Příští noc by šlo'} (${a.preview.length})</h2>
     ${a.preview.length ? `<div class="tablewrap"><table class="cards"><thead><tr><th>zařízení</th><th>model</th><th>teď</th><th>cíl</th><th>druh</th></tr></thead><tbody>${a.preview.map(x => `<tr><td data-l="zařízení"><b>${esc(x.name)}</b> <span class="muted">${esc(x.host)}</span></td><td data-l="model">${esc(x.model)}</td><td data-l="teď">${esc(x.version)}</td><td data-l="cíl">${esc(x.to)}</td><td data-l="druh">${CLS[x.cls] || ''}</td></tr>`).join('')}</tbody></table></div>` : '<div class="hint">Nic — všechno je na zralé verzi, nebo žádná nová verze ještě nedozrála.</div>'}
     ${(a.history || []).length ? `<h2 style="margin-top:14px">Minulé noci</h2><div class="tablewrap"><table class="cards"><thead><tr><th>noc</th><th>job</th><th>cíl</th><th>kusů</th><th>v pořádku</th><th>chyby</th><th>nedostupné</th><th>přeskočeno</th></tr></thead><tbody>${a.history.map(h => `<tr><td data-l="noc">${esc(h.night)}</td><td data-l="job"><a href="#" data-autojob="${h.jobId}">#${h.jobId}</a></td><td data-l="cíl">${esc(Object.values(h.targets || {}).join(', '))}</td><td data-l="kusů">${h.total}</td><td data-l="v pořádku">${h.ok}</td><td data-l="chyby">${h.failed ? `<span class="badge b-err">${h.failed}</span>` : 0}</td><td data-l="nedostupné">${h.unreachable || 0}</td><td data-l="přeskočeno">${h.skipped || 0}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${a.last && !a.last.evaluated ? `<div class="hint" style="margin-top:6px">Poslední job automatu <a href="#" data-autojob="${a.last.jobId}">#${a.last.jobId}</a> ještě běží nebo čeká (${esc(a.last.status)}).</div>` : ''}
@@ -1044,10 +1050,12 @@ function drawAuto() {
   const f = $('#autof'); if (!f) return;
   const put = async (path, opts, msg) => { try { state.auto = await api(path, opts); state.autoAt = Date.now(); toast(msg); const el = document.activeElement; if (el && el.blur) el.blur(); drawAuto(); } catch (e) { toast(e.message, true); } };
   f.onsubmit = (e) => { e.preventDefault();
-    const body = { auto_enable: f.elements.auto_enable.checked, auto_backbone: f.elements.auto_backbone.checked, auto_delay_days: parseFloat(f.elements.auto_delay_days.value), auto_window: f.elements.auto_window.value, auto_waves: f.elements.auto_waves.value, auto_days: [...f.querySelectorAll('input[name=auto_day]:checked')].map(x => x.value).join(',') };
+    const body = { auto_enable: f.elements.auto_enable.checked, auto_backbone: f.elements.auto_backbone.checked, auto_delay_days: parseFloat(f.elements.auto_delay_days.value), auto_window: f.elements.auto_window.value, auto_waves: f.elements.auto_waves.value, auto_mail: f.elements.auto_mail.checked, auto_mail_to: f.elements.auto_mail_to.value, auto_days: [...f.querySelectorAll('input[name=auto_day]:checked')].map(x => x.value).join(',') };
     if (body.auto_enable && !state.auto.settings.auto_enable && !confirm(`Zapnout automatický upgrade? V nočním okně ${body.auto_window} začne automat sám upgradovat tvoje zařízení${body.auto_backbone ? ' VČETNĚ páteře a infrastruktury' : ''}.`)) return;
     put('/auto', { method: 'PUT', body }, 'automatický upgrade uložen'); };
   on('#autorelease', () => put('/auto/release', { method: 'POST' }, 'automat uvolněn'));
+  on('#autoskip', () => { const sk = state.auto.nextNight && state.auto.skipNight === state.auto.nextNight; put('/auto/skip-night', { method: 'POST', body: { skip: !sk } }, sk ? 'noc vrácena' : 'nejbližší noc se vynechá'); });
+  on('#automail', async () => { try { const r = await api('/auto/test-mail', { method: 'POST' }); state.auto = r; toast('zkušební e-mail odeslán na ' + r.sent); drawAuto(); } catch (e) { toast(e.message, true); } });
   box.querySelectorAll('[data-unq]').forEach(b => b.onclick = () => put('/auto/unquarantine', { method: 'POST', body: { version: b.dataset.unq } }, 'karanténa zrušena'));
   box.querySelectorAll('[data-autojob]').forEach(x => x.onclick = (e) => { e.preventDefault(); openJob(+x.dataset.autojob); });
 }
@@ -1057,11 +1065,11 @@ function loadAuto() {
   state.autoLoading = true;
   api('/auto').then(a => { state.auto = a; state.autoAt = Date.now(); }).catch(() => {}).finally(() => { state.autoLoading = false; drawAuto(); });
 }
+function renderAuto(m) { m.innerHTML = '<h1>Automat</h1><div id="autobox"><div class="panel hint">načítám…</div></div>'; loadAuto(); }
 function renderSettings(m, adminMode = false) {
   const s = state.settings;
   const ownKeys = Object.keys(state.settingsOwn || {});
   m.innerHTML = adminMode ? adminPanelsHtml(s) : `<h1>Nastavení</h1>
-  <div id="autobox"></div>
   <div class="panel"><h2>Moje nastavení</h2><div class="hint" style="margin-bottom:8px">Platí pro tvoje upgrady, kontroly a plány. Předvyplněné jsou společné hodnoty od správce; po uložení se u tebe používají tyhle (společné změny se pak u tebe neprojeví, dokud nedáš „Vrátit na společné“).${ownKeys.length ? ` <b>Máš vlastní hodnoty.</b>` : ' Zatím používáš společné.'}</div>
     <form id="setf-mine" class="form">${settingsFields(s)}<div id="ownhidden" class="wide hint" hidden></div><div class="wide row"><button class="primary">Uložit moje nastavení</button>${ownKeys.length ? '<button type="button" id="setreset">Vrátit na společné</button>' : ''}</div></form></div>
   <div class="panel"><details ${state.advanced ? 'open' : ''}><summary><b>Jak to funguje</b> (podrobně)</summary><ul class="plain">
@@ -1078,12 +1086,11 @@ function renderSettings(m, adminMode = false) {
     <li><b>Vzdálené logování:</b> je-li zapnuto v nastavení, u každého zařízení v ostrém běhu se zajistí <code>/system logging action</code> s target=remote na zadaný syslog server a pravidlo pro každé téma ze seznamu. Přidá se jen, co chybí; existující akce s jiným cílem se přenastaví.</li>
     <li><b>Bezdrátové spoje (aby se neuřízla anténa od sektoru):</b> sken si u každého zařízení zapamatuje, k jakému AP je stanice připojená, kolik klientů má sektor a s kým je spojený 60 GHz spoj (MAC, MCS, signál). Po každém restartu se čeká (výchozí 12 min), až se stanice zaregistruje ke stejnému AP, sektoru se vrátí aspoň 80 % klientů a 60 GHz spoj má MCS ≥ 1. Když ne, položka selže a job se zastaví dřív, než přijde na řadu nadřazený prvek. Ovladač rádia (wireless vs. wifi-qcom) se nikdy nemění — jen ten rozbíjí nv2/nstreme a station-bridge, rozdíl verzí na obou koncích doložený problém není. U 60 GHz se hlídají verze s regresí (7.19.4, 7.5, 6.47.x) a upozorní se, když druhý konec spoje není v jobu.</li>
     <li><b>Známé vadné verze:</b> první vydání větve (x.y.0) se neinstaluje, dokud není staré aspoň 14 dní (od 7.13 dostala každá do 14 dní opravu), plus seznam verzí s regresí pro konkrétní HW (RB2011, RB3011, hAP ac2/ax, CRS3xx, PPC, CHR, 60 GHz) a obecně (7.17, 7.19, 7.20, 7.23.4, 7.24…). Vadné bloky flash nad 5 % blokují, záznamy „kernel failure" v logu varují, otisk zneužití SSH zranitelnosti (9/2026) nebo device-mode „flagged" se hlásí.</li>
-    <li><b>Automatický upgrade</b> (Nastavení, zatím jen pro účty povolené správcem nástroje): když MikroTik vydá novou verzi kanálu a ta dozraje (výchozí 5 dní po vydání; opravné vydání odpočet spustí znovu), automat ji v nočním okně po vlnách nasadí na tvoje zařízení — první noc pár kanárků různých modelů, další noci větší vlny. Zakládá běžné joby se všemi kontrolami; jen v rámci stejné hlavní verze, páteř jen s výslovným povolením, nikdy rodič s potomkem ani oba konce spoje v jedné noci. Při první chybě se zastaví a čeká na uvolnění; na konci okna se rozdělaný kus dokončí a zbytek jde další noc.</li>
+    <li><b>Automatický upgrade</b> (stránka Automat v menu, zatím jen pro účty povolené správcem nástroje): když MikroTik vydá novou verzi kanálu a ta dozraje (výchozí 5 dní po vydání; opravné vydání odpočet spustí znovu), automat ji v nočním okně po vlnách nasadí na tvoje zařízení — první noc pár kanárků různých modelů, další noci větší vlny. Zakládá běžné joby se všemi kontrolami; jen v rámci stejné hlavní verze, páteř jen s výslovným povolením, nikdy rodič s potomkem ani oba konce spoje v jedné noci. Při první chybě se zastaví a čeká na uvolnění; na konci okna se rozdělaný kus dokončí a zbytek jde další noc.</li>
     <li><b>Dry run</b> = jen kontrola a plán, nic se nemění. <b>Kanárci</b> = nejdřív jedno zařízení od každého modelu, pak čekání na potvrzení.</li>
     <li><b>Nejčastější příčiny umrtvení dle fór/dokumentace MikroTik a opatření:</b> výpadek napájení během zápisu (→ kontrola napětí, nikdy nerestartovat nadřazený PoE prvek během upgradu potomka, servisní okno); neúplný/poškozený balíček a přesto restart (→ kontrola velikosti proti download.mikrotik.com, žádný cizí .npk, bez ověření se nerestartuje); chybějící wireless/wifi balíček po 7.13 (→ doplní se podle rozhraní, i 60GHz); „not enough space" na 16 MB flash (→ mezikrok 7.12.x, upload se při selhání uklidí); kernel bugy čerstvých verzí a bootloopy (→ min. stáří verze, zakázané verze, kanárci po modelech); starý RouterBOOT před v7 (→ firmware ještě na v6); konverze konfigurace 6→7 (BGP/OSPF/filtry/MPLS blokováno, VLAN filtering varování); protected-routerboot (varování, Netinstall nejde); auto-upgrade firmware routeru (→ RouterBOOT se zapíše sám při startu, nástroj ho aktivuje svým restartem); víc oddílů (→ kopie do záložního oddílu + fallback-to).</li>
     <li><b>Firewall na routerech:</b> nástroj se připojuje z IP serveru, na kterém běží — je vidět vlevo dole („SSH z …“, kliknutím se zkopíruje). Pokud mají zařízení brute-force ochranu SSH (address-list ssh_blacklist apod.), doporučuji tuto IP přidat do výjimky — nástroj sice rozestupuje opakovaná spojení na 65 s, ale sken + job dělají několik přihlášení za sebou.</li>
     <li>Čeho se nástroj netýká: fyzicky mrtvá zařízení (výpadek napájení během zápisu) řeší jen Netinstall — proto se nikdy nerestartuje bez ověřených balíčků a zálohy.</li></ul></details></div>`;
-  if (!adminMode) loadAuto();
   const ul = $('#userlist');
   if (ul) {
     const renderUsers = async () => {
@@ -1491,7 +1498,7 @@ async function loadState({ light = false } = {}) {
   const s = await api(lite ? '/state?nodevices=1' : '/state');
   if (state.jobsLimit === undefined) { try { const v = localStorage.getItem('mtu_joblimit'); state.jobsLimit = v === null ? 10 : +v; } catch { state.jobsLimit = 10; } }
   const lim = state.jobsLimit ?? 10; if ((state.admin && state.jobOwner) || !lim || lim > 30) { try { s.jobs = state.admin && state.jobOwner ? await api(`/jobs?owner=${state.jobOwner}&limit=${lim || 1000}`) : await api(`/jobs?limit=${lim || 1000}`); } catch {} }
-  Object.assign(state, { devices: s.devices || state.devices, jobs: s.jobs, latest: s.latest, settings: s.settings, settingsOwn: s.settingsOwn || {}, settingsGlobal: s.settingsGlobal, runner: s.runner, tracks: s.tracks, scanning: s.scanning, checkProg: s.checkProg && !s.checkProg.finishedAt ? s.checkProg : (state.checkProg && !state.checkProg.finishedAt ? state.checkProg : s.checkProg), discovery: s.discovery, admin: s.admin, auth: { ...state.auth, user: s.user } });
+  Object.assign(state, { devices: s.devices || state.devices, jobs: s.jobs, latest: s.latest, settings: s.settings, settingsOwn: s.settingsOwn || {}, settingsGlobal: s.settingsGlobal, runner: s.runner, tracks: s.tracks, scanning: s.scanning, checkProg: s.checkProg && !s.checkProg.finishedAt ? s.checkProg : (state.checkProg && !state.checkProg.finishedAt ? state.checkProg : s.checkProg), discovery: s.discovery, admin: s.admin, autoAllowed: !!s.autoAllowed, auth: { ...state.auth, user: s.user } });
   if (s.admin && !lite) { try { state.users = await api('/users'); } catch { state.users = null; } try { state.jobCounts = await api('/jobs/counts'); } catch { state.jobCounts = null; } }
   // správce: výchozí pohled = vlastní zařízení; ruční přepnutí na jiného vlastníka si pamatuje prohlížeč
   if (s.admin && s.user && state.ownerInit !== s.user.id) { state.ownerInit = s.user.id; let saved = null; try { saved = localStorage.getItem('mtu_owner'); } catch {} state.owner = saved !== null && saved !== '' ? +saved : s.user.id; }
