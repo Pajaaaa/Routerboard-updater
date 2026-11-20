@@ -939,7 +939,9 @@ function settingsFields(s, global) {
     <label class="wide">povolené adresy / CIDR (čárkou; prázdné = adresy neměnit; navíc se vždy přidají soukromé rozsahy 192.168.0.0/16 a 172.16.0.0/12)<input name="services_address" type="text" value="${esc(s.services_address)}" placeholder="10.0.0.0/8,192.168.0.0/16,2001:db8::/32"></label>
     `;
   if (simple) return basic + `<div class="wide hint" style="margin-top:12px">Limity kontrol, rádiové prahy, mezikroky, NTP, SNMP, DNS, syslog a další volby drží správce ve společném nastavení. Chceš-li si je přepsat pro svoje zařízení, zapni vlevo dole „Pokročilé zobrazení“.</div>`;
-  const infra = `<h2>Čas (NTP a časová zóna)</h2>
+  const infra = `${global ? `<h2>Automatický upgrade</h2>
+    <label class="wide">účty, které smí automatický upgrade zapnout (přezdívky z userdb nebo jména účtů, čárkou; * = všichni)<input name="auto_users" type="text" value="${esc(s.auto_users || '')}" placeholder="pajavlk"></label>
+    ${c('auto_pause', 'nouzová brzda: automat nikomu nic nespouští (běžící job doběhne)')}` : ''}<h2>Čas (NTP a časová zóna)</h2>
     ${c('ntp_enable', 'při ostrém běhu nastavit NTP klienta a časovou zónu (mění se jen to, co neodpovídá)')}
     <label>NTP servery (čárkou; IP nebo jména)<input name="ntp_servers" type="text" value="${esc(s.ntp_servers)}" placeholder="192.0.2.1"></label>
     <label>časová zóna<input name="timezone_name" type="text" value="${esc(s.timezone_name)}" placeholder="Europe/Prague"></label>
@@ -998,10 +1000,68 @@ function adminPanelsHtml(s) {
   <div class="panel"><details id="auditbox"><summary><b>Kdo co dělal</b> (audit posledních akcí)</summary><div id="auditlist" class="hint">načítám…</div></details></div>
 `;
 }
+// ---------- automatický upgrade (panel v Nastavení; jen účty povolené správcem nástroje) ----------
+const AUTO_DAYS = [[1, 'po'], [2, 'út'], [3, 'st'], [4, 'čt'], [5, 'pá'], [6, 'so'], [0, 'ne']];
+function autoPanelHtml() {
+  const a = state.auto; if (!a || !a.allowed) return '';
+  const s = a.settings, days = String(s.auto_days || '').split(',').map(Number);
+  const dt = (ms) => new Date(ms).toLocaleString('cs-CZ', { weekday: 'short', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const d1 = (sec) => new Date(sec * 1000).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric' });
+  const trackRows = Object.entries(a.targets || {}).map(([t, x]) => { const tr = (a.tracks || {})[t] || {};
+    const st = x.blocked ? `<span class="badge b-err">${esc(x.blocked)}</span>` : x.mature ? '<span class="badge b-ok">zralá</span>' : x.matureAt ? `<span class="badge b-warn">dozraje ${d1(x.matureAt)}</span>` : '<span class="badge b-muted">neznámé datum vydání</span>';
+    return `<tr><td data-l="kanál">${esc(t)}</td><td data-l="verze"><b>${esc(x.version)}</b></td><td data-l="vydáno">${x.releasedAt ? d1(x.releasedAt) : '?'}</td><td data-l="stav">${st} <span class="muted">čeká se ${x.delayDays} dní</span></td><td data-l="čeká kusů">${tr.waiting || 0}</td><td data-l="vlna">${tr.waiting ? (tr.wave || 0) + 1 : '—'}</td></tr>`; }).join('');
+  const sk = Object.entries(a.skipped || {}).map(([k, n]) => `${n}× ${esc(k)}`).join(', ');
+  const CLS = { leaf: 'koncový kus', sector: 'sektor', infra: 'infrastruktura' };
+  const off = !s.auto_enable ? 'Automat je vypnutý — níže je jen náhled, co by udělal.' : a.paused ? 'Správce nástroje automat pozastavil všem (nouzová brzda ve Správě).' : '';
+  return `<div class="panel" id="autopanel"><h2>Automatický upgrade</h2>
+    <div class="hint" style="margin-bottom:8px">Když MikroTik vydá novou verzi kanálu a ta dozraje, automat ji v nočním okně po vlnách nasadí na <b>tvoje</b> zařízení: první noc pár kanárků různých modelů, další noci větší vlny. Zakládá běžné joby (najdeš je v Upgradech), takže platí všechny kontroly, zálohy a pořadí podle topologie. Jen v rámci stejné hlavní verze (6 → 7 nikdy), nikdy rodič s potomkem ani oba konce spoje v jedné noci. Při první chybě se zastaví a čeká, až ho uvolníš.</div>
+    ${a.halted ? `<div class="banner err"><b>Automat je zastavený po chybě</b>${a.haltedAt ? ` (${dt(a.haltedAt)})` : ''}: ${esc(a.halted)}<div class="row" style="margin-top:8px"><button id="autorelease" class="small">Zkontroloval jsem, uvolnit</button><span class="hint">selhané kusy se znovu zařadí, pokračuje se další noc</span></div></div>` : ''}
+    ${off ? `<div class="banner warn">${off}</div>` : ''}
+    ${!a.windowValid ? '<div class="banner err">Noční okno nejde přečíst — automat neběží, dokud ho neopravíš.</div>' : ''}
+    <form id="autof" class="form">
+      <label class="check wide"><input type="checkbox" name="auto_enable" ${s.auto_enable ? 'checked' : ''}> zapnout automatický upgrade mých zařízení</label>
+      <label>zpoždění po vydání (dní)<input name="auto_delay_days" type="number" min="0" max="365" step="1" value="${esc(String(s.auto_delay_days))}"></label>
+      <label>noční okno<input name="auto_window" type="text" value="${esc(s.auto_window)}" placeholder="01:00-04:30"></label>
+      <label>kusů za noc po vlnách (pak bez omezení)<input name="auto_waves" type="text" value="${esc(s.auto_waves)}" placeholder="3,10,25"></label>
+      <div class="wide">noci, kdy okno smí začít: ${AUTO_DAYS.map(([n, l]) => `<label class="check" style="display:inline-flex;margin-right:10px"><input type="checkbox" name="auto_day" value="${n}" ${days.includes(n) ? 'checked' : ''}> ${l}</label>`).join('')}</div>
+      <label class="check wide"><input type="checkbox" name="auto_backbone" ${s.auto_backbone ? 'checked' : ''}> zahrnout i páteř a infrastrukturu (switche, routery, spoje, 60 GHz) — jinak jen koncové kusy a sektory</label>
+      <div class="wide row"><button class="primary">Uložit</button>${a.nextWindow && s.auto_enable && !a.halted && !a.paused ? `<span class="hint">nejbližší okno: ${dt(a.nextWindow)}</span>` : ''}</div>
+    </form>
+    <h2 style="margin-top:14px">Verze</h2>
+    <div class="tablewrap"><table class="cards"><thead><tr><th>kanál</th><th>poslední verze MikroTiku</th><th>vydáno</th><th>stav</th><th>čeká kusů</th><th>vlna</th></tr></thead><tbody>${trackRows || '<tr><td colspan="6" class="muted">verze zatím nejsou načtené</td></tr>'}</tbody></table></div>
+    ${sk ? `<div class="hint" style="margin-top:6px">Automat vynechává: ${sk}.</div>` : ''}
+    <h2 style="margin-top:14px">Příští noc by šlo (${a.preview.length})</h2>
+    ${a.preview.length ? `<div class="tablewrap"><table class="cards"><thead><tr><th>zařízení</th><th>model</th><th>teď</th><th>cíl</th><th>druh</th></tr></thead><tbody>${a.preview.map(x => `<tr><td data-l="zařízení"><b>${esc(x.name)}</b> <span class="muted">${esc(x.host)}</span></td><td data-l="model">${esc(x.model)}</td><td data-l="teď">${esc(x.version)}</td><td data-l="cíl">${esc(x.to)}</td><td data-l="druh">${CLS[x.cls] || ''}</td></tr>`).join('')}</tbody></table></div>` : '<div class="hint">Nic — všechno je na zralé verzi, nebo žádná nová verze ještě nedozrála.</div>'}
+    ${(a.history || []).length ? `<h2 style="margin-top:14px">Minulé noci</h2><div class="tablewrap"><table class="cards"><thead><tr><th>noc</th><th>job</th><th>cíl</th><th>kusů</th><th>v pořádku</th><th>chyby</th><th>nedostupné</th><th>přeskočeno</th></tr></thead><tbody>${a.history.map(h => `<tr><td data-l="noc">${esc(h.night)}</td><td data-l="job"><a href="#" data-autojob="${h.jobId}">#${h.jobId}</a></td><td data-l="cíl">${esc(Object.values(h.targets || {}).join(', '))}</td><td data-l="kusů">${h.total}</td><td data-l="v pořádku">${h.ok}</td><td data-l="chyby">${h.failed ? `<span class="badge b-err">${h.failed}</span>` : 0}</td><td data-l="nedostupné">${h.unreachable || 0}</td><td data-l="přeskočeno">${h.skipped || 0}</td></tr>`).join('')}</tbody></table></div>` : ''}
+    ${a.last && !a.last.evaluated ? `<div class="hint" style="margin-top:6px">Poslední job automatu <a href="#" data-autojob="${a.last.jobId}">#${a.last.jobId}</a> ještě běží nebo čeká (${esc(a.last.status)}).</div>` : ''}
+    ${Object.keys(a.quarantine || {}).length ? `<div class="banner warn" style="margin-top:8px">Verze v karanténě (selhaly víc správcům, automat je nenasazuje nikomu): ${Object.entries(a.quarantine).map(([v, r]) => `<b>${esc(v)}</b> — ${esc(r)}${state.admin ? ` <button class="small" data-unq="${esc(v)}">zrušit karanténu</button>` : ''}`).join('; ')}</div>` : ''}
+  </div>`;
+}
+function drawAuto() {
+  const box = $('#autobox'); if (!box) return;
+  if (box.contains(document.activeElement) && ['INPUT', 'SELECT'].includes(document.activeElement.tagName)) return; // nepřepisovat rozepsaný formulář
+  box.innerHTML = autoPanelHtml();
+  const f = $('#autof'); if (!f) return;
+  const put = async (path, opts, msg) => { try { state.auto = await api(path, opts); state.autoAt = Date.now(); toast(msg); document.activeElement && document.activeElement.blur(); drawAuto(); } catch (e) { toast(e.message, true); } };
+  f.onsubmit = (e) => { e.preventDefault();
+    const body = { auto_enable: f.elements.auto_enable.checked, auto_backbone: f.elements.auto_backbone.checked, auto_delay_days: parseFloat(f.elements.auto_delay_days.value), auto_window: f.elements.auto_window.value, auto_waves: f.elements.auto_waves.value, auto_days: [...f.querySelectorAll('input[name=auto_day]:checked')].map(x => x.value).join(',') };
+    if (body.auto_enable && !state.auto.settings.auto_enable && !confirm(`Zapnout automatický upgrade? V nočním okně ${body.auto_window} začne automat sám upgradovat tvoje zařízení${body.auto_backbone ? ' VČETNĚ páteře a infrastruktury' : ''}.`)) return;
+    put('/auto', { method: 'PUT', body }, 'automatický upgrade uložen'); };
+  on('#autorelease', () => put('/auto/release', { method: 'POST' }, 'automat uvolněn'));
+  box.querySelectorAll('[data-unq]').forEach(b => b.onclick = () => put('/auto/unquarantine', { method: 'POST', body: { version: b.dataset.unq } }, 'karanténa zrušena'));
+  box.querySelectorAll('[data-autojob]').forEach(x => x.onclick = (e) => { e.preventDefault(); openJob(+x.dataset.autojob); });
+}
+function loadAuto() {
+  drawAuto();
+  if (state.autoLoading || (state.autoAt && Date.now() - state.autoAt < 30000)) return;
+  state.autoLoading = true;
+  api('/auto').then(a => { state.auto = a; state.autoAt = Date.now(); }).catch(() => {}).finally(() => { state.autoLoading = false; drawAuto(); });
+}
 function renderSettings(m, adminMode = false) {
   const s = state.settings;
   const ownKeys = Object.keys(state.settingsOwn || {});
   m.innerHTML = adminMode ? adminPanelsHtml(s) : `<h1>Nastavení</h1>
+  <div id="autobox"></div>
   <div class="panel"><h2>Moje nastavení</h2><div class="hint" style="margin-bottom:8px">Platí pro tvoje upgrady, kontroly a plány. Předvyplněné jsou společné hodnoty od správce; po uložení se u tebe používají tyhle (společné změny se pak u tebe neprojeví, dokud nedáš „Vrátit na společné“).${ownKeys.length ? ` <b>Máš vlastní hodnoty.</b>` : ' Zatím používáš společné.'}</div>
     <form id="setf-mine" class="form">${settingsFields(s)}<div id="ownhidden" class="wide hint" hidden></div><div class="wide row"><button class="primary">Uložit moje nastavení</button>${ownKeys.length ? '<button type="button" id="setreset">Vrátit na společné</button>' : ''}</div></form></div>
   <div class="panel"><details ${state.advanced ? 'open' : ''}><summary><b>Jak to funguje</b> (podrobně)</summary><ul class="plain">
@@ -1018,10 +1078,12 @@ function renderSettings(m, adminMode = false) {
     <li><b>Vzdálené logování:</b> je-li zapnuto v nastavení, u každého zařízení v ostrém běhu se zajistí <code>/system logging action</code> s target=remote na zadaný syslog server a pravidlo pro každé téma ze seznamu. Přidá se jen, co chybí; existující akce s jiným cílem se přenastaví.</li>
     <li><b>Bezdrátové spoje (aby se neuřízla anténa od sektoru):</b> sken si u každého zařízení zapamatuje, k jakému AP je stanice připojená, kolik klientů má sektor a s kým je spojený 60 GHz spoj (MAC, MCS, signál). Po každém restartu se čeká (výchozí 12 min), až se stanice zaregistruje ke stejnému AP, sektoru se vrátí aspoň 80 % klientů a 60 GHz spoj má MCS ≥ 1. Když ne, položka selže a job se zastaví dřív, než přijde na řadu nadřazený prvek. Ovladač rádia (wireless vs. wifi-qcom) se nikdy nemění — jen ten rozbíjí nv2/nstreme a station-bridge, rozdíl verzí na obou koncích doložený problém není. U 60 GHz se hlídají verze s regresí (7.19.4, 7.5, 6.47.x) a upozorní se, když druhý konec spoje není v jobu.</li>
     <li><b>Známé vadné verze:</b> první vydání větve (x.y.0) se neinstaluje, dokud není staré aspoň 14 dní (od 7.13 dostala každá do 14 dní opravu), plus seznam verzí s regresí pro konkrétní HW (RB2011, RB3011, hAP ac2/ax, CRS3xx, PPC, CHR, 60 GHz) a obecně (7.17, 7.19, 7.20, 7.23.4, 7.24…). Vadné bloky flash nad 5 % blokují, záznamy „kernel failure" v logu varují, otisk zneužití SSH zranitelnosti (9/2026) nebo device-mode „flagged" se hlásí.</li>
+    <li><b>Automatický upgrade</b> (Nastavení, zatím jen pro účty povolené správcem nástroje): když MikroTik vydá novou verzi kanálu a ta dozraje (výchozí 5 dní po vydání; opravné vydání odpočet spustí znovu), automat ji v nočním okně po vlnách nasadí na tvoje zařízení — první noc pár kanárků různých modelů, další noci větší vlny. Zakládá běžné joby se všemi kontrolami; jen v rámci stejné hlavní verze, páteř jen s výslovným povolením, nikdy rodič s potomkem ani oba konce spoje v jedné noci. Při první chybě se zastaví a čeká na uvolnění; na konci okna se rozdělaný kus dokončí a zbytek jde další noc.</li>
     <li><b>Dry run</b> = jen kontrola a plán, nic se nemění. <b>Kanárci</b> = nejdřív jedno zařízení od každého modelu, pak čekání na potvrzení.</li>
     <li><b>Nejčastější příčiny umrtvení dle fór/dokumentace MikroTik a opatření:</b> výpadek napájení během zápisu (→ kontrola napětí, nikdy nerestartovat nadřazený PoE prvek během upgradu potomka, servisní okno); neúplný/poškozený balíček a přesto restart (→ kontrola velikosti proti download.mikrotik.com, žádný cizí .npk, bez ověření se nerestartuje); chybějící wireless/wifi balíček po 7.13 (→ doplní se podle rozhraní, i 60GHz); „not enough space" na 16 MB flash (→ mezikrok 7.12.x, upload se při selhání uklidí); kernel bugy čerstvých verzí a bootloopy (→ min. stáří verze, zakázané verze, kanárci po modelech); starý RouterBOOT před v7 (→ firmware ještě na v6); konverze konfigurace 6→7 (BGP/OSPF/filtry/MPLS blokováno, VLAN filtering varování); protected-routerboot (varování, Netinstall nejde); auto-upgrade firmware routeru (→ RouterBOOT se zapíše sám při startu, nástroj ho aktivuje svým restartem); víc oddílů (→ kopie do záložního oddílu + fallback-to).</li>
     <li><b>Firewall na routerech:</b> nástroj se připojuje z IP serveru, na kterém běží — je vidět vlevo dole („SSH z …“, kliknutím se zkopíruje). Pokud mají zařízení brute-force ochranu SSH (address-list ssh_blacklist apod.), doporučuji tuto IP přidat do výjimky — nástroj sice rozestupuje opakovaná spojení na 65 s, ale sken + job dělají několik přihlášení za sebou.</li>
     <li>Čeho se nástroj netýká: fyzicky mrtvá zařízení (výpadek napájení během zápisu) řeší jen Netinstall — proto se nikdy nerestartuje bez ověřených balíčků a zálohy.</li></ul></details></div>`;
+  if (!adminMode) loadAuto();
   const ul = $('#userlist');
   if (ul) {
     const renderUsers = async () => {

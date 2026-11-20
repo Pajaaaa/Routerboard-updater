@@ -14,7 +14,7 @@ for i in $(seq 1 40); do curl -s -o /dev/null http://127.0.0.1:28999/mikrotik/ &
 curl -s -o /dev/null http://127.0.0.1:28999/mikrotik/ || { echo "server nenaběhl:"; cat "$T/server.log"; exit 1; }
 J="$T/cj"
 curl -s -c "$J" -H 'content-type: application/json' -d '{"username":"preflight","password":"preflight-heslo"}' http://127.0.0.1:28999/mikrotik/api/login | grep -q '"ok":true' || { echo "login selhal"; cat "$T/server.log"; exit 1; }
-for p in /api/whoami /api/state /api/stats /api/progress /api/settings /api/jobs /api/rules /api/users /api/busy; do
+for p in /api/whoami /api/state /api/stats /api/progress /api/settings /api/jobs /api/rules /api/users /api/busy /api/auto; do
   code=$(curl -s -o "$T/out" -w '%{http_code}' -b "$J" "http://127.0.0.1:28999/mikrotik$p")
   [ "$code" = 200 ] || { echo "API $p → HTTP $code"; head -c 300 "$T/out"; echo; cat "$T/server.log"; exit 1; }
 done
@@ -33,6 +33,8 @@ echo "3/4 vykreslení UI v opravdovém DOM (jsdom) proti serveru nanečisto"
 node tools/ui-real.js http://127.0.0.1:28999 preflight preflight-heslo || { echo "UI v opravdovém DOM selhalo"; exit 1; }
 kill $SP 2>/dev/null; SP=
 echo "4/4 vykreslení UI (náhrada DOM, všechna řazení a filtry)"
+node tools/test-auto-upgrade.js > /dev/null 2>&1 || { echo "kontrola automatického upgradu selhala (node tools/test-auto-upgrade.js)"; exit 1; }
+node tools/test-view-as.js > /dev/null 2>&1 || { echo "kontrola pohledu řadového správce selhala (node tools/test-view-as.js)"; exit 1; }
 node tools/test-ssh-retry.js || { echo "kontrola opakování SSH selhala"; exit 1; }
 node tools/test-vlan-mgmt.js || { echo "kontrola VLAN managementu selhala"; exit 1; }
 node tools/test-no-v7.js || { echo "kontrola seznamu hardware bez v7 selhala"; exit 1; }

@@ -96,6 +96,8 @@ const { Discovery } = require('./lib/discovery');
 const bus = new EventEmitter();
 bus.setMaxListeners(200);
 const runner = new RunnerPool(); // jeden runner na uživatele
+const auto = require('./lib/autoupgrade'); // automatický noční upgrade po vydání nové verze (zakládá běžné joby)
+auto.configure({ pool: runner, notify: (jobId) => bus.emit('event', { type: 'job', job: db.getJobSummary(jobId) }) });
 runner.on('event', (ev) => bus.emit('event', ev));
 const scanner = new Scanner(runner, bus);
 const discovery = new Discovery(bus);
@@ -643,6 +645,20 @@ async function api(req, res, method, p, url) {
     return send(res, 200, { settings: db.getSettings(req.user.id), own, latest: V.getLatest(req.user.id) });
   }
   if (method === 'DELETE' && p === '/api/settings/mine') { db.clearUserSettings(req.user.id); statsCache.at = 0; progressCache.at = 0; audit(req, 'vlastní nastavení zrušeno', ''); return send(res, 200, { settings: db.getSettings(req.user.id), own: {}, latest: V.getLatest(req.user.id) }); }
+  // automatický upgrade: stav a vlastní volby (jen účty povolené ve společném nastavení auto_users)
+  if (p === '/api/auto' || p.startsWith('/api/auto/')) {
+    const me = db.getUser(req.user.id);
+    if (method === 'GET' && p === '/api/auto') return send(res, 200, auto.statusFor(me));
+    if (method === 'POST' && p === '/api/auto/unquarantine') { if (!adminOnly(req, res)) return; const b = await readBody(req); auto.unquarantine(String(b.version || '')); audit(req, 'automat: karanténa verze zrušena', String(b.version || '')); return send(res, 200, auto.statusFor(me)); }
+    if (!auto.allowed(me)) return send(res, 403, { error: 'automatický upgrade pro tvůj účet zatím není povolený' });
+    if (method === 'PUT' && p === '/api/auto') {
+      const v = auto.validate(await readBody(req)); if (v.error) return send(res, 400, { error: v.error });
+      db.setUserSettings(req.user.id, { ...db.getUserSettings(req.user.id), ...v.values }); audit(req, 'automatický upgrade: nastavení', JSON.stringify(v.values));
+      return send(res, 200, auto.statusFor(me));
+    }
+    if (method === 'POST' && p === '/api/auto/release') { auto.release(req.user.id); audit(req, 'automatický upgrade uvolněn po chybě', ''); return send(res, 200, auto.statusFor(me)); }
+    return send(res, 404, { error: 'neznámé API' });
+  }
   if (p === '/api/public-link') {
     if (!adminOnly(req, res)) return;
     if (method === 'POST') { const token = require('crypto').randomBytes(24).toString('base64url'); db.setSettings({ public_link_token: token }); audit(req, 'tajný odkaz vytvořen', ''); return send(res, 200, { token }); }
@@ -1440,6 +1456,7 @@ server.listen(cfg.port, cfg.host, () => {
   // předehřát keš seznamu zařízení pro správce hned po startu (skládá se ~1 s a blokuje smyčku) — dřív než se rozjedou joby a SSH spojení
   setTimeout(() => { try { adminDevicesJson({ user: { role: 'admin' } }); } catch (e) { console.error('keš zařízení:', e.message); } }, 300);
   scanner.startPeriodic();
+  auto.start();
   setTimeout(() => { try { const r = db.dedupeAllSerials(); if (r.linked) { console.log(`duplicity: sloučeno ${r.linked} záznamů (${r.serials} sériových čísel na víc záznamech)`); bus.emit('event', { type: 'devices-changed' }); } } catch (e) { console.error('duplicity:', e.message); } }, 2000);
   access.refresh().then(() => console.log('přístup podle APček: mapa účtů sestavena')).catch(() => {});
   setInterval(() => access.refresh().catch(() => {}), 10 * 60e3);
