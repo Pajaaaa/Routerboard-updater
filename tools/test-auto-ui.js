@@ -119,6 +119,25 @@ const noJunk = (where) => { const t = txt('#main'); const m = t.match(/undefined
     chk(vis().length === D.length && $$('#autogrows input:checked').length === 1, 'po zrušení filtru jsou vidět všechna a výběr zůstal');
     $('#autogall').click(); type(q, 'zluty'); $('#autognone').click(); type(q, '');
     chk(ev('state.autoEdit.sel.size') === D.length - 1, '„odznačit zobrazené“ při filtru odznačí jen zobrazené');
+    { // výběr konkrétního APčka + zaškrtávátko „vše“ v hlavičce
+      const ap = $('#autogap'), hc = $('#autogchk'), before = ev('state.autoEdit.sel.size');
+      const pick = (v) => { ap.value = v; ap.dispatchEvent(new w.Event('change', { bubbles: true })); };
+      chk(ap.options.length === 5 && ap.options[0].value === '' && ap.options[1].value === NASTY && /\(1\)$/.test(ap.options[1].textContent) && ap.options[4].textContent === 'AP 2 (3)', 'výběr APčka: všechna + konkrétní APčka s počty', [...ap.options].map(o => o.textContent).join(' | '));
+      pick(NASTY);
+      chk(vis().length === 1 && vis()[0].dataset.ap === NASTY, 'výběr APčka zobrazí jen jeho zařízení');
+      hc.checked = false; hc.dispatchEvent(new w.Event('change', { bubbles: true }));
+      chk(!vis()[0].querySelector('input').checked && ev('state.autoEdit.sel.size') === before - 1, 'zaškrtávátko v hlavičce odškrtne jen zobrazená');
+      hc.checked = true; hc.dispatchEvent(new w.Event('change', { bubbles: true }));
+      chk(vis()[0].querySelector('input').checked && hc.checked && !hc.indeterminate && ev('state.autoEdit.sel.size') === before, 'zaškrtávátko v hlavičce zaškrtne všechna zobrazená naráz');
+      pick('AP 2'); type(q, 'zluty');
+      chk(vis().length === 1 && /Zluty kun/.test(vis()[0].textContent), 'APčko a hledání se kombinují', `viditelných ${vis().length}`);
+      type(q, '');
+      chk(vis().length === 3 && vis().every(r => r.dataset.ap === 'AP 2'), 'jiné APčko: jen jeho 3 zařízení');
+      doc.activeElement && doc.activeElement.blur(); ev('render()'); await sleep(30);
+      chk($('#autogap').value === 'AP 2' && vis().length === 3, 'zvolené APčko přežije překreslení');
+      const ap2 = $('#autogap'); ap2.value = ''; ap2.dispatchEvent(new w.Event('change', { bubbles: true }));
+      chk(vis().length === D.length && $('#autogchk').indeterminate, 'všechna APčka: vidět vše, hlavička ukazuje částečný výběr');
+    }
     // překreslení celé stránky (živá událost, klik jinde) nesmí rozepsaný job ztratit
     doc.activeElement.blur(); ev('render()'); await sleep(30);
     chk(!!$('#autoedit') && $('#autog [name=name]').value === 'G ' + NASTY && $$('#autogrows input:checked').length === D.length - 1, 'výběr a název přežijí překreslení stránky');

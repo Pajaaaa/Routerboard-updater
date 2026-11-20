@@ -1006,18 +1006,22 @@ const autoD1 = (sec) => new Date(sec * 1000).toLocaleDateString('cs-CZ', { day: 
 function autoEditorHtml(a) {
   const e = state.autoEdit; const ok = new Set(a.pickable || []);
   const inOther = new Map(); for (const g of a.groups || []) if (g.id !== e.id) for (const id of g.devs) inOther.set(id, g.name);
-  const q = (e.q || '').toLowerCase();
+  const q = (e.q || '').toLowerCase(); const NOAP = '\u0000';
+  const hid = (txt, ap) => (q && !txt.includes(q)) || (e.ap && (e.ap === NOAP ? !!ap : ap !== e.ap));
   const devs = state.devices.filter(d => ok.has(d.id)).sort((x, y) => String(x.userdb_ap || '').localeCompare(String(y.userdb_ap || ''), 'cs') || String(x.name || x.identity || x.host).localeCompare(String(y.name || y.identity || y.host), 'cs'));
   const rows = devs.map(d => { const txt = [d.name, d.identity, d.host, d.model, d.board_name, d.userdb_ap, d.version].filter(Boolean).join(' ').toLowerCase();
-    return `<tr data-txt="${esc(txt)}" ${q && !txt.includes(q) ? 'hidden' : ''}><td><input type="checkbox" aria-label="${esc(d.name || d.identity || d.host)}" data-gdev="${d.id}" ${e.sel.has(d.id) ? 'checked' : ''}></td><td data-l="zařízení"><b>${esc(d.name || d.identity || d.host)}</b> <span class="muted">${esc(d.host)}</span></td><td data-l="model">${esc(d.model || d.board_name || '')}</td><td data-l="verze">${esc(d.version || '?')}</td><td data-l="APčko">${esc(d.userdb_ap || '')}</td><td data-l="teď v jobu">${inOther.has(d.id) ? `<span class="badge b-warn">${esc(inOther.get(d.id))}</span>` : ''}</td></tr>`; }).join('');
+    return `<tr data-txt="${esc(txt)}" data-ap="${esc(d.userdb_ap || '')}" ${hid(txt, d.userdb_ap || '') ? 'hidden' : ''}><td><input type="checkbox" aria-label="${esc(d.name || d.identity || d.host)}" data-gdev="${d.id}" ${e.sel.has(d.id) ? 'checked' : ''}></td><td data-l="zařízení"><b>${esc(d.name || d.identity || d.host)}</b> <span class="muted">${esc(d.host)}</span></td><td data-l="model">${esc(d.model || d.board_name || '')}</td><td data-l="verze">${esc(d.version || '?')}</td><td data-l="APčko">${esc(d.userdb_ap || '')}</td><td data-l="teď v jobu">${inOther.has(d.id) ? `<span class="badge b-warn">${esc(inOther.get(d.id))}</span>` : ''}</td></tr>`; }).join('');
   const shown = devs.filter(d => e.sel.has(d.id)).length, gone = e.sel.size - shown;
+  const apCnt = new Map(); for (const d of devs) { const k = d.userdb_ap || ''; apCnt.set(k, (apCnt.get(k) || 0) + 1); }
+  const apOpts = [...apCnt.keys()].filter(Boolean).sort((x, y) => x.localeCompare(y, 'cs')).map(k => `<option value="${esc(k)}" ${e.ap === k ? 'selected' : ''}>${esc(k)} (${apCnt.get(k)})</option>`).join('')
+    + (apCnt.has('') ? `<option value="${NOAP}" ${e.ap === NOAP ? 'selected' : ''}>bez APčka (${apCnt.get('')})</option>` : '');
   return `<div class="panel" id="autoedit"><h2>${e.id ? 'Upravit automatický job' : 'Nový automatický job'}</h2>
     <form id="autog" class="form">
       <label>název<input name="name" type="text" maxlength="80" value="${esc(e.name)}" placeholder="např. Kanárci, Klienti Sokol, Páteř"></label>
       <label>zpoždění po vydání (dní; prázdné = výchozí ${esc(String(a.settings.auto_delay_days))})<input name="delay_days" type="number" min="0" max="365" step="1" value="${esc(e.delay)}"></label>
       <label class="check wide"><input type="checkbox" name="enabled" ${e.enabled ? 'checked' : ''}> job je zapnutý</label>
-      <div class="wide row"><input type="search" id="autogq" aria-label="hledat zařízení" placeholder="hledat (název, IP, model, APčko, verze)" value="${esc(e.q || '')}" style="flex:1;min-width:180px"><button type="button" class="small" id="autogall">označit zobrazené</button><button type="button" class="small" id="autognone">odznačit zobrazené</button><span class="hint">vybráno <b id="autogcnt">${shown}</b> z ${devs.length}${gone ? ` (+ ${gone} teď nedostupných v jobu zůstává)` : ''}</span></div>
-      <div class="wide tablewrap" id="autogwrap" style="max-height:55vh;overflow:auto"><table class="cards"><thead><tr><th></th><th>zařízení</th><th>model</th><th>verze</th><th>APčko</th><th>teď v jobu</th></tr></thead><tbody id="autogrows">${rows || '<tr><td colspan="6" class="muted">nemáš žádná zařízení</td></tr>'}</tbody></table></div>
+      <div class="wide row"><input type="search" id="autogq" aria-label="hledat zařízení" placeholder="hledat (název, IP, model, APčko, verze)" value="${esc(e.q || '')}" style="flex:1;min-width:180px"><select id="autogap" aria-label="APčko" style="max-width:260px"><option value="">všechna APčka (${devs.length})</option>${apOpts}</select><button type="button" class="small" id="autogall">označit zobrazené</button><button type="button" class="small" id="autognone">odznačit zobrazené</button><span class="hint">vybráno <b id="autogcnt">${shown}</b> z ${devs.length}${gone ? ` (+ ${gone} teď nedostupných v jobu zůstává)` : ''}</span></div>
+      <div class="wide tablewrap" id="autogwrap" style="max-height:55vh;overflow:auto"><table class="cards"><thead><tr><th><input type="checkbox" id="autogchk" aria-label="zaškrtnout všechna zobrazená zařízení" title="zaškrtnout / odškrtnout všechna zobrazená"></th><th>zařízení</th><th>model</th><th>verze</th><th>APčko</th><th>teď v jobu</th></tr></thead><tbody id="autogrows">${rows || '<tr><td colspan="6" class="muted">nemáš žádná zařízení</td></tr>'}</tbody></table></div>
       <div class="wide hint">Zařízení může být jen v jednom jobu — uložením se z ostatních přesune sem. Pořadí uvnitř noci si upgrader určí sám podle topologie (potomci před rodiči).</div>
       <div class="wide row"><button class="primary" ${state.autoSaving ? 'disabled' : ''}>Uložit job</button><button type="button" id="autogcancel">Zrušit</button></div>
     </form></div>`;
@@ -1096,16 +1100,20 @@ function drawAuto(force) {
   const g = $('#autog');
   if (g) { // editor jobu
     const e = state.autoEdit; const ok = new Set(state.auto.pickable || []);
-    const cnt = () => { const c = $('#autogcnt'); if (c) c.textContent = [...e.sel].filter(id => ok.has(id)).length; };
+    const head = () => { const h = $('#autogchk'); if (!h) return; const vis = rows().filter(r => !r.hidden), n = vis.filter(r => r.querySelector('[data-gdev]').checked).length; h.checked = !!vis.length && n === vis.length; h.indeterminate = n > 0 && n < vis.length; h.disabled = !vis.length; };
+    const cnt = () => { const c = $('#autogcnt'); if (c) c.textContent = [...e.sel].filter(id => ok.has(id)).length; head(); };
     g.elements.name.oninput = () => { e.name = g.elements.name.value; };
     g.elements.delay_days.oninput = () => { e.delay = g.elements.delay_days.value; };
     g.elements.enabled.onchange = () => { e.enabled = g.elements.enabled.checked; };
     const rows = () => [...box.querySelectorAll('#autogrows tr[data-txt]')];
-    const qi = $('#autogq'); qi.oninput = () => { e.q = qi.value; const q = e.q.toLowerCase(); rows().forEach(r => { r.hidden = !!q && !r.dataset.txt.includes(q); }); };
+    const filt = () => { const q = (e.q || '').toLowerCase(); rows().forEach(r => { const ap = r.dataset.ap; r.hidden = (!!q && !r.dataset.txt.includes(q)) || (!!e.ap && (e.ap === '\u0000' ? !!ap : ap !== e.ap)); }); head(); };
+    const qi = $('#autogq'); qi.oninput = () => { e.q = qi.value; filt(); };
+    const api_ = $('#autogap'); api_.onchange = () => { e.ap = api_.value; filt(); };
     qi.onkeydown = (ev) => { if (ev.key === 'Enter') ev.preventDefault(); };
     box.querySelectorAll('[data-gdev]').forEach(c => c.onchange = () => { const id = +c.dataset.gdev; if (c.checked) e.sel.add(id); else e.sel.delete(id); cnt(); });
     const bulk = (v) => { rows().filter(r => !r.hidden).forEach(r => { const c = r.querySelector('[data-gdev]'); c.checked = v; const id = +c.dataset.gdev; if (v) e.sel.add(id); else e.sel.delete(id); }); cnt(); };
     on('#autogall', () => bulk(true)); on('#autognone', () => bulk(false));
+    const hc = $('#autogchk'); hc.onchange = () => bulk(hc.checked); head();
     on('#autogcancel', () => { state.autoEdit = null; blur(); drawAuto(true); });
     g.onsubmit = async (ev) => { ev.preventDefault(); if (state.autoSaving) return; // dvojklik nesmí poslat job dvakrát
       const body = { id: e.id || undefined, name: e.name, delay_days: e.delay === '' ? null : e.delay, enabled: e.enabled, deviceIds: [...e.sel] };
