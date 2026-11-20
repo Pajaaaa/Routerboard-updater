@@ -1001,58 +1001,107 @@ function adminPanelsHtml(s) {
   <div class="panel"><details id="auditbox"><summary><b>Kdo co dělal</b> (audit posledních akcí)</summary><div id="auditlist" class="hint">načítám…</div></details></div>
 `;
 }
-// ---------- automatický upgrade (panel v Nastavení; jen účty povolené správcem nástroje) ----------
+// ---------- automatický upgrade (stránka Automat; jen účty povolené správcem nástroje) ----------
 const AUTO_DAYS = [[1, 'po'], [2, 'út'], [3, 'st'], [4, 'čt'], [5, 'pá'], [6, 'so'], [0, 'ne']];
+const autoDt = (ms) => new Date(ms).toLocaleString('cs-CZ', { weekday: 'short', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
+const autoD1 = (sec) => new Date(sec * 1000).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric' });
+/** editor jednoho automatického jobu: název, zpoždění, výběr zařízení (stav drží state.autoEdit, překreslení ho neztratí) */
+function autoEditorHtml(a) {
+  const e = state.autoEdit; const ok = new Set(a.pickable || []);
+  const inOther = new Map(); for (const g of a.groups || []) if (g.id !== e.id) for (const id of g.devs) inOther.set(id, g.name);
+  const q = (e.q || '').toLowerCase();
+  const devs = state.devices.filter(d => ok.has(d.id)).sort((x, y) => String(x.userdb_ap || '').localeCompare(String(y.userdb_ap || ''), 'cs') || String(x.name || x.identity || x.host).localeCompare(String(y.name || y.identity || y.host), 'cs'));
+  const rows = devs.map(d => { const txt = [d.name, d.identity, d.host, d.model, d.board_name, d.userdb_ap, d.version].filter(Boolean).join(' ').toLowerCase();
+    return `<tr data-txt="${esc(txt)}" ${q && !txt.includes(q) ? 'hidden' : ''}><td><input type="checkbox" data-gdev="${d.id}" ${e.sel.has(d.id) ? 'checked' : ''}></td><td data-l="zařízení"><b>${esc(d.name || d.identity || d.host)}</b> <span class="muted">${esc(d.host)}</span></td><td data-l="model">${esc(d.model || d.board_name || '')}</td><td data-l="verze">${esc(d.version || '?')}</td><td data-l="APčko">${esc(d.userdb_ap || '')}</td><td data-l="teď v jobu">${inOther.has(d.id) ? `<span class="badge b-warn">${esc(inOther.get(d.id))}</span>` : ''}</td></tr>`; }).join('');
+  return `<div class="panel" id="autoedit"><h2>${e.id ? 'Upravit automatický job' : 'Nový automatický job'}</h2>
+    <form id="autog" class="form">
+      <label>název<input name="name" type="text" maxlength="80" value="${esc(e.name)}" placeholder="např. Kanárci, Klienti Sokol, Páteř"></label>
+      <label>zpoždění po vydání (dní; prázdné = výchozí ${esc(String(a.settings.auto_delay_days))})<input name="delay_days" type="number" min="0" max="365" step="1" value="${esc(e.delay)}"></label>
+      <label class="check wide"><input type="checkbox" name="enabled" ${e.enabled ? 'checked' : ''}> job je zapnutý</label>
+      <div class="wide row"><input type="search" id="autogq" placeholder="hledat (název, IP, model, APčko, verze)" value="${esc(e.q || '')}" style="flex:1;min-width:180px"><button type="button" class="small" id="autogall">označit zobrazené</button><button type="button" class="small" id="autognone">odznačit zobrazené</button><span class="hint">vybráno <b id="autogcnt">${e.sel.size}</b> z ${devs.length}</span></div>
+      <div class="wide tablewrap" style="max-height:55vh;overflow:auto"><table class="cards"><thead><tr><th></th><th>zařízení</th><th>model</th><th>verze</th><th>APčko</th><th>teď v jobu</th></tr></thead><tbody id="autogrows">${rows || '<tr><td colspan="6" class="muted">nemáš žádná zařízení</td></tr>'}</tbody></table></div>
+      <div class="wide hint">Zařízení může být jen v jednom jobu — uložením se z ostatních přesune sem. Pořadí uvnitř noci si upgrader určí sám podle topologie (potomci před rodiči).</div>
+      <div class="wide row"><button class="primary">Uložit job</button><button type="button" id="autogcancel">Zrušit</button></div>
+    </form></div>`;
+}
+function autoGroupHtml(g, a) {
+  const tg = Object.entries(g.targets || {}).map(([t, x]) => `${esc(t)} <b>${esc(x.version)}</b> ${x.blocked ? `<span class="badge b-err">${esc(x.blocked)}</span>` : x.mature ? '<span class="badge b-ok">zralá</span>' : x.matureAt ? `<span class="badge b-warn">dozraje ${autoD1(x.matureAt)}</span>` : '<span class="badge b-muted">neznámé datum vydání</span>'}`).join(' · ');
+  const sk = Object.entries(g.skipped || {}).map(([k, n]) => `${n}× ${esc(k)}`).join(', ');
+  const wait = {}; for (const w of g.waiting || []) (wait[`${w.to} (dozraje ${autoD1(w.matureAt)})`] = wait[`${w.to} (dozraje ${autoD1(w.matureAt)})`] || []).push(w.name);
+  return `<div class="panel" data-group="${g.id}"><div class="row" style="justify-content:space-between"><h2 style="margin:0">${esc(g.name)} ${g.enabled ? '' : '<span class="badge b-muted">vypnutý</span>'}</h2>
+      <span class="row"><button class="small" data-gedit="${g.id}">Upravit</button><button class="small" data-gtoggle="${g.id}">${g.enabled ? 'Vypnout' : 'Zapnout'}</button><button class="small danger" data-gdel="${g.id}">Smazat</button></span></div>
+    <div class="hint" style="margin:6px 0">${g.devs.length} zařízení · zpoždění ${g.delay_days === null ? `výchozí (${esc(String(a.settings.auto_delay_days))} dní)` : esc(String(g.delay_days)) + ' dní'}${tg ? ' · ' + tg : ''}</div>
+    ${g.next.length ? `<div><b>Nejbližší noc půjde ${g.next.length}:</b></div><div class="tablewrap"><table class="cards"><thead><tr><th>zařízení</th><th>model</th><th>teď</th><th>cíl</th></tr></thead><tbody>${g.next.map(x => `<tr><td data-l="zařízení"><b>${esc(x.name)}</b> <span class="muted">${esc(x.host)}</span></td><td data-l="model">${esc(x.model)}</td><td data-l="teď">${esc(x.version)}</td><td data-l="cíl">${esc(x.to)}</td></tr>`).join('')}</tbody></table></div>` : `<div class="hint">Nejbližší noc nic nepůjde${Object.keys(wait).length || sk ? '' : ' — všechno je na poslední verzi'}.</div>`}
+    ${Object.entries(wait).map(([k, n]) => `<div class="hint">Čeká na dozrání ${esc(k)}: ${n.length} zařízení.</div>`).join('')}
+    ${sk ? `<div class="hint">Vynecháno: ${sk}.</div>` : ''}
+    <details style="margin-top:6px"><summary class="hint">zařízení v jobu (${g.devices.length})</summary><div class="hint">${g.devices.map(d => `${esc(d.name)}${d.host ? ` <span class="muted">${esc(d.host)}${d.version ? ', ' + esc(d.version) : ''}</span>` : ''}`).join(' · ')}</div></details>
+  </div>`;
+}
 function autoPanelHtml() {
   const a = state.auto; if (!a || !a.allowed) return '';
-  const s = a.settings, days = String(s.auto_days || '').split(',').map(Number);
-  const dt = (ms) => new Date(ms).toLocaleString('cs-CZ', { weekday: 'short', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
-  const d1 = (sec) => new Date(sec * 1000).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric' });
-  const trackRows = Object.entries(a.targets || {}).map(([t, x]) => { const tr = (a.tracks || {})[t] || {};
-    const st = x.blocked ? `<span class="badge b-err">${esc(x.blocked)}</span>` : x.mature ? '<span class="badge b-ok">zralá</span>' : x.matureAt ? `<span class="badge b-warn">dozraje ${d1(x.matureAt)}</span>` : '<span class="badge b-muted">neznámé datum vydání</span>';
-    return `<tr><td data-l="kanál">${esc(t)}</td><td data-l="verze"><b>${esc(x.version)}</b></td><td data-l="vydáno">${x.releasedAt ? d1(x.releasedAt) : '?'}</td><td data-l="stav">${st} <span class="muted">čeká se ${x.delayDays} dní</span></td><td data-l="čeká kusů">${tr.waiting || 0}</td><td data-l="vlna">${tr.waiting ? (tr.wave || 0) + 1 : '—'}</td></tr>`; }).join('');
-  const sk = Object.entries(a.skipped || {}).map(([k, n]) => `${n}× ${esc(k)}`).join(', ');
-  const CLS = { leaf: 'koncový kus', sector: 'sektor', infra: 'infrastruktura' };
-  const off = !s.auto_enable ? 'Automat je vypnutý — níže je jen náhled, co by udělal.' : a.paused ? 'Správce nástroje automat pozastavil všem (nouzová brzda ve Správě).' : '';
+  if (state.autoEdit) return autoEditorHtml(a);
+  const s = a.settings, days = String(s.auto_days || '').split(',').map(Number), dt = autoDt;
+  const groups = a.groups || []; const inGroups = new Set(groups.flatMap(g => g.devs)); const free = (a.pickable || []).filter(id => !inGroups.has(id)).length;
+  const off = !s.auto_enable ? 'Automat je vypnutý — joby níže jsou jen náhled, co by se dělo.' : a.paused ? 'Správce nástroje automat pozastavil všem (nouzová brzda ve Správě).' : '';
   const skipped = a.nextNight && a.skipNight === a.nextNight;
+  const total = groups.filter(g => g.enabled).reduce((n, g) => n + g.next.length, 0);
   return `<div class="panel" id="autopanel"><h2>Automatický upgrade</h2>
-    <div class="hint" style="margin-bottom:8px">Když MikroTik vydá novou verzi kanálu a ta dozraje, automat ji v nočním okně po vlnách nasadí na <b>tvoje</b> zařízení: první noc pár kanárků různých modelů, další noci větší vlny. Zakládá běžné joby (najdeš je v Upgradech), takže platí všechny kontroly, zálohy a pořadí podle topologie. Jen v rámci stejné hlavní verze (6 → 7 nikdy), nikdy rodič s potomkem ani oba konce spoje v jedné noci. Při první chybě se zastaví a čeká, až ho uvolníš.</div>
+    <div class="hint" style="margin-bottom:8px">Sestav si vlastní <b>automatické joby</b> — skupiny svých zařízení. Když MikroTik vydá novou verzi kanálu a uplyne zpoždění jobu, automat v nočním okně upgraduje všechna jeho zařízení, která jsou pod touto verzí. Postup si tak řídíš sám: třeba job „Kanárci“ se zpožděním 3 dny a zbytek s delším. Zařízení mimo joby se automaticky neupgradují. Zakládají se běžné joby (najdeš je v Upgradech), takže platí všechny kontroly, zálohy a pořadí podle topologie; jen v rámci stejné hlavní verze (6 → 7 nikdy). Při první chybě se automat zastaví a čeká, až ho uvolníš.</div>
     ${a.halted ? `<div class="banner err"><b>Automat je zastavený po chybě</b>${a.haltedAt ? ` (${dt(a.haltedAt)})` : ''}: ${esc(a.halted)}<div class="row" style="margin-top:8px"><button id="autorelease" class="small">Zkontroloval jsem, uvolnit</button><span class="hint">selhané kusy se znovu zařadí, pokračuje se další noc</span></div></div>` : ''}
     ${off ? `<div class="banner warn">${off}</div>` : ''}
     ${!a.windowValid ? '<div class="banner err">Noční okno nejde přečíst — automat neběží, dokud ho neopravíš.</div>' : ''}
+    ${a.lastError ? `<div class="banner warn">Poslední pokus o spuštění selhal (${dt(a.lastError.at)}): ${esc(a.lastError.error)}</div>` : ''}
     <form id="autof" class="form">
-      <label class="check wide"><input type="checkbox" name="auto_enable" ${s.auto_enable ? 'checked' : ''}> zapnout automatický upgrade mých zařízení</label>
-      <label>zpoždění po vydání (dní)<input name="auto_delay_days" type="number" min="0" max="365" step="1" value="${esc(String(s.auto_delay_days))}"></label>
+      <label class="check wide"><input type="checkbox" name="auto_enable" ${s.auto_enable ? 'checked' : ''}> zapnout automatický upgrade (spouští zapnuté joby níže)</label>
+      <label>výchozí zpoždění po vydání (dní)<input name="auto_delay_days" type="number" min="0" max="365" step="1" value="${esc(String(s.auto_delay_days))}"></label>
       <label>noční okno<input name="auto_window" type="text" value="${esc(s.auto_window)}" placeholder="01:00-04:30"></label>
-      <label>kusů za noc po vlnách (pak bez omezení)<input name="auto_waves" type="text" value="${esc(s.auto_waves)}" placeholder="3,10,25"></label>
       <div class="wide">noci, kdy okno smí začít: ${AUTO_DAYS.map(([n, l]) => `<label class="check" style="display:inline-flex;margin-right:10px"><input type="checkbox" name="auto_day" value="${n}" ${days.includes(n) ? 'checked' : ''}> ${l}</label>`).join('')}</div>
-      <label class="check wide"><input type="checkbox" name="auto_backbone" ${s.auto_backbone ? 'checked' : ''}> zahrnout i páteř a infrastrukturu (switche, routery, spoje, 60 GHz) — jinak jen koncové kusy a sektory</label>
       <label class="check wide"><input type="checkbox" name="auto_mail" ${s.auto_mail ? 'checked' : ''}> posílat e-mailem hlášení: odpoledne před nocí, co půjde, a po noci souhrn (při chybě hned)</label>
       <label class="wide">adresa pro hlášení (víc adres čárkou; prázdné = e-mail účtu)<input name="auto_mail_to" type="text" value="${esc(s.auto_mail_to || '')}" placeholder="${esc(a.mail.to || 'účet nemá e-mail')}"></label>
       ${!a.mail.enabled ? '<div class="wide hint">Server nemá nastavené odesílání e-mailů (MTU_SMTP_HOST) — hlášení se neposílají.</div>' : ''}
       ${a.mail.error ? `<div class="wide banner warn">Poslední e-mail se nepodařilo odeslat (${dt(a.mail.error.at)}): ${esc(a.mail.error.error)}</div>` : ''}
-      <div class="wide row"><button class="primary">Uložit</button>${a.mail.enabled ? '<button type="button" id="automail">Poslat zkušební e-mail</button>' : ''}${a.nextWindow && s.auto_enable && !a.halted && !a.paused ? `<span class="hint">nejbližší okno: ${dt(a.nextWindow)}${skipped ? ' — <b>vynecháno</b>' : ''}</span><button type="button" class="small" id="autoskip">${skipped ? 'Vrátit tuto noc' : 'Tuto noc vynechat'}</button>` : ''}</div>
+      <div class="wide row"><button class="primary">Uložit</button>${a.mail.enabled ? '<button type="button" id="automail">Poslat zkušební e-mail</button>' : ''}${a.nextWindow && s.auto_enable && !a.halted && !a.paused ? `<span class="hint">nejbližší okno: ${dt(a.nextWindow)}${skipped ? ' — <b>vynecháno</b>' : `, půjde ${total} zařízení`}</span><button type="button" class="small" id="autoskip">${skipped ? 'Vrátit tuto noc' : 'Tuto noc vynechat'}</button>` : ''}</div>
     </form>
-    <h2 style="margin-top:14px">Verze</h2>
-    <div class="tablewrap"><table class="cards"><thead><tr><th>kanál</th><th>poslední verze MikroTiku</th><th>vydáno</th><th>stav</th><th>čeká kusů</th><th>vlna</th></tr></thead><tbody>${trackRows || '<tr><td colspan="6" class="muted">verze zatím nejsou načtené</td></tr>'}</tbody></table></div>
-    ${sk ? `<div class="hint" style="margin-top:6px">Automat vynechává: ${sk}.</div>` : ''}
-    <h2 style="margin-top:14px">${skipped ? 'Nejbližší noc je vynechaná — jinak by šlo' : 'Příští noc by šlo'} (${a.preview.length})</h2>
-    ${a.preview.length ? `<div class="tablewrap"><table class="cards"><thead><tr><th>zařízení</th><th>model</th><th>teď</th><th>cíl</th><th>druh</th></tr></thead><tbody>${a.preview.map(x => `<tr><td data-l="zařízení"><b>${esc(x.name)}</b> <span class="muted">${esc(x.host)}</span></td><td data-l="model">${esc(x.model)}</td><td data-l="teď">${esc(x.version)}</td><td data-l="cíl">${esc(x.to)}</td><td data-l="druh">${CLS[x.cls] || ''}</td></tr>`).join('')}</tbody></table></div>` : '<div class="hint">Nic — všechno je na zralé verzi, nebo žádná nová verze ještě nedozrála.</div>'}
-    ${(a.history || []).length ? `<h2 style="margin-top:14px">Minulé noci</h2><div class="tablewrap"><table class="cards"><thead><tr><th>noc</th><th>job</th><th>cíl</th><th>kusů</th><th>v pořádku</th><th>chyby</th><th>nedostupné</th><th>přeskočeno</th></tr></thead><tbody>${a.history.map(h => `<tr><td data-l="noc">${esc(h.night)}</td><td data-l="job"><a href="#" data-autojob="${h.jobId}">#${h.jobId}</a></td><td data-l="cíl">${esc(Object.values(h.targets || {}).join(', '))}</td><td data-l="kusů">${h.total}</td><td data-l="v pořádku">${h.ok}</td><td data-l="chyby">${h.failed ? `<span class="badge b-err">${h.failed}</span>` : 0}</td><td data-l="nedostupné">${h.unreachable || 0}</td><td data-l="přeskočeno">${h.skipped || 0}</td></tr>`).join('')}</tbody></table></div>` : ''}
-    ${a.last && !a.last.evaluated ? `<div class="hint" style="margin-top:6px">Poslední job automatu <a href="#" data-autojob="${a.last.jobId}">#${a.last.jobId}</a> ještě běží nebo čeká (${esc(a.last.status)}).</div>` : ''}
     ${Object.keys(a.quarantine || {}).length ? `<div class="banner warn" style="margin-top:8px">Verze v karanténě (selhaly víc správcům, automat je nenasazuje nikomu): ${Object.entries(a.quarantine).map(([v, r]) => `<b>${esc(v)}</b> — ${esc(r)}${state.admin ? ` <button class="small" data-unq="${esc(v)}">zrušit karanténu</button>` : ''}`).join('; ')}</div>` : ''}
-  </div>`;
+  </div>
+  <div class="row" style="justify-content:space-between;margin:14px 0 6px"><h2 style="margin:0">Moje automatické joby (${groups.length})</h2><button class="primary" id="autognew">+ Nový job</button></div>
+  ${groups.length ? groups.map(g => autoGroupHtml(g, a)).join('') : '<div class="panel hint">Zatím žádný job — dokud si nějaký nevytvoříš, automat nic neupgraduje.</div>'}
+  ${free ? `<div class="hint" style="margin:6px 0">Mimo joby zůstává ${free} tvých zařízení — ta se automaticky neupgradují.</div>` : ''}
+  ${(a.open || []).length ? `<div class="hint" style="margin-top:6px">Rozjeté joby automatu: ${a.open.map(o => `<a href="#" data-autojob="${o.jobId}">#${o.jobId}</a> „${esc(o.group)}“ (${esc(o.status)})`).join(', ')}.</div>` : ''}
+  ${(a.history || []).length ? `<div class="panel"><h2>Minulé noci</h2><div class="tablewrap"><table class="cards"><thead><tr><th>noc</th><th>job</th><th>skupina</th><th>cíl</th><th>kusů</th><th>v pořádku</th><th>chyby</th><th>nedostupné</th><th>přeskočeno</th></tr></thead><tbody>${a.history.map(h => `<tr><td data-l="noc">${esc(h.night)}</td><td data-l="job"><a href="#" data-autojob="${h.jobId}">#${h.jobId}</a></td><td data-l="skupina">${esc(h.group || '')}</td><td data-l="cíl">${esc(Object.values(h.targets || {}).join(', '))}</td><td data-l="kusů">${h.total}</td><td data-l="v pořádku">${h.ok}</td><td data-l="chyby">${h.failed ? `<span class="badge b-err">${h.failed}</span>` : 0}</td><td data-l="nedostupné">${h.unreachable || 0}</td><td data-l="přeskočeno">${h.skipped || 0}</td></tr>`).join('')}</tbody></table></div></div>` : ''}`;
 }
 function drawAuto() {
   const box = $('#autobox'); if (!box) return;
-  const ae = document.activeElement; if (ae && box.contains && box.contains(ae) && ['INPUT', 'SELECT'].includes(ae.tagName)) return; // nepřepisovat rozepsaný formulář
+  const ae = document.activeElement; if (ae && box.contains && box.contains(ae) && ['INPUT', 'SELECT'].includes(ae.tagName) && ae.type !== 'checkbox') return; // nepřepisovat rozepsaný formulář
   box.innerHTML = autoPanelHtml();
+  const put = async (path, opts, msg) => { try { state.auto = await api(path, opts); state.autoAt = Date.now(); toast(msg); const el = document.activeElement; if (el && el.blur) el.blur(); drawAuto(); return true; } catch (e) { toast(e.message, true); return false; } };
+  const g = $('#autog');
+  if (g) { // editor jobu
+    const e = state.autoEdit; const cnt = () => { const c = $('#autogcnt'); if (c) c.textContent = e.sel.size; };
+    g.elements.name.oninput = () => { e.name = g.elements.name.value; };
+    g.elements.delay_days.oninput = () => { e.delay = g.elements.delay_days.value; };
+    g.elements.enabled.onchange = () => { e.enabled = g.elements.enabled.checked; };
+    const rows = () => [...box.querySelectorAll('#autogrows tr[data-txt]')];
+    const qi = $('#autogq'); qi.oninput = () => { e.q = qi.value; const q = e.q.toLowerCase(); rows().forEach(r => { r.hidden = !!q && !r.dataset.txt.includes(q); }); };
+    qi.onkeydown = (ev) => { if (ev.key === 'Enter') ev.preventDefault(); };
+    box.querySelectorAll('[data-gdev]').forEach(c => c.onchange = () => { const id = +c.dataset.gdev; if (c.checked) e.sel.add(id); else e.sel.delete(id); cnt(); });
+    const bulk = (v) => { rows().filter(r => !r.hidden).forEach(r => { const c = r.querySelector('[data-gdev]'); c.checked = v; const id = +c.dataset.gdev; if (v) e.sel.add(id); else e.sel.delete(id); }); cnt(); };
+    on('#autogall', () => bulk(true)); on('#autognone', () => bulk(false));
+    on('#autogcancel', () => { state.autoEdit = null; drawAuto(); });
+    g.onsubmit = async (ev) => { ev.preventDefault(); const body = { id: e.id || undefined, name: e.name, delay_days: e.delay === '' ? null : e.delay, enabled: e.enabled, deviceIds: [...e.sel] };
+      try { state.auto = await api('/auto/groups', { method: 'POST', body }); state.autoAt = Date.now(); state.autoEdit = null; toast('job uložen'); const el = document.activeElement; if (el && el.blur) el.blur(); drawAuto(); } catch (er) { toast(er.message, true); } };
+    return;
+  }
   const f = $('#autof'); if (!f) return;
-  const put = async (path, opts, msg) => { try { state.auto = await api(path, opts); state.autoAt = Date.now(); toast(msg); const el = document.activeElement; if (el && el.blur) el.blur(); drawAuto(); } catch (e) { toast(e.message, true); } };
   f.onsubmit = (e) => { e.preventDefault();
-    const body = { auto_enable: f.elements.auto_enable.checked, auto_backbone: f.elements.auto_backbone.checked, auto_delay_days: parseFloat(f.elements.auto_delay_days.value), auto_window: f.elements.auto_window.value, auto_waves: f.elements.auto_waves.value, auto_mail: f.elements.auto_mail.checked, auto_mail_to: f.elements.auto_mail_to.value, auto_days: [...f.querySelectorAll('input[name=auto_day]:checked')].map(x => x.value).join(',') };
-    if (body.auto_enable && !state.auto.settings.auto_enable && !confirm(`Zapnout automatický upgrade? V nočním okně ${body.auto_window} začne automat sám upgradovat tvoje zařízení${body.auto_backbone ? ' VČETNĚ páteře a infrastruktury' : ''}.`)) return;
+    const body = { auto_enable: f.elements.auto_enable.checked, auto_delay_days: parseFloat(f.elements.auto_delay_days.value), auto_window: f.elements.auto_window.value, auto_mail: f.elements.auto_mail.checked, auto_mail_to: f.elements.auto_mail_to.value, auto_days: [...f.querySelectorAll('input[name=auto_day]:checked')].map(x => x.value).join(',') };
+    if (body.auto_enable && !state.auto.settings.auto_enable && !confirm(`Zapnout automatický upgrade? V nočním okně ${body.auto_window} začne automat sám upgradovat zařízení z tvých zapnutých jobů.`)) return;
     put('/auto', { method: 'PUT', body }, 'automatický upgrade uložen'); };
+  const grp = (id) => (state.auto.groups || []).find(x => x.id === +id);
+  on('#autognew', () => { state.autoEdit = { id: 0, name: '', delay: '', enabled: true, sel: new Set(), q: '' }; drawAuto(); });
+  box.querySelectorAll('[data-gedit]').forEach(b => b.onclick = () => { const x = grp(b.dataset.gedit); if (!x) return; state.autoEdit = { id: x.id, name: x.name, delay: x.delay_days === null ? '' : String(x.delay_days), enabled: x.enabled, sel: new Set(x.devs), q: '' }; drawAuto(); });
+  box.querySelectorAll('[data-gtoggle]').forEach(b => b.onclick = () => { const x = grp(b.dataset.gtoggle); if (x) put('/auto/groups', { method: 'POST', body: { id: x.id, name: x.name, delay_days: x.delay_days, enabled: !x.enabled, deviceIds: x.devs } }, x.enabled ? 'job vypnut' : 'job zapnut'); });
+  box.querySelectorAll('[data-gdel]').forEach(b => b.onclick = () => { const x = grp(b.dataset.gdel); if (x && confirm(`Smazat automatický job „${x.name}“? Zařízení zůstanou, jen se přestanou automaticky upgradovat.`)) put('/auto/groups/' + x.id, { method: 'DELETE' }, 'job smazán'); });
   on('#autorelease', () => put('/auto/release', { method: 'POST' }, 'automat uvolněn'));
   on('#autoskip', () => { const sk = state.auto.nextNight && state.auto.skipNight === state.auto.nextNight; put('/auto/skip-night', { method: 'POST', body: { skip: !sk } }, sk ? 'noc vrácena' : 'nejbližší noc se vynechá'); });
   on('#automail', async () => { try { const r = await api('/auto/test-mail', { method: 'POST' }); state.auto = r; toast('zkušební e-mail odeslán na ' + r.sent); drawAuto(); } catch (e) { toast(e.message, true); } });
@@ -1086,7 +1135,7 @@ function renderSettings(m, adminMode = false) {
     <li><b>Vzdálené logování:</b> je-li zapnuto v nastavení, u každého zařízení v ostrém běhu se zajistí <code>/system logging action</code> s target=remote na zadaný syslog server a pravidlo pro každé téma ze seznamu. Přidá se jen, co chybí; existující akce s jiným cílem se přenastaví.</li>
     <li><b>Bezdrátové spoje (aby se neuřízla anténa od sektoru):</b> sken si u každého zařízení zapamatuje, k jakému AP je stanice připojená, kolik klientů má sektor a s kým je spojený 60 GHz spoj (MAC, MCS, signál). Po každém restartu se čeká (výchozí 12 min), až se stanice zaregistruje ke stejnému AP, sektoru se vrátí aspoň 80 % klientů a 60 GHz spoj má MCS ≥ 1. Když ne, položka selže a job se zastaví dřív, než přijde na řadu nadřazený prvek. Ovladač rádia (wireless vs. wifi-qcom) se nikdy nemění — jen ten rozbíjí nv2/nstreme a station-bridge, rozdíl verzí na obou koncích doložený problém není. U 60 GHz se hlídají verze s regresí (7.19.4, 7.5, 6.47.x) a upozorní se, když druhý konec spoje není v jobu.</li>
     <li><b>Známé vadné verze:</b> první vydání větve (x.y.0) se neinstaluje, dokud není staré aspoň 14 dní (od 7.13 dostala každá do 14 dní opravu), plus seznam verzí s regresí pro konkrétní HW (RB2011, RB3011, hAP ac2/ax, CRS3xx, PPC, CHR, 60 GHz) a obecně (7.17, 7.19, 7.20, 7.23.4, 7.24…). Vadné bloky flash nad 5 % blokují, záznamy „kernel failure" v logu varují, otisk zneužití SSH zranitelnosti (9/2026) nebo device-mode „flagged" se hlásí.</li>
-    <li><b>Automatický upgrade</b> (stránka Automat v menu, zatím jen pro účty povolené správcem nástroje): když MikroTik vydá novou verzi kanálu a ta dozraje (výchozí 5 dní po vydání; opravné vydání odpočet spustí znovu), automat ji v nočním okně po vlnách nasadí na tvoje zařízení — první noc pár kanárků různých modelů, další noci větší vlny. Zakládá běžné joby se všemi kontrolami; jen v rámci stejné hlavní verze, páteř jen s výslovným povolením, nikdy rodič s potomkem ani oba konce spoje v jedné noci. Při první chybě se zastaví a čeká na uvolnění; na konci okna se rozdělaný kus dokončí a zbytek jde další noc.</li>
+    <li><b>Automatický upgrade</b> (stránka Automat v menu, zatím jen pro účty povolené správcem nástroje): sestavíš si vlastní automatické joby — pojmenované skupiny svých zařízení, každou s vlastním zpožděním po vydání. Když MikroTik vydá novou verzi kanálu a zpoždění jobu uplyne (výchozí 5 dní; opravné vydání odpočet spustí znovu), automat ji v nočním okně nasadí na všechna zařízení jobu, která jsou pod ní. Zařízení mimo joby se automaticky neupgradují. Zakládají se běžné joby, takže platí všechny kontroly, zálohy i pořadí podle topologie; cíl je poslední verze kanálu od MikroTiku bez ohledu na připnuté verze, jen v rámci stejné hlavní verze. Na konci okna se rozdělaný kus dokončí a zbytek jde další noc. Při první chybě se automat zastaví, dokud ho neuvolníš; verze, která selže dvěma správcům, jde do karantény. E-mailem chodí odpoledne oznámení, co půjde, a po noci souhrn.</li>
     <li><b>Dry run</b> = jen kontrola a plán, nic se nemění. <b>Kanárci</b> = nejdřív jedno zařízení od každého modelu, pak čekání na potvrzení.</li>
     <li><b>Nejčastější příčiny umrtvení dle fór/dokumentace MikroTik a opatření:</b> výpadek napájení během zápisu (→ kontrola napětí, nikdy nerestartovat nadřazený PoE prvek během upgradu potomka, servisní okno); neúplný/poškozený balíček a přesto restart (→ kontrola velikosti proti download.mikrotik.com, žádný cizí .npk, bez ověření se nerestartuje); chybějící wireless/wifi balíček po 7.13 (→ doplní se podle rozhraní, i 60GHz); „not enough space" na 16 MB flash (→ mezikrok 7.12.x, upload se při selhání uklidí); kernel bugy čerstvých verzí a bootloopy (→ min. stáří verze, zakázané verze, kanárci po modelech); starý RouterBOOT před v7 (→ firmware ještě na v6); konverze konfigurace 6→7 (BGP/OSPF/filtry/MPLS blokováno, VLAN filtering varování); protected-routerboot (varování, Netinstall nejde); auto-upgrade firmware routeru (→ RouterBOOT se zapíše sám při startu, nástroj ho aktivuje svým restartem); víc oddílů (→ kopie do záložního oddílu + fallback-to).</li>
     <li><b>Firewall na routerech:</b> nástroj se připojuje z IP serveru, na kterém běží — je vidět vlevo dole („SSH z …“, kliknutím se zkopíruje). Pokud mají zařízení brute-force ochranu SSH (address-list ssh_blacklist apod.), doporučuji tuto IP přidat do výjimky — nástroj sice rozestupuje opakovaná spojení na 65 s, ale sken + job dělají několik přihlášení za sebou.</li>

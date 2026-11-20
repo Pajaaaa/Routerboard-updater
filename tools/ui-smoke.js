@@ -84,14 +84,20 @@ run('spoje po APčkách', (el) => { renderLinks(el); if (!el.innerHTML.includes(
   document.querySelector = held;
 }
 S.admin = false; S.users = null; S.settingsGlobal = undefined; run('zařízení jako uživatel', renderDevices); run('nastavení jako uživatel', (el) => renderSettings(el)); run('upgrady jako uživatel', renderJobs);
-// stránka Automat: stav verzí, náhled noci, zastavení po chybě, historie, e-maily
-S.auto = { allowed: true, paused: false, settings: { auto_enable: true, auto_delay_days: 5, auto_window: '01:00-04:30', auto_days: '1,2,3,4', auto_backbone: false, auto_waves: '3,10,25', auto_mail: true, auto_mail_to: '' },
-  targets: { 'v7-long-term': { version: '7.24.6', releasedAt: 1793348669, matureAt: 1793780669, mature: true, delayDays: 5, blocked: '' }, 'v7-stable': { version: '7.25.1', releasedAt: 1793623193, matureAt: 1794055193, mature: false, delayDays: 5, blocked: '' } },
-  tracks: { 'v7-long-term': { wave: 1, waiting: 7 }, 'v7-stable': { wave: 0, waiting: 0 } }, skipped: { 'infrastruktura (páteř není povolená)': 4 },
-  preview: [{ id: 1, name: 'anténa <x>', host: '10.0.0.1', model: 'SXTsq', version: '7.24.4', to: '7.24.6', cls: 'leaf' }], nextNight: '2026-11-24', skipNight: '', mail: { enabled: true, to: 'a@b.cz', error: { at: Date.now(), error: 'spojení odmítnuto' } },
-  halted: 'job #5: d1 — nevrátilo se', haltedAt: Date.now(), failed: [{ id: 1 }], last: { jobId: 5, evaluated: true, status: 'done' }, history: [{ night: '2026-11-23', jobId: 5, targets: { 'v7-long-term': '7.24.6' }, total: 3, ok: 2, failed: 1, unreachable: 0, skipped: 0 }], nextWindow: Date.now() + 3600e3, windowValid: true, quarantine: { '7.25.0': 'selhala u 2 různých správců' } };
-run('automat', (el) => { el.innerHTML = autoPanelHtml(); const h = el.innerHTML; for (const need of ['7.24.6', 'dozraje', 'anténa &lt;x&gt;', 'Automat je zastavený po chybě', 'Minulé noci', 'Poslat zkušební e-mail', 'spojení odmítnuto', 'karanténě']) if (!h.includes(need)) throw new Error('chybí: ' + need); });
-S.auto.skipNight = '2026-11-24'; S.auto.halted = ''; run('automat: vynechaná noc', (el) => { el.innerHTML = autoPanelHtml(); if (!el.innerHTML.includes('Vrátit tuto noc') || !el.innerHTML.includes('Nejbližší noc je vynechaná')) throw new Error('chybí vynechání'); });
+// stránka Automat: nastavení, vlastní joby (skupiny), zastavení po chybě, historie, e-maily, editor jobu
+{
+  const T = { 'v7-long-term': { version: '7.24.6', releasedAt: 1793348669, matureAt: 1793780669, mature: true, delayDays: 5, blocked: '' }, 'v7-stable': { version: '7.25.1', releasedAt: 1793623193, matureAt: 1794055193, mature: false, delayDays: 5, blocked: '' } };
+  S.auto = { allowed: true, paused: false, settings: { auto_enable: true, auto_delay_days: 5, auto_window: '01:00-04:30', auto_days: '1,2,3,4', auto_mail: true, auto_mail_to: '' }, targets: T, pickable: [1, 2, 3],
+    groups: [{ id: 1, name: 'Kanárci <k>', enabled: true, delay_days: 3, devs: [1], devices: [{ id: 1, name: 'anténa <x>', host: '10.0.0.1', model: 'SXTsq', version: '7.24.4' }], targets: T, next: [{ id: 1, name: 'anténa <x>', host: '10.0.0.1', model: 'SXTsq', version: '7.24.4', to: '7.24.6' }], waiting: [{ id: 9, name: 'w', version: '7.24.4', to: '7.25.1', matureAt: 1794055193 }], skipped: { 'při posledním skenu nedostupné': 2 } },
+      { id: 2, name: 'Zbytek', enabled: false, delay_days: null, devs: [2], devices: [{ id: 2, name: 'd2', host: '10.0.0.2', model: '', version: '6.49.10' }], targets: T, next: [], waiting: [], skipped: {} }],
+    nextNight: '2026-11-24', skipNight: '', mail: { enabled: true, to: 'a@b.cz', error: { at: Date.now(), error: 'spojení odmítnuto' } },
+    halted: 'job #5: d1 — nevrátilo se', haltedAt: Date.now(), failed: [{ id: 1 }], open: [{ jobId: 6, group: 'Zbytek', night: '2026-11-24', status: 'running' }], history: [{ night: '2026-11-23', jobId: 5, group: 'Kanárci', targets: { 'v7-long-term': '7.24.6' }, total: 3, ok: 2, failed: 1, unreachable: 0, skipped: 0 }], nextWindow: Date.now() + 3600e3, windowValid: true, quarantine: { '7.25.0': 'selhala u 2 různých správců' } };
+}
+run('automat', (el) => { el.innerHTML = autoPanelHtml(); const h = el.innerHTML; for (const need of ['7.24.6', 'dozraje', 'anténa &lt;x&gt;', 'Kanárci &lt;k&gt;', 'Automat je zastavený po chybě', 'Minulé noci', 'Poslat zkušební e-mail', 'spojení odmítnuto', 'karanténě', 'Nový job', 'vypnutý', 'Čeká na dozrání 7.25.1', '2× při posledním skenu nedostupné', 'Mimo joby zůstává 1', 'Rozjeté joby automatu', 'výchozí (5 dní)']) if (!h.includes(need)) throw new Error('chybí: ' + need); });
+S.auto.skipNight = '2026-11-24'; S.auto.halted = ''; run('automat: vynechaná noc', (el) => { el.innerHTML = autoPanelHtml(); if (!el.innerHTML.includes('Vrátit tuto noc') || !el.innerHTML.includes('vynecháno')) throw new Error('chybí vynechání'); });
+S.autoEdit = { id: 2, name: 'Zbytek', delay: '', enabled: true, sel: new Set([2]), q: '' };
+run('automat: editor jobu', (el) => { el.innerHTML = autoPanelHtml(); const h = el.innerHTML; for (const need of ['Upravit automatický job', 'data-gdev="2" checked', 'data-gdev="1" >', 'Kanárci &lt;k&gt;', 'označit zobrazené', 'Uložit job']) if (!h.includes(need)) throw new Error('chybí: ' + need); if (h.includes('data-gdev="4"')) throw new Error('v nabídce je zařízení mimo povolená'); });
+S.autoEdit = null;
 S.auto = { allowed: false }; if (autoPanelHtml() !== '') { fail++; console.log('  automat nepovolený: CHYBA nepovolený účet nesmí nic vidět'); } else console.log('  automat nepovolený: OK');
 if (fail) { console.error(`UI smoke: ${fail} chyb`); process.exit(1); }
 console.log('UI smoke OK');

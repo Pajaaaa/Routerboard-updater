@@ -656,6 +656,9 @@ async function api(req, res, method, p, url) {
       db.setUserSettings(req.user.id, { ...db.getUserSettings(req.user.id), ...v.values }); audit(req, 'automatický upgrade: nastavení', JSON.stringify(v.values));
       return send(res, 200, auto.statusFor(me));
     }
+    // automatické joby = skupiny zařízení uživatele (název, zpoždění, zapnuto, zařízení)
+    if (method === 'POST' && p === '/api/auto/groups') { const r = auto.saveGroup(req.user.id, await readBody(req)); if (r.error) return send(res, 400, { error: r.error }); audit(req, 'automat: job uložen', `„${r.group.name}“, ${r.group.devs.length} zařízení, zpoždění ${r.group.delay_days ?? 'výchozí'}${r.group.enabled ? '' : ', vypnutý'}`); return send(res, 200, auto.statusFor(me)); }
+    if (method === 'DELETE' && seg[1] === 'groups' && seg[2]) { auto.deleteGroup(req.user.id, seg[2]); audit(req, 'automat: job smazán', '#' + seg[2]); return send(res, 200, auto.statusFor(me)); }
     if (method === 'POST' && p === '/api/auto/skip-night') { const b = await readBody(req); auto.skipNight(me, b.skip !== false); audit(req, b.skip !== false ? 'automat: nejbližší noc vynechána' : 'automat: vynechání noci zrušeno', ''); return send(res, 200, auto.statusFor(me)); }
     if (method === 'POST' && p === '/api/auto/test-mail') { try { const to = await auto.testMail(me); audit(req, 'automat: zkušební e-mail', to.join(', ')); return send(res, 200, { ...auto.statusFor(me), sent: to.join(', ') }); } catch (e) { return send(res, 502, { error: 'e-mail se nepodařilo odeslat: ' + e.message }); } }
     if (method === 'POST' && p === '/api/auto/release') { auto.release(req.user.id); audit(req, 'automatický upgrade uvolněn po chybě', ''); return send(res, 200, auto.statusFor(me)); }
