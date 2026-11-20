@@ -265,9 +265,9 @@ async function testAutomat() {
   s1 = await scen('big', Array.from({ length: 300 }, (_, i) => i % 50 === 7 ? unr : i % 60 === 3 ? skip : ok), 25);
   chk(/289 zařízení upgradováno, 11 neprovedeno/.test(s1.subj) && s1.text.split('\r\n').filter(l => /^ {2}big-\d+ /.test(l)).length === 300 && s1.p.body.length < 100000 && maxLine(s1.p) <= 76, 'job s 300 zařízeními: všech 300 řádků, zpráva ' + (s1.p ? s1.p.body.length : 0) + ' B');
   const two = mkUser('dva@x.cz', 'dva'); auto.saveGroup(two.id, { name: 'První', deviceIds: [mkDev(two.id).id] }); auto.saveGroup(two.id, { name: 'Druhá', deviceIds: [mkDev(two.id).id] }); db.setUserSettings(two.id, { auto_enable: true });
-  await auto.tick(D(1, 30, 25)); for (const l of US(two).open) { for (const it of db.getJobItems(l.jobId)) db.updateJobItem(it.id, { status: 'done' }); db.updateJob(l.jobId, { status: 'done' }); }
+  for (const m of [30, 35]) { await auto.tick(D(1, m, 25)); for (const l of US(two).open) { for (const it of db.getJobItems(l.jobId)) db.updateJobItem(it.id, { status: 'done' }); db.updateJob(l.jobId, { status: 'done' }); } } // joby jdou po sobě
   await auto.tick(D(5, 0, 25)); await sleep(80);
-  chk(mailsFor(two).map(p => dec2047(p.H.subject)).sort().join(' | ') === '[upgrader] „Druhá“ 25. 11.: 1 zařízení upgradováno | [upgrader] „První“ 25. 11.: 1 zařízení upgradováno', 'dva joby uzavřené naráz = dva souhrny (souběžná spojení)');
+  chk(mailsFor(two).map(p => dec2047(p.H.subject)).sort().join(' | ') === '[upgrader] „Druhá“ 25. 11.: 1 zařízení upgradováno | [upgrader] „První“ 25. 11.: 1 zařízení upgradováno', 'dva joby po sobě = dva souhrny');
 
   console.log('automat: selhání odeslání');
   const H = mk('fail'), L = mk('ztraceny');

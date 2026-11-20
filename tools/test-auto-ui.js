@@ -44,6 +44,7 @@ function route(method, p, b) {
     if (method === 'POST' && p === '/auto/unquarantine') { if (!admin) return J(403, { error: 'tuhle akci smí jen správce' }); auto.unquarantine(String(b.version || '')); return J(200, auto.statusFor(user)); }
     if (!auto.allowed(user)) return J(403, { error: 'automatický upgrade pro tvůj účet zatím není povolený' });
     if (method === 'PUT' && p === '/auto') { const v = auto.validate(b); if (v.error) return J(400, { error: v.error }); db.setUserSettings(uid, { ...db.getUserSettings(uid), ...v.values }); return J(200, auto.statusFor(user)); }
+    if (method === 'POST' && p === '/auto/groups/move') { const r = auto.moveGroup(uid, b.id, b.dir); if (r.error) return J(400, { error: r.error }); return J(200, auto.statusFor(user)); }
     if (method === 'POST' && p === '/auto/groups') { const r = auto.saveGroup(uid, b); if (r.error) return J(400, { error: r.error }); return J(200, auto.statusFor(user)); }
     if (method === 'DELETE' && p.startsWith('/auto/groups/')) { auto.deleteGroup(uid, p.split('/').pop()); return J(200, auto.statusFor(user)); }
     if (method === 'POST' && p === '/auto/skip-night') { auto.skipNight(user, b.skip !== false); return J(200, auto.statusFor(user)); }
@@ -165,6 +166,14 @@ const noJunk = (where) => { const t = txt('#main'); const m = t.match(/undefined
       const g2 = us().groups.find(g => g.name === 'Dvojklik');
       confirms.length = 0; confirmAnswer = false; $(`[data-gdel="${g2.id}"]`).click(); await sleep(30);
       chk(confirms.length === 1 && us().groups.length === 2, 'Smazat: odmítnuté potvrzení nic nesmaže');
+      { // pořadí jobů: číslování a šipky
+        const ids0 = us().groups.map(g => g.id); const heads = () => $$('[data-group] h2').map(h => h.textContent.trim().slice(0, 2)).join('');
+        chk(heads() === '1.2.' && $$('[data-gmove="up"]')[0].disabled && $$('[data-gmove="down"]')[1].disabled && !$$('[data-gmove="down"]')[0].disabled, 'joby jsou očíslované; první nejde nahoru, poslední dolů');
+        $$('[data-gmove="down"]')[0].click(); await sleep(40);
+        chk(us().groups.map(g => g.id).join() === [...ids0].reverse().join() && $$('[data-group]').map(e => +e.dataset.group).join() === [...ids0].reverse().join() && heads() === '1.2.', 'šipka dolů job posune, stránka se překreslí v novém pořadí');
+        $$('[data-gmove="up"]')[1].click(); await sleep(40);
+        chk(us().groups.map(g => g.id).join() === ids0.join(), 'šipka nahoru ho vrátí');
+      }
       confirmAnswer = true; $(`[data-gdel="${g2.id}"]`).click(); await sleep(40);
       chk(us().groups.length === 1 && !/Dvojklik/.test(txt()), 'Smazat: po potvrzení job zmizí');
     }

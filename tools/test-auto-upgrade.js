@@ -84,14 +84,19 @@ const mkDev = (owner, f = {}) => { const id = db.insertDevice({ host: `10.9.0.${
   chk(mails.length === 1 && /dnes v noci půjde 5 zařízení na 7\.24\.6/.test(mails[0].subject) && mails[0].to.join() === 'paja@x.cz' && /Job „Kanárci“ \(2\)/.test(mails[0].text) && /7\.24\.4 → 7\.24\.6/.test(mails[0].text), 'večer před nocí přijde oznámení se seznamem po jobech (' + (mails[0] && mails[0].subject) + ')');
   await auto.tick(new Date(2026, 10, 23, 18, 30)); chk(mails.length === 1, 'oznámení jen jednou na noc');
   await auto.tick(NOW);
-  chk(started.length === 2, 'v okně se pro každou skupinu založí a spustí job');
-  const job = db.getJob(started[0]); const items = db.getJobItems(job.id); const items2 = db.getJobItems(started[1]);
-  chk(job.owner_id === me.id && /„Kanárci“/.test(job.name) && job.options.auto === true && job.options.targets['v7-long-term'] === '7.24.6' && job.options.stop_on_failure === true && job.options.stop_at > nowSec && items.length === 2 && items2.length === 3, `job: vlastník, název skupiny, auto, cíl 7.24.6, zastavit při chybě, konec okna, 2 + 3 kusy (${items.length} + ${items2.length})`);
-  chk(V.withTargets(V.getLatest({ pin_v7_long_term: '7.24.5' }), job.options.targets).versions['v7-long-term'].version === '7.24.6', 'cíl jobu přebije připnutou verzi');
-  await auto.tick(NOW); chk(started.length === 2, 'tutéž noc se další joby nezakládají');
-  // první job v pořádku, druhý ještě běží
+  chk(started.length === 1, 'v okně se spustí jen první job v pořadí');
+  await auto.tick(NOW); chk(started.length === 1, 'dokud první job běží, další v pořadí se nezakládá');
+  const job = db.getJob(started[0]); const items = db.getJobItems(job.id);
+  // první job v pořádku → o pár minut později přijde na řadu druhý
   for (const it of items) db.updateJobItem(it.id, { status: 'done', finished_at: db.now() }); db.updateJob(job.id, { status: 'done', finished_at: db.now() });
   for (const it of items) db.updateDevice(it.device_id, { version: '7.24.6' });
+  await auto.tick(new Date(NOW.getTime() + 5 * 60000)); await tickWait();
+  chk(started.length === 2 && /„Kanárci“/.test(job.name), 'po doběhnutí prvního se založí druhý v pořadí');
+  const items2 = db.getJobItems(started[1]);
+  chk(job.owner_id === me.id && /„Kanárci“/.test(job.name) && job.options.auto === true && job.options.targets['v7-long-term'] === '7.24.6' && job.options.stop_on_failure === true && job.options.stop_at > nowSec && items.length === 2 && items2.length === 3, `job: vlastník, název skupiny, auto, cíl 7.24.6, zastavit při chybě, konec okna, 2 + 3 kusy (${items.length} + ${items2.length})`);
+  chk(V.withTargets(V.getLatest({ pin_v7_long_term: '7.24.5' }), job.options.targets).versions['v7-long-term'].version === '7.24.6', 'cíl jobu přebije připnutou verzi');
+  await auto.tick(new Date(NOW.getTime() + 6 * 60000)); chk(started.length === 2, 'tutéž noc se další joby nezakládají');
+  { const st0 = auto.statusFor(me); chk(st0.groups.map(g => g.order).join() === st0.groups.map((g, i) => i + 1).join(), 'stav: joby jsou očíslované podle pořadí'); }
   await auto.tick(new Date(2026, 10, 25, 1, 30)); await tickWait();
   chk(started.length === 2, 'další noc se čeká, dokud nejsou joby z minulé uzavřené');
   chk(mails.length === 2 && /„Kanárci“ 24\. 11\.: 2 zařízení upgradováno/.test(mails[1].subject), 'po uzavření jobu přijde souhrn (' + (mails[1] && mails[1].subject) + ')');

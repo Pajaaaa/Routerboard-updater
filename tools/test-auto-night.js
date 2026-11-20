@@ -236,9 +236,12 @@ const since = (n0) => started.slice(n0);
     const origRefresh = V.refreshLatest; V.refreshLatest = () => sleep(60);
     await Promise.all([auto.tick(T), auto.tick(T), auto.tick(T)]); V.refreshLatest = origRefresh;
     const js = since(n0);
-    chk(js.length === 2 && db.getJobItems(js[0]).length === 2 && db.getJobItems(js[1]).length === 1, `tři souběžné ticky: právě 2 joby (A se 2 kusy, B s 1), skupina bez kandidátů a kus v ručním jobu nic (${js.length})`);
-    chk(US(u).open.length === 2 && US(u).lastCheck.jobs === 2 && new Set(js.flatMap(j => db.getJobItems(j).map(i => i.device_id))).size === 3, 'oba joby v evidenci open, žádný kus dvakrát');
-    await auto.tick(at(2026, 11, 24, 1, 31)); chk(since(n0).length === 2, 'další tick téže noci nic nepřidá');
+    chk(js.length === 1 && db.getJobItems(js[0]).length === 2 && US(u).open.length === 1, `tři souběžné ticky: právě 1 job — první v pořadí (A se 2 kusy) (${js.length})`);
+    await auto.tick(at(2026, 11, 24, 1, 31)); chk(since(n0).length === 1 && !US(u).lastNight, 'dokud první job běží, další v pořadí se nezakládá a noc není uzavřená');
+    fin(js[0], () => 'done'); await auto.tick(at(2026, 11, 24, 1, 32)); const js2 = since(n0);
+    chk(js2.length === 2 && db.getJobItems(js2[1]).length === 1 && US(u).lastCheck.jobs === 2 && new Set(js2.flatMap(j => db.getJobItems(j).map(i => i.device_id))).size === 3, 'po doběhnutí prvního přijde druhý v pořadí (B s 1 kusem), žádný kus dvakrát');
+    fin(js2[1], () => 'done'); await auto.tick(at(2026, 11, 24, 1, 33)); await auto.tick(at(2026, 11, 24, 1, 34));
+    chk(since(n0).length === 2 && US(u).lastNight === '2026-11-24' && !US(u).queue, 'skupina bez kandidátů a kus v ručním jobu nic; po posledním jobu je noc uzavřená');
     void manual;
   });
 
@@ -274,17 +277,19 @@ const since = (n0) => started.slice(n0);
   await scene('RESTART SERVERU uprostřed noci (znovu načtený modul nad stejným DATA_DIR)', async () => {
     const T = at(2026, 11, 24, 1, 30);
     const u = mkUser(); const a = mkDev(u), b = mkDev(u), c = mkDev(u); grp(u, 'A', [a, b]); grp(u, 'B', [c]);
-    let n0 = started.length; await auto.tick(T); const [j1, j2] = since(n0);
-    chk(since(n0).length === 2, 'před restartem 2 joby');
+    let n0 = started.length; await auto.tick(T); const [j1] = since(n0);
+    chk(since(n0).length === 1, 'před restartem běží první job v pořadí');
     reload();
-    chk(US(u).open.length === 2 && US(u).lastNight === '2026-11-24' && US(u).groups.length === 2, 'po restartu: open, lastNight i skupiny jsou zpět ze souboru');
-    await auto.tick(at(2026, 11, 24, 1, 40)); chk(since(n0).length === 2, 'po restartu se tutéž noc druhé joby nezaloží');
-    db.deleteJob(j1); fin(j2, () => ({ status: 'skipped', error: 'job zrušen' }), 'cancelled');
+    chk(US(u).open.length === 1 && US(u).queue && US(u).queue.night === '2026-11-24' && US(u).queue.done.length === 1 && US(u).groups.length === 2, 'po restartu: open, rozpracovaná noc (fronta) i skupiny jsou zpět ze souboru');
+    await auto.tick(at(2026, 11, 24, 1, 40)); chk(since(n0).length === 1, 'po restartu se první job tutéž noc nezaloží podruhé');
+    db.deleteJob(j1); await auto.tick(at(2026, 11, 24, 1, 50)); const j2 = since(n0)[1];
+    chk(!!j2 && since(n0).length === 2 && /„B“/.test(db.getJob(j2).name), 'po restartu se pokračuje dalším jobem v pořadí');
+    fin(j2, () => ({ status: 'skipped', error: 'job zrušen' }), 'cancelled');
     await auto.tick(at(2026, 11, 24, 2, 0));
     chk(US(u).open.length === 0 && US(u).history.length === 1 && US(u).history[0].jobId === j2 && !US(u).halted, 'smazaný job z evidence tiše zmizí, zrušený se zapíše do historie; automat se nezastaví');
-    n0 = started.length; await auto.tick(at(2026, 11, 25, 1, 30)); chk(since(n0).length === 2, 'další noc se pokračuje (smazaný / zrušený job neblokuje)');
+    n0 = started.length; await auto.tick(at(2026, 11, 25, 1, 30)); chk(since(n0).length === 1, 'další noc se začíná znovu od prvního jobu (smazaný / zrušený job neblokuje)');
     // uživatel job pozastavil a nechal být
-    const [k1, k2] = since(n0); fin(k2); db.updateJob(k1, { status: 'paused', status_note: 'pozastaveno uživatelem', finished_at: 0 });
+    const [k1] = since(n0); db.updateJob(k1, { status: 'paused', status_note: 'pozastaveno uživatelem', finished_at: 0 });
     db.updateDevice(c.id, { version: '7.24.4' }); // skupina B má zase co dělat
     n0 = started.length; for (let i = 26; i <= 30; i++) await auto.tick(at(2026, 11, i, 1, 30));
     chk(since(n0).length === 0 && US(u).open.length === 1, 'pozastavený job skupiny A blokuje dalších 5 nocí i skupinu B (záměr: „minulý job ještě není uzavřený“) — viz zpráva');
@@ -372,7 +377,7 @@ const since = (n0) => started.slice(n0);
     const u2 = mkUser(), u3 = mkUser({ auto_mail: true }); grp(u2, 'G', [mkDev(u2)]); grp(u3, 'G', [mkDev(u3)]);
     setS(u, { auto_enable: false });
     const n1 = started.length; await auto.tick(at(2027, 3, 2, 1, 30)); const [ja, jb] = since(n1);
-    chk(since(n1).length === 2, 'dva účty, dva joby');
+    chk(since(n1).length === 2, `dva účty, dva joby (${since(n1).length}; karanténa ${JSON.stringify(auto._state().quarantine)})`);
     fin(ja, () => ({ status: 'failed', error: 'x' })); fin(jb, () => ({ status: 'failed', error: 'nevrátilo se' }));
     const delU = db.getJob(ja).owner_id === u2.id ? u2 : u3, keepU = delU === u2 ? u3 : u2;
     db.deleteUser(delU.id); db.setSettings({ auto_users: 'nikdo' });
@@ -387,13 +392,19 @@ const since = (n0) => started.slice(n0);
 
   await scene('VYHODNOCENÍ — chyba v jednom jobu a ostatní rozjeté joby téže noci', async () => {
     const u = mkUser(); const a = mkDev(u), b = mkDev(u), c = mkDev(u); grp(u, 'A', [a]); grp(u, 'B', [b, c]);
-    const n0 = started.length; poked.length = 0; await auto.tick(at(2026, 11, 24, 1, 30)); const [ja, jb] = since(n0);
-    db.updateJob(jb, { status: 'running' });
-    fin(ja, () => ({ status: 'failed', error: 'nevrátilo se po restartu' })); await auto.tick(at(2026, 11, 24, 1, 40));
-    chk(!!US(u).halted && US(u).open.length === 1, 'job A selhal → automat zastaven, job B je ještě rozjetý');
-    // BUG: (střední) „AUTOMAT SE ZASTAVIL“ platí jen pro další noci: druhý job téhož uživatele (jiná skupina, stejná verze) mezitím běží dál a upgraduje
-    // svoje kusy až do konce okna — nikdo ho nepozastaví ani nepřeskočí zbytek
-    bug(poked.includes(jb) || !['running', 'queued'].includes(db.getJob(jb).status) || db.getJobItems(jb).every(i => i.status !== 'pending'), `po chybě v jobu A se rozjetý job B téhož uživatele zastaví (job B: ${db.getJob(jb).status}, čekajících položek ${db.getJobItems(jb).filter(i => i.status === 'pending').length})`);
+    const n0 = started.length; await auto.tick(at(2026, 11, 24, 1, 30)); const [ja] = since(n0);
+    chk(since(n0).length === 1 && /„A“/.test(db.getJob(ja).name), 'spustí se jen první job v pořadí');
+    fin(ja, () => ({ status: 'failed', error: 'nevrátilo se po restartu' })); await auto.tick(at(2026, 11, 24, 1, 40)); await auto.tick(at(2026, 11, 24, 1, 45));
+    // joby jdou po sobě: chyba v prvním zastaví automat dřív, než se job s nižší prioritou vůbec rozjede
+    chk(!!US(u).halted && US(u).open.length === 0 && since(n0).length === 1, 'job A selhal → automat zastaven, job B se tu noc vůbec nezaloží');
+    // pořadí: po uvolnění a posunu B nahoru jde další noc první B
+    auto.release(u.id); auto.unquarantine('7.24.6'); // (karanténa: počítadlo selhání z předchozích scén)
+    auto.moveGroup(u.id, US(u).groups.find(g => g.name === 'B').id, 'up');
+    const n1 = started.length; await auto.tick(at(2026, 11, 25, 1, 30));
+    chk(since(n1).length === 1 && /„B“/.test(db.getJob(since(n1)[0]).name), 'po posunu nahoru jde další noc jako první job B');
+    // změna pořadí uprostřed noci platí pro zbytek; job, který už byl na řadě, se nespustí podruhé
+    auto.moveGroup(u.id, US(u).groups.find(g => g.name === 'B').id, 'down'); fin(since(n1)[0], () => 'done'); await auto.tick(at(2026, 11, 25, 1, 40)); await auto.tick(at(2026, 11, 25, 1, 41));
+    chk(since(n1).filter(j => /„B“/.test(db.getJob(j).name)).length === 1, 'job, který už tu noc byl na řadě, se po přeřazení nespustí znovu');
   });
 
   await scene('E-MAILY — oznámení před nocí', async () => {

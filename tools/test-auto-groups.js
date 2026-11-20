@@ -184,11 +184,27 @@ async function partLib() {
   const gA = sg({ name: 'A', deviceIds: [d[0]] }).group, gB = sg({ name: 'B', deviceIds: [d[1]] }).group, gE = sg({ name: 'Prázdná', deviceIds: [d[2]] }).group;
   sg({ id: gB.id, name: 'B', deviceIds: [d[1], d[2]] });
   auto.saveGroup(other.id, { name: 'O', deviceIds: [f1] });
+  { // pořadí (priorita): posun nahoru/dolů, krajní polohy, neplatné vstupy
+    const ord = () => groupsOf(me.id).map(g => g.name).join(',');
+    chk(ord() === 'A,B,Prázdná' && auto.statusFor(me).groups.map(g => g.order).join() === '1,2,3', 'pořadí: nové joby se řadí na konec a jsou očíslované');
+    chk(auto.moveGroup(me.id, gE.id, 'up').moved && ord() === 'A,Prázdná,B', 'pořadí: posun nahoru');
+    chk(auto.moveGroup(me.id, gA.id, 'down').moved && ord() === 'Prázdná,A,B', 'pořadí: posun dolů');
+    chk(auto.moveGroup(me.id, gE.id, 'up').moved === false && auto.moveGroup(me.id, gB.id, 'down').moved === false && ord() === 'Prázdná,A,B', 'pořadí: první nejde výš, poslední níž');
+    chk(!!auto.moveGroup(me.id, 999999, 'up').error && !!auto.moveGroup(me.id, gA.id, 'bokem').error && !!auto.moveGroup(me.id, null, null).error, 'pořadí: neexistující job a neplatný směr se odmítnou');
+    auto.moveGroup(me.id, gE.id, 'bottom'); chk(ord() === 'A,B,Prázdná', 'pořadí: posun na konec');
+    sg({ id: gA.id, name: 'A', deviceIds: [d[0]] }); sg({ id: gA.id, enabled: true }); chk(ord() === 'A,B,Prázdná', 'pořadí: úprava a přepnutí jobu pořadí nemění');
+    auto._state().users[me.id].groups = groupsOf(me.id); // beze změny
+    require('fs'); const st = JSON.parse(JSON.stringify(auto._state().users[me.id].groups.map(g => g.id))); chk(st.join() === [gA.id, gB.id, gE.id].join(), 'pořadí: je uložené ve stavu');
+  }
   await auto.tick(NOW);
+  chk(started.length === 2 && started.filter(j => db.getJob(j).owner_id === me.id).length === 1 && /„A“/.test(db.getJob(started.find(j => db.getJob(j).owner_id === me.id)).name), 'noc: každému účtu se spustí jen jeho první job v pořadí');
+  // první job doběhne → o pár minut později přijde na řadu další v pořadí
+  { const j = started.find(x => db.getJob(x).owner_id === me.id); for (const it of db.getJobItems(j)) { db.updateJobItem(it.id, { status: 'done', finished_at: db.now() }); db.updateDevice(it.device_id, { version: '7.24.6' }); } db.updateJob(j, { status: 'done', finished_at: db.now() }); }
+  await auto.tick(new Date(NOW.getTime() + 5 * 60000));
   const jobs = started.map(j => db.getJob(j));
   chk(started.length === 3 && !jobs.some(j => /Prázdná/.test(j.name)) && jobs.filter(j => j.owner_id === me.id).length === 2, `noc: job za každou neprázdnou skupinu, prázdná se nespouští (${jobs.map(j => j.name).join('; ')})`);
   auto.deleteGroup(me.id, gA.id); sg({ id: gB.id, name: 'B nové jméno', deviceIds: [d[1], d[2]] });
-  { const s = auto.statusFor(me); chk(s.open.length === 2 && s.groups.length === 2, 'smazání / přejmenování skupiny s rozjetým jobem: joby běží dál a jsou vidět v „rozjetých“'); }
+  { const s = auto.statusFor(me); chk(s.open.length === 1 && s.history.length === 1 && s.groups.length === 2, 'smazání / přejmenování skupiny s rozjetým jobem: job běží dál a je vidět v „rozjetých“'); }
   // druhému uživateli správce odebere povolení, jeho job mezitím selže
   db.setSettings({ auto_users: 'pajavlk' });
   const oj = started.find(j => db.getJob(j).owner_id === other.id);
