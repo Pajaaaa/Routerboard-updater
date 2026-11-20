@@ -1348,8 +1348,16 @@ const server = http.createServer(async (req, res) => {
     // uživatel se načte z DB při každém požadavku: změna role, hesla nebo vypnutí účtu platí hned
     const dbUser = session ? db.getUser(session.user.id) : null;
     req.user = dbUser && !dbUser.disabled ? { id: dbUser.id, name: dbUser.name, role: dbUser.role } : null;
+    // pohled řadového správce (20.11.2026): správce nástroje si v prohlížeči přepne cookie mtu_asuser a celý požadavek se pak vyhodnotí
+    // jako role „user“ (isAdmin všude false) — vidí přesně to, co ostatní: jen svá zařízení a APčka své oblasti. canAdmin = smí přepnout zpět.
+    if (req.user && req.user.role === 'admin') { req.user.canAdmin = true; if (cookies(req).mtu_asuser === '1') { req.user.role = 'user'; req.user.asUser = true; } }
     const authed = !!req.user;
-    if (method === 'POST' && p === '/api/logout') return send(res, 200, { ok: true }, { 'Set-Cookie': `mtu_session=; Path=${cfg.basePath || '/'}; HttpOnly; Max-Age=0` });
+    if (method === 'POST' && p === '/api/view-as') {
+      if (!authed || !req.user.canAdmin) return send(res, 403, { error: 'tuhle akci smí jen správce' });
+      const b = await readBody(req); const on = !!b.user;
+      return send(res, 200, { ok: true, asUser: on }, { 'Set-Cookie': on ? `mtu_asuser=1; ${cookieAttrs}` : `mtu_asuser=; Path=${cfg.basePath || '/'}; HttpOnly; Max-Age=0` });
+    }
+    if (method === 'POST' && p === '/api/logout') return send(res, 200, { ok: true }, { 'Set-Cookie': [`mtu_session=; Path=${cfg.basePath || '/'}; HttpOnly; Max-Age=0`, `mtu_asuser=; Path=${cfg.basePath || '/'}; HttpOnly; Max-Age=0`] });
     // pro deploy: co právě běží (bez přihlášení, jen počty) — restart služby by to přerušil
     if (p === '/api/busy') return send(res, 200, { jobs: runner.running().length, discovery: discovery.busy, scanning: scanner.inProgress.size, draining: runner.draining });
     // pro deploy (jen přímo z localhostu): drain = běžící joby dokončí aktuální zařízení a pozastaví se, nové se jen zařadí; po restartu pokračují
