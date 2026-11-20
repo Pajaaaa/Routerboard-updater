@@ -348,14 +348,17 @@ async function partHttp() {
     chk(r.status === 200, `BUG: skupinu, ve které nezbylo žádné dostupné zařízení, nejde tlačítkem vypnout (HTTP ${r.status}: ${r.j.error || ''}) — jde jen smazat`); // BUG: lib/autoupgrade.js:108
     // správce a pohled řadového správce
     r = await call(J.admin, '/api/auto/groups', { method: 'POST', body: { name: 'Adm', deviceIds: [I.ad1, I.a4, I.b1] } });
-    chk(r.status === 200 && r.j.groups[0].devs.join() === String(I.ad1) && r.j.pickable.join() === String(I.ad1), 'správce nástroje: do skupiny smí jen svá zařízení, i když jinak vidí všechna');
+    chk(r.status === 200 && r.j.groups[0].devs.slice().sort().join() === [I.ad1, I.a4, I.b1].sort().join() && r.j.pickable.includes(I.a4) && r.j.pickable.includes(I.b1), 'správce nástroje: do jobu smí i cizí zařízení (20.11.2026)', JSON.stringify(r.j.groups[0].devs));
     const n1 = (await call(J.admin, '/api/auto')).j;
+    chk(n1.groups[0].next.length === 3 && !n1.groups[0].devices.some(x => /už není ve správě/.test(x.name)), 'správce nástroje: cizí zařízení se plánují a ve výpisu mají název', JSON.stringify(n1.groups[0].skipped || {}));
     await call(J.admin, '/api/view-as', { method: 'POST', body: { user: true } });
     const n2 = (await call(J.admin, '/api/auto')).j;
-    chk(JSON.stringify(n1.groups) === JSON.stringify(n2.groups) && JSON.stringify(n1.pickable) === JSON.stringify(n2.pickable), 'pohled řadového správce (mtu_asuser): stejné skupiny i výběr zařízení jako v pohledu správce');
+    chk(JSON.stringify(n1.groups) === JSON.stringify(n2.groups) && n2.pickable.join() === String(I.ad1), 'pohled řadového správce (mtu_asuser): stejné joby, v nabídce jen vlastní zařízení');
+    r = await call(J.admin, '/api/auto/groups', { method: 'POST', body: { name: 'AdmU', deviceIds: [I.a4] } });
+    chk(r.status === 400, 'pohled řadového správce: nový job s cizím zařízením nejde uložit');
     chk((await call(J.admin, '/api/auto/unquarantine', { method: 'POST', body: { version: 'x' } })).status === 403, 'v pohledu řadového správce je zrušení karantény 403');
     r = await call(J.admin, '/api/auto/groups', { method: 'POST', body: { id: 1, name: 'Adm2', deviceIds: [I.ad1, I.a4] } });
-    chk(r.status === 200 && r.j.groups[0].name === 'Adm2' && r.j.groups[0].devs.join() === String(I.ad1), 'v pohledu řadového správce jde skupinu upravit, cizí zařízení se nevezme');
+    chk(r.status === 200 && r.j.groups[0].name === 'Adm2' && r.j.groups[0].devs.slice().sort().join() === [I.ad1, I.a4].sort().join(), 'v pohledu řadového správce jde job upravit; cizí zařízení, které v něm už bylo, zůstane');
     await call(J.admin, '/api/view-as', { method: 'POST', body: { user: false } });
     // odebrané povolení, pokus povolit si sám
     await call(J.admin, '/api/settings', { method: 'PUT', body: { auto_users: 'admin, bob' } });
