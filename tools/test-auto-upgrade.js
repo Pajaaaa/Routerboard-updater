@@ -27,7 +27,9 @@ const mkDev = (owner, f = {}) => { const id = db.insertDevice({ host: `10.9.0.${
   const me = mkUser('paja@x.cz', 'pajavlk'), other = mkUser('jiny@x', 'jiny');
   const S = () => db.getSettings(me.id);
   // --- povolené účty
-  chk(auto.allowed(me) && !auto.allowed(other), 'automat smí jen účet ze seznamu auto_users (výchozí pajavlk)');
+  chk(auto.allowed(me) && auto.allowed(other) && db.getSettings(other.id).auto_enable === false, 'výchozí: automat smí každý účet, ale zapnutý není nikomu');
+  db.setSettings({ auto_users: 'pajavlk' });
+  chk(auto.allowed(me) && !auto.allowed(other), 'správce může automat omezit na vyjmenované účty (auto_users)');
   // --- zrání
   let tg = auto.targets(S(), nowSec);
   chk(tg['v7-long-term'].version === '7.24.6' && tg['v7-long-term'].mature, 'long-term 7.24.6 vydaná před 6 dny je při zpoždění 5 dní zralá');

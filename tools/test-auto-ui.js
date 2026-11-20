@@ -23,6 +23,7 @@ const mkUser = (name, role) => { const id = db.insertUser({ name, pass_hash: '',
 let n = 0;
 const mkDev = (owner, f = {}) => { const id = db.insertDevice({ host: `192.0.2.${++n}`, port: 22, owner_id: owner, username: 'a', password: 'b' }); db.updateDevice(id, { version: '7.24.4', scan_status: 'ok', userdb_member: 1, model: 'SXTsq', board_name: 'SXTsq', track: 'v7-long-term', name: 'kus ' + n, userdb_ap: 'AP ' + (n % 3), ...f }); return id; };
 const me = mkUser('pajavlk', 'admin'), other = mkUser('kolega', 'user');
+db.setSettings({ ...db.getSettings(), auto_users: 'pajavlk' }); // scéna „nepovolený účet“: správce automat omezil na vyjmenované účty (výchozí je *)
 const D = [mkDev(me.id, { name: NASTY, identity: NASTY, model: NASTY, userdb_ap: NASTY, version: '7.20.1' }), mkDev(me.id, { name: 'Zluty kun', model: 'RB750' })];
 for (let i = 0; i < 6; i++) D.push(mkDev(me.id));
 const OD = mkDev(other.id, { name: 'kolegovo' });
