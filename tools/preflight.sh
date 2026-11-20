@@ -59,6 +59,7 @@ node tools/test-discovery-altkey.js || { echo "kontrola hledání kusů s poško
 node tools/test-ros-slow.js || { echo "kontrola pomalých zařízení selhala"; exit 1; }
 node tools/test-unused-pkgs.js || { echo "kontrola vypínání nepoužívaných balíčků selhala"; exit 1; }
 node tools/test-stray-npk.js || { echo "kontrola mazání cizích balíčků selhala"; exit 1; }
+node tools/test-small-flash-ram.js || { echo "kontrola malé flash bez flash/ selhala"; exit 1; }
 node tools/test-wifiwave2.js || { echo "kontrola náhrady wifiwave2 selhala"; exit 1; }
 node tools/test-access.js || { echo "kontrola sdíleného přístupu podle APčka selhala"; exit 1; }
 node tools/test-schedule.js || { echo "kontrola souběhu a pořadí uvnitř jobu selhala"; exit 1; }
