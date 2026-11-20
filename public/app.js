@@ -1039,10 +1039,10 @@ function autoPanelHtml() {
 }
 function drawAuto() {
   const box = $('#autobox'); if (!box) return;
-  if (box.contains(document.activeElement) && ['INPUT', 'SELECT'].includes(document.activeElement.tagName)) return; // nepřepisovat rozepsaný formulář
+  const ae = document.activeElement; if (ae && box.contains && box.contains(ae) && ['INPUT', 'SELECT'].includes(ae.tagName)) return; // nepřepisovat rozepsaný formulář
   box.innerHTML = autoPanelHtml();
   const f = $('#autof'); if (!f) return;
-  const put = async (path, opts, msg) => { try { state.auto = await api(path, opts); state.autoAt = Date.now(); toast(msg); document.activeElement && document.activeElement.blur(); drawAuto(); } catch (e) { toast(e.message, true); } };
+  const put = async (path, opts, msg) => { try { state.auto = await api(path, opts); state.autoAt = Date.now(); toast(msg); const el = document.activeElement; if (el && el.blur) el.blur(); drawAuto(); } catch (e) { toast(e.message, true); } };
   f.onsubmit = (e) => { e.preventDefault();
     const body = { auto_enable: f.elements.auto_enable.checked, auto_backbone: f.elements.auto_backbone.checked, auto_delay_days: parseFloat(f.elements.auto_delay_days.value), auto_window: f.elements.auto_window.value, auto_waves: f.elements.auto_waves.value, auto_days: [...f.querySelectorAll('input[name=auto_day]:checked')].map(x => x.value).join(',') };
     if (body.auto_enable && !state.auto.settings.auto_enable && !confirm(`Zapnout automatický upgrade? V nočním okně ${body.auto_window} začne automat sám upgradovat tvoje zařízení${body.auto_backbone ? ' VČETNĚ páteře a infrastruktury' : ''}.`)) return;
