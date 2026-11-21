@@ -30,7 +30,7 @@ class FakeClient {
   constructor(o) { this.o = o; this.conn = {}; this.closed = false; this.hostKey = ''; this.slowFactor = 1; }
   async connect() { const l = live[this.o.host] || {}; const n = conns[this.o.host] = (conns[this.o.host] || 0) + 1; if (l.fail) throw new Error(l.fail); if (l.delay && n > 1) await new Promise(r => setTimeout(r, l.delay)); }
   close() { this.closed = true; } abort() { this.closed = true; }
-  async exec() { return ''; } async kv() { return {}; } async list() { return []; } async count() { return 0; }
+  async exec(cmd) { return /^\/export/.test(String(cmd || '')) ? '# falešný export\n/system identity\nset name=test\n' : ''; } async kv() { return {}; } async list() { return []; } async count() { return 0; }
 }
 ros.RosClient = FakeClient;
 const fakeInfo = (d, l = {}) => ({ identity: l.identity || d.identity || 'dev' + d.id, board_name: d.board_name || 'SXTsq', model: d.model || 'SXTsq', serial: l.serial || d.serial || '', arch: 'arm', version: l.version || d.version, channel: 'long-term',
