@@ -47,5 +47,16 @@ const check = (ok, msg) => { console.log(`${ok ? 'OK ' : 'FAIL'} ${msg}`); if (!
 
   p = await run(dev({ version: '6.49.21', arch: 'arm', board_name: 'CRS326-24G-2S+', model: 'CRS326-24G-2S+', packages: ['routeros-arm', 'system', 'dhcp', 'security', 'wireless'].map(name => ({ name, version: '6.49.21', disabled: false })), flags: { wireless: 0, w60g: 0 } }));
   check(p.hops.length && !(p.hops[p.hops.length - 1].packages || []).some(x => /^wireless/.test(x.name || x)), 'switch bez rádia nedostane balíček wireless: ' + JSON.stringify((p.hops[p.hops.length - 1].packages || []).map(x => x.name || x)));
+  // kus nad cílem long-term jede po stable
+  const lat2 = { versions: { ...latest.versions, 'v7-stable': { version: '7.25.1' } } };
+  const run2 = (d) => plan(d, { track: 'v7-long-term', settings, latest: lat2, options: { ignore_uptime: true } });
+  p = await run2(dev({ version: '7.25' }));
+  check(!p.blockers.length && p.target === '7.25.1' && p.track === 'v7-stable' && p.hops.length === 1 && p.hops[0].to === '7.25.1', '7.25 s kanálem long-term (cíl 7.24.6) dostane poslední stable 7.25.1: ' + JSON.stringify(p.blockers));
+  p = await run2(dev({ version: '7.25.1' }));
+  check(!p.blockers.length && p.upToDate && !p.hops.length, '7.25.1 = poslední stable: aktuální, žádný blokátor: ' + JSON.stringify(p.blockers));
+  p = await run2(dev({ version: '7.26' }));
+  check(!p.blockers.length && p.upToDate && !p.hops.length, 'novější než long-term i stable: verze se nechává, neblokuje se');
+  p = await run2(dev({ version: '7.24.2' }));
+  check(p.target === '7.24.6' && p.track === 'v7-long-term', 'kus pod cílem long-term zůstává na long-term');
   console.log(bad ? `\n${bad} kontrol selhalo` : '\nvše OK'); process.exit(bad ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

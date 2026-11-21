@@ -503,18 +503,18 @@ const since = (n0) => started.slice(n0);
     let job = await waitJob(j); const by = (d) => db.getJobItems(j).find(i => i.device_id === d.id);
     chk(job.status === 'done', `job doběhl (${job.status}: ${job.status_note})`);
     chk(by(a).status === 'done' && by(a).result.nothingToDo && by(a).to_version === '7.24.6', 'kus mezitím ručně zvednutý na cíl: „už aktuální“, nic se nedělá (a cíl položky je 7.24.6, ne pin)');
-    chk(by(b).status === 'blocked' && /downgrade se nedělá/.test(by(b).error) && db.getDevice(b.id).version === '7.25.1', 'kus ručně zvednutý nad cíl: blokováno, downgrade nenastane');
+    chk(by(b).status === 'done' && by(b).result.nothingToDo && db.getDevice(b.id).version === '7.25.1', 'kus ručně zvednutý nad cíl: verze se nechává (neblokuje se), downgrade ani přechod na stable v automatu nenastane');
     chk(by(c).status === 'failed' && by(c).result.untouched === true, 'nedostupný kus: failed + untouched');
     chk(by(f).status === 'blocked' && /bez v7/.test(by(f).error), 'kus s 32 MB RAM na v7: planner blokuje');
     await auto.tick(new Date()); const h = US(u).history[0];
-    chk(h && h.ok === 1 && h.unreachable === 1 && h.skipped === 2 && h.failed === 0 && !US(u).halted, 'vyhodnocení: 1 OK, 1 nedostupný, 2 neprovedeno, automat se nezastavil');
+    chk(h && h.ok === 2 && h.unreachable === 1 && h.skipped === 1 && h.failed === 0 && !US(u).halted, 'vyhodnocení: 2 OK (jeden z nich nad cílem, ponechán), 1 nedostupný, 1 neprovedeno, automat se nezastavil');
     // cíl nižší než pin / než aktuální verze — přímo plánovač s cíli jobu
     pinMap = { 'v7-long-term': '7.25.1' };
     const L = V.withTargets(V.getLatest(u.id), { 'v7-long-term': '7.24.6' });
     const p1 = await plan(fakeInfo(db.getDevice(a.id), { version: '7.24.4' }), { track: 'v7-long-term', settings: db.getSettings(u.id), latest: L, options: { auto: true } });
     const p2 = await plan(fakeInfo(db.getDevice(a.id), { version: '7.25.1' }), { track: 'v7-long-term', settings: db.getSettings(u.id), latest: L, options: { auto: true } });
     chk(p1.target === '7.24.6' && p1.hops.length === 1 && p1.hops[0].to === '7.24.6' && !p1.blockers.length, 'cíl automatu nižší než pin (7.25.1): kus pod cílem jde na 7.24.6 (pin se ignoruje, jak je popsáno)');
-    chk(p2.blockers.some(x => /downgrade se nedělá/.test(x)) && !p2.hops.length, 'kus už na připnuté 7.25.1 s cílem automatu 7.24.6: žádný hop, downgrade se nedělá');
+    chk(!p2.blockers.length && !p2.hops.length && p2.target === '7.25.1' && p2.notes.some(x => /downgrade se nedělá/.test(x)), 'kus už na 7.25.1 s cílem automatu 7.24.6: žádný hop, žádný blokátor, downgrade se nedělá');
     pinMap = {};
     // další noc
     n0 = started.length; startHook = (id) => { const o = db.getJob(id).options; db.updateJob(id, { options: { ...o, stop_at: Math.floor(Date.now() / 1000) + 3600 } }); };

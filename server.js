@@ -55,6 +55,8 @@ function needsUpgrade(version, track, latest) {
   if (/^7\./.test(String(version || '')) && track === 'v6-long-term') track = 'v7-long-term'; // kus na v7 s kanálem v6 se měří kanálem v7 (jinak se nikdy nenabídne)
   const t = targetFor(track, latest); if (!t) return false;
   const c = V.cmpVersion(version, t);
+  // novější než cíl long-term = kus jede po stable: čeká na upgrade, jen když je poslední stable ještě novější
+  if (c > 0 && track === 'v7-long-term' && /^7\./.test(String(version || ''))) { const st = targetFor('v7-stable', latest); return !!st && V.cmpVersion(version, st) < 0; }
   if (!Number.isFinite(c) || c >= 0) return false;
   const min = minFor(version, track); if (!min) return true;
   return V.cmpVersion(version, min) < 0;
