@@ -53,6 +53,17 @@ check(Runner.bridgeStpChanges([B('b', 'RSTP')]).length === 1, 'velikost písmen 
   check(cmds.length === 1, 'bridge bez aktivních portů = vypne se');
   await run([P('bridge', 'sfp9', 'designated-port', 'false', 'true'), P('bridge', 'sfp11', 'designated-port', 'false', 'true')].join('\n'), true);
   check(cmds.length === 0 && log.length === 1 && !/DRY RUN/.test(log[0]), 'dry run s pojistkou: jen poznámka, žádné „vypnulo by se“');
+  // revize 21.11.2026: switch/router bez rádia si RSTP nechává, kus s rádiem se chová jako dřív
+  const withInfo = async (info) => { cmds.length = 0; log.length = 0; await r.disableBridgeStp({ list: async () => [B('bridge', 'rstp')], exec: async (cmd) => { if (cmd === Runner.STP_PORTS_CMD) return ''; cmds.push(cmd); return ''; } }, (lv, m) => log.push(m), (m) => log.push(m), { bridge_stp_off: true }, false, info); };
+  const noLinks = { stations: [], aps: [], w60g: [], wifi: [], cap: null };
+  await withInfo({ flags: { wireless: 0, w60g: 0, wifi: 0 }, links: noLinks });
+  check(cmds.length === 0 && /nemá žádné rádio/.test(log[0] || ''), 'switch/router bez rádia: RSTP zůstává');
+  await withInfo({ flags: { wireless: null, w60g: 0, wifi: 0 }, links: noLinks });
+  check(cmds.length === 0, 'v7 bez balíčku wireless (počet null) je taky kus bez rádia');
+  await withInfo({ flags: { wireless: 1 }, links: { ...noLinks, stations: [{ iface: 'wlan1' }] } });
+  check(cmds.length === 1, 'stanice s rádiem: RSTP se vypíná jako dřív');
+  await withInfo({ flags: {}, links: null });
+  check(cmds.length === 1, 'neznámé údaje o rádiích: chování jako dřív');
   console.log(bad ? `SELHALO: ${bad}` : 'bridge STP OK');
   process.exit(bad ? 1 : 0);
 })();

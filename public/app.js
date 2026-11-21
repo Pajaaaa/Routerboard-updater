@@ -938,7 +938,10 @@ function settingsFields(s, global) {
   if (simple) return basic + `<div class="wide hint" style="margin-top:12px">Limity kontrol, rádiové prahy, mezikroky, NTP, SNMP, DNS, syslog a další volby drží správce ve společném nastavení. Chceš-li si je přepsat pro svoje zařízení, zapni vlevo dole „Pokročilé zobrazení“.</div>`;
   const infra = `${global ? `<h2>Automatický upgrade</h2>
     <label class="wide">účty, které smí automatický upgrade zapnout (přezdívky z userdb nebo jména účtů, čárkou; * = všichni)<input name="auto_users" type="text" value="${esc(s.auto_users || '')}" placeholder="*"></label>
-    ${c('auto_pause', 'nouzová brzda: automat nikomu nic nespouští (běžící job doběhne)')}` : ''}<h2>Čas (NTP a časová zóna)</h2>
+    ${c('auto_pause', 'nouzová brzda: automat nikomu nic nespouští (běžící job doběhne)')}
+    <h2>Pravidelná kontrola na pozadí</h2>
+    ${f('bg_scan_days', 'přeskenovat zařízení, jejichž poslední kontrola je starší než (dní; 0 = vypnuto)')}
+    <div class="wide hint">Každých 10 minut se zkontroluje pár zařízení s nejstarším skenem (jen čtení stavu přes SSH, kusy v jobu se vynechají) — seznam se tak obejde jednou za zadaný počet dní a nedostupné kusy se najdou včas.</div>` : ''}<h2>Čas (NTP a časová zóna)</h2>
     ${c('ntp_enable', 'při ostrém běhu nastavit NTP klienta a časovou zónu (mění se jen to, co neodpovídá)')}
     <label>NTP servery (čárkou; IP nebo jména)<input name="ntp_servers" type="text" value="${esc(s.ntp_servers)}" placeholder="192.0.2.1"></label>
     <label>časová zóna<input name="timezone_name" type="text" value="${esc(s.timezone_name)}" placeholder="Europe/Prague"></label>

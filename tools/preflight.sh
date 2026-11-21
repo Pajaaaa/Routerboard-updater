@@ -63,6 +63,7 @@ node tools/test-small-flash-ram.js || { echo "kontrola malé flash bez flash/ se
 node tools/test-poe-radio-uplink.js || { echo "kontrola PoE prvku za rádiem selhala"; exit 1; }
 node tools/test-review-planner.js || { echo "kontrola oprav plánovače z revize selhala"; exit 1; }
 node tools/test-review-runner.js || { echo "kontrola oprav runneru z revize selhala"; exit 1; }
+node tools/test-bg-scan.js 2>/dev/null || { echo "kontrola průběžného skenu na pozadí selhala"; exit 1; }
 node tools/test-wifiwave2.js || { echo "kontrola náhrady wifiwave2 selhala"; exit 1; }
 node tools/test-access.js || { echo "kontrola sdíleného přístupu podle APčka selhala"; exit 1; }
 node tools/test-schedule.js || { echo "kontrola souběhu a pořadí uvnitř jobu selhala"; exit 1; }
