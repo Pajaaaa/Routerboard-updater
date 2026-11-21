@@ -16,4 +16,6 @@ check(/longWait \? 30 : 15/.test(all), 'čekání na návrat: nejvýš 30 min (p
 check(/uploaded = left;/.test(all), 'nesmazaný balíček zůstává vedený jako rozpracovaný');
 check(/lateRequeued: true/.test(all) && /jb\.status === 'running'/.test(all), 'pozdní návrat za běhu jobu vrací položku do fronty (jen jednou)');
 check(/rebootDebt\.set\(devId, \[\]\)/.test(all), 'dluh vypnutých restartovacích skriptů se po zapnutí maže');
+check(/\.\.\.\(bl\.wifi \|\| \[\]\)/.test(all) && /\.\.\.\(now\.wifi \|\| \[\]\)/.test(all), 'sektory na ovladači wifi (ax) se po restartu ověřují');
+check(/print count-only where interface=/.test(all), 'port bridge se zjišťuje přes count-only');
 console.log(bad ? `\n${bad} kontrol selhalo` : '\nvše OK'); process.exit(bad ? 1 : 0);

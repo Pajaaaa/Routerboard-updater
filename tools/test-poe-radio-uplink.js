@@ -29,4 +29,19 @@ o = run('bridge1', [{ name: 'bridge1', type: 'bridge' }, { name: 'wlan3', type: 
 check(o.blockers.length === 1 && /přímo na kabelu, jeho port bridge1\/ether14.*neovladatelný PoE switch/.test(o.blockers[0]), 'sektor na kabelu PoE switche (uplink bridge) se blokuje dál');
 o = run('ether1', [{ name: 'ether1', type: 'ether' }], [sw('ether15')]);
 check(o.blockers.length === 1, 'zařízení na kabelu (ether1) se blokuje dál');
+// --- revize 21.11.2026 ---
+const PM = require('../lib/poe-models');
+o = run('bridge1', [{ name: 'bridge1', type: 'bridge' }, { name: 'wlan1', type: 'wlan' }, { name: 'ether1', type: 'ether' }], [{ ...sektor, iface: 'bridge1;wlan1' }, { ...sw('ether15'), iface: 'wlan1/bridge1' }]);
+check(!o.blockers.length && o.notes.some(x => /vidět přes rádio.*neblokuje/.test(x)), 'stanice s rádiem v bridgi: PoE switch viděný přes wlan1 neblokuje: ' + JSON.stringify(o.blockers));
+o = run('bridge1', [{ name: 'bridge1', type: 'bridge' }, { name: 'wlan1', type: 'wlan' }, { name: 'ether1', type: 'ether' }], [{ ...sw('ether15'), iface: 'bridge1/ether1' }]);
+check(o.blockers.length === 1, 'totéž zařízení, ale switch viděný přes ether1 (kabel) blokuje dál');
+const gw = { address: '10.107.25.1', identity: 'router', board: 'CCR1036-8G-2S+', mac: '00:0C:42:00:00:01', lldp: false, port: 'ether3', iface: 'ether1' };
+const viaGw = (info) => r.poeParentChecks(mk('192.0.2.' + (++n)), { uplink: { gateway: '10.107.25.1', iface: 'ether1', neighbor: gw, neighbors_on_iface: [gw, { ...sw('ether15'), iface: 'ether1' }] }, interfaces: [{ name: 'ether1', type: 'ether' }], ...info }, S);
+o = viaGw({});
+check(o.blockers.length === 1 && /Hvezda - PoE switch/.test(o.blockers[0]), 'známá brána neskryje neovladatelný PoE switch na kabelu mezi zařízením a bránou: ' + JSON.stringify(o));
+o = viaGw({ board_name: 'CCR1036-8G-2S+' });
+check(!o.blockers.length && o.notes.some(x => /nemá PoE vstup/.test(x)), 'rackový kus bez PoE vstupu se kvůli PoE switchi neblokuje');
+check(PM.poeOutPorts('RB2011UAS-2HnD').length === 0 && PM.poeOutPorts('RB2011UiAS-RM').join() === '10' && PM.poeOutPorts('RB2011L').length === 0, 'RB2011: PoE-out jen řada UiAS');
+check(PM.poeOutPorts('E60iUGS').join() === '5', 'E60iUGS má PoE-out na ether5');
+check(PM.physicalPort('bridge/S2-ether5').n === 5 && PM.physicalPort('eth2-sektor04').n === 2 && PM.physicalPort('ether10').n === 10 && PM.physicalPort('bridge1') === null && PM.physicalPort('sfp-sfpplus1').kind === 'nopoe', 'přejmenované porty (S2-ether5, eth2-sektor04) se převedou na číslo portu');
 console.log(bad ? `\n${bad} kontrol selhalo` : '\nvše OK'); process.exit(bad ? 1 : 0);
