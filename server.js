@@ -52,6 +52,7 @@ function minFor(version, track) {
 /** čeká zařízení na upgrade? Níž než cíl kanálu, ale na bezpečnostním minimu své řady nebo výš = hotové („aktuální“) —
  *  když MikroTik vydá další verzi a správce posune cíl, už upgradované kusy se nevrací do fronty; výslovně spuštěný upgrade jde na cíl dál */
 function needsUpgrade(version, track, latest) {
+  if (/^7\./.test(String(version || '')) && track === 'v6-long-term') track = 'v7-long-term'; // kus na v7 s kanálem v6 se měří kanálem v7 (jinak se nikdy nenabídne)
   const t = targetFor(track, latest); if (!t) return false;
   const c = V.cmpVersion(version, t);
   if (!Number.isFinite(c) || c >= 0) return false;

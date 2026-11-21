@@ -8,8 +8,9 @@ const cases = [
   ['OmniTIK 5 ac', 'RBOmniTikG-5HacD', 128, 'v7-stable'],
   ['OmniTIK 5 PoE ac', 'RBOmniTikPG-5HacD', 128, 'v7-stable'],
   ['OmniTIK 5 PoE ac', 'RouterBOARD OmniTIK PG-5HacD', 128, 'v7-stable'],
-  ['OmniTIK 5 PoE', 'OmniTIK UPA-5HnD r2', 128, 'v6-long-term'],
-  ['OmniTIK 5', 'OmniTIK U-5HnD r2', 64, 'v6-long-term'],
+  ['OmniTIK 5 PoE', 'OmniTIK UPA-5HnD r2', 128, 'v7-stable'], // 21.11.2026: jmenný seznam platí jen při RAM < 64 MB
+  ['OmniTIK 5 PoE', 'OmniTIK UPA-5HnD', 32, 'v6-long-term'],
+  ['OmniTIK 5', 'OmniTIK U-5HnD r2', 64, 'v7-stable'],
   ['RB750UP', 'RB750UP', 32, 'v6-long-term'],
   ['RB750Gr3', 'RB750Gr3', 256, 'v7-stable'],
   ['Groove 52 ac', 'RBGrooveG-52HPacn', 64, 'v7-stable'],
@@ -18,7 +19,15 @@ const cases = [
   ['RB Groove 52HPn', 'Groove 52HPn', 64, 'v7-stable'],
   ['RB Groove 5Hn', 'Groove 5Hn', 32, 'v6-long-term'],
   ['RB Groove A-5Hn', 'Groove A-5Hn', 32, 'v6-long-term'],
-  ['Groove A-5Hn', 'Groove A-5Hn', 64, 'v6-long-term'],
+  ['Groove A-5Hn', 'Groove A-5Hn', 64, 'v7-stable'], // 2 kusy v síti na v7 s 25 MB volné RAM
+  ['RB433AH', 'RB433AH', 128, 'v7-stable'],
+  ['RB493AH', 'RB493AH', 128, 'v7-stable'],
+  ['RB411UAHR', 'RB411UAHR', 64, 'v7-stable'],
+  ['RB433', 'RB433', 64, 'v6-long-term'],
+  ['RB411', 'RB411', 32, 'v6-long-term'],
+  ['RB800', 'RB800', 256, 'v6-long-term'],
+  ['RB600A', 'RB600A', 128, 'v6-long-term'],
+  ['RB1100AHx2', 'RB1100AHx2', 1024, 'v7-stable'],
   ['hAP ac2', 'RBD52G-5HacD2HnD', 128, 'v7-stable'],
 ];
 let bad = 0;
