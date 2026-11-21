@@ -1,0 +1,32 @@
+// Regresní test (21.11.2026, Hvězda): klientská anténa s uplinkem přes rádio vidí PoE switch svého sektoru přes LLDP (sektor ho přemostí).
+// Takový switch anténu nenapájí → nesmí upgrade blokovat. Sektor na kabelu toho switche se blokuje dál.
+process.env.MTU_SECRET = process.env.MTU_SECRET || 'test-secret-1234567890';
+process.env.MTU_PASSWORD = process.env.MTU_PASSWORD || 'test';
+process.env.DATA_DIR = process.env.DATA_DIR || require('fs').mkdtempSync(require('os').tmpdir() + '/mtu-poeradio-');
+const db = require('../lib/db');
+const { Runner } = require('../lib/runner');
+let bad = 0;
+const check = (ok, msg) => { if (!ok) bad++; console.log(`${ok ? 'OK ' : 'FAIL'} ${msg}`); };
+const uid = db.insertUser({ name: 'u', pass_hash: '', role: 'user' });
+const mk = (host) => db.insertDevice({ host, port: 22, owner_id: uid, username: 'a', password: 'b' });
+const r = Object.create(Runner.prototype);
+const sw = (port) => ({ address: '10.107.149.250', identity: 'Hvezda - PoE switch', board: 'CRS318-16P-2S+', mac: 'F4:1E:57:22:E7:54', lldp: true, port });
+const sektor = { address: '10.107.25.2', identity: 'sektor', board: 'RB433AH', mac: '00:0C:42:A6:C1:3B', lldp: false, port: 'bridge1/ether1' };
+const S = { block_unmanaged_poe: true };
+const run = (iface, ifs, nbs) => r.poeParentChecks(mk('192.0.2.' + (++n)), { uplink: { gateway: '10.107.25.1', iface, neighbor: null, neighbors_on_iface: nbs }, interfaces: ifs }, S);
+let n = 10;
+let o = run('wlan1', [{ name: 'wlan1', type: 'wlan' }, { name: 'ether1', type: 'ether' }], [sektor, sw('ether15')]);
+check(!o.blockers.length && !o.warnings.length && o.notes.some(x => /uplink jde přes rádio \(wlan1\).*Hvezda - PoE switch.*neblokuje/.test(x)), 'stanice (wlan1): PoE switch za sektorem neblokuje, jen poznámka: ' + JSON.stringify(o));
+o = run('My-Wlan', [{ name: 'My-Wlan', type: 'wlan' }], [sw('bridge1/ether14')]);
+check(!o.blockers.length && o.notes.length === 1, 'přejmenované rádio se pozná podle typu rozhraní');
+o = run('wifi1', [{ name: 'wifi1', type: 'wifi' }], [sw('ether14')]);
+check(!o.blockers.length, 'v7 wifi rozhraní taky');
+o = run('wlan1', [], [sw('ether14')]);
+check(!o.blockers.length, 'bez seznamu rozhraní rozhodne výchozí název wlanN');
+o = run('wlan1', [{ name: 'wlan1', type: 'wlan' }], [sektor]);
+check(!o.blockers.length && !o.notes.length, 'rádio bez PoE souseda: nic');
+o = run('bridge1', [{ name: 'bridge1', type: 'bridge' }, { name: 'wlan3', type: 'wlan' }], [sektor, sw('bridge1/ether14')]);
+check(o.blockers.length === 1 && /přímo na kabelu, jeho port bridge1\/ether14.*neovladatelný PoE switch/.test(o.blockers[0]), 'sektor na kabelu PoE switche (uplink bridge) se blokuje dál');
+o = run('ether1', [{ name: 'ether1', type: 'ether' }], [sw('ether15')]);
+check(o.blockers.length === 1, 'zařízení na kabelu (ether1) se blokuje dál');
+console.log(bad ? `\n${bad} kontrol selhalo` : '\nvše OK'); process.exit(bad ? 1 : 0);

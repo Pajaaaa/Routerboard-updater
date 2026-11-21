@@ -60,6 +60,7 @@ node tools/test-ros-slow.js || { echo "kontrola pomalých zařízení selhala"; 
 node tools/test-unused-pkgs.js || { echo "kontrola vypínání nepoužívaných balíčků selhala"; exit 1; }
 node tools/test-stray-npk.js || { echo "kontrola mazání cizích balíčků selhala"; exit 1; }
 node tools/test-small-flash-ram.js || { echo "kontrola malé flash bez flash/ selhala"; exit 1; }
+node tools/test-poe-radio-uplink.js || { echo "kontrola PoE prvku za rádiem selhala"; exit 1; }
 node tools/test-wifiwave2.js || { echo "kontrola náhrady wifiwave2 selhala"; exit 1; }
 node tools/test-access.js || { echo "kontrola sdíleného přístupu podle APčka selhala"; exit 1; }
 node tools/test-schedule.js || { echo "kontrola souběhu a pořadí uvnitř jobu selhala"; exit 1; }
