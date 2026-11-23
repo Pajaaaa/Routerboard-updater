@@ -112,6 +112,14 @@ async function partLib() {
   og = auto.saveGroup(other.id, { name: 'O', deviceIds: [f1] }).group;
   chk(groupsOf(me.id).length === 1 && groupsOf(me.id)[0].name === 'G1' && groupsOf(me.id)[0].devs.length === 2, 'úprava / smazání skupiny se stejným id u druhého uživatele se mé skupiny nedotkne');
   { const so = auto.statusFor(other); chk(so.groups.every(g => g.devs.every(id => id === f1)) && so.pickable.join() === String(f1) && !JSON.stringify(so).includes('G1'), 'statusFor druhého uživatele neobsahuje moje skupiny ani zařízení'); }
+  // --- zařízení i v automatu kolegy (sdílené přes APčko → kus smí do jobu oba; v testu to nahradí přepis vlastníka po uložení skupiny)
+  { chk(Object.keys(auto.statusFor(me).others).length === 0 && Object.keys(auto.statusFor(other).others).length === 0, 'others: bez společných zařízení je prázdné');
+    db.updateDevice(f1, { owner_id: me.id }); // kus f1 teď patří mně, kolega ho má dál ve svém jobu „O“
+    const o = auto.statusFor(me).others; const was = db.getSettings().auto_enable; db.setSettings({ auto_enable: 1 }); const o2 = auto.statusFor(me).others;
+    chk(Object.keys(o).join() === String(f1) && o[f1].length === 1 && o[f1][0].user === 'jiny' && o[f1][0].group === 'O' && o[f1][0].active === false, 'others: kus v jobu kolegy se ukáže se jménem a jobem; vypnutý automat = active false: ' + JSON.stringify(o));
+    chk(o2[f1] && o2[f1][0].active === true, 'others: zapnutý automat kolegy = active true');
+    chk(!JSON.stringify(auto.statusFor(other).others).includes('G1'), 'others: kolega se o mých jobech dozví jen u kusů, na které smí');
+    db.setSettings({ auto_enable: was }); db.updateDevice(f1, { owner_id: other.id }); }
   auto.deleteGroup(me.id, 'abc'); auto.deleteGroup(me.id, null); auto.deleteGroup(me.id, 999);
   chk(groupsOf(me.id).length === 1, 'deleteGroup s nesmyslným id nic nesmaže a nespadne');
   // --- přesun mezi skupinami, prázdná skupina
