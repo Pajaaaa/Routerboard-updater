@@ -129,6 +129,9 @@ td.parent{white-space:normal;max-width:170px;font-size:12px}
 .form .check{display:flex;grid-column:1/-1;align-self:start}
 .check input{width:auto!important;margin:0;accent-color:var(--accent)}
 .form label>input[type="checkbox"]{display:inline-block;margin-top:0}
+/* checkboxy v tabulce uvnitř formuláře (výběr zařízení do automatického jobu): .form input{width:100%} je v úzké buňce smrsklo na pár pixelů */
+.form table input[type="checkbox"]{width:18px!important;height:18px;min-width:18px;padding:0;margin:0;vertical-align:middle;accent-color:var(--accent);cursor:pointer}
+.form table td:first-child,.form table th:first-child{width:34px}
 .modal-bg{position:fixed;inset:0;background:#1b233166;backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;z-index:20;padding:12px}
 .modal{background:var(--panel);border:1px solid var(--line2);border-radius:14px;padding:20px;width:min(940px,96vw);max-height:92vh;overflow:auto;box-shadow:0 30px 60px #1b233133}
 .modal h2{margin-top:0;font-size:17px}
