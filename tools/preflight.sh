@@ -39,6 +39,7 @@ node tools/test-mail.js > /dev/null 2>&1 || { echo "kontrola odesílání e-mail
 node tools/test-auto-groups.js > /dev/null 2>&1 || { echo "kontrola jobů automatu (API, stavy) selhala (node tools/test-auto-groups.js)"; exit 1; }
 node tools/test-auto-night.js > /dev/null 2>&1 || { echo "kontrola nočního běhu automatu selhala (node tools/test-auto-night.js)"; exit 1; }
 node tools/test-auto-mail.js > /dev/null 2>&1 || { echo "kontrola hlášení automatu selhala (node tools/test-auto-mail.js)"; exit 1; }
+node tools/test-auto-published.js > /dev/null 2>&1 || { echo "kontrola zpoždění automatu od zveřejnění verze selhala (node tools/test-auto-published.js)"; exit 1; }
 node tools/test-auto-ui.js > /dev/null 2>&1 || { echo "kontrola stránky Automat selhala (node tools/test-auto-ui.js)"; exit 1; }
 node tools/test-load-sharing.js > /dev/null 2>&1 || { echo "kontrola dělení zátěže (strop, fronta kontrol, rozložený start) selhala (node tools/test-load-sharing.js)"; exit 1; }
 node tools/test-ssh-retry.js || { echo "kontrola opakování SSH selhala"; exit 1; }

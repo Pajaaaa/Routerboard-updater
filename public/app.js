@@ -856,7 +856,7 @@ function renderHelp(m) {
   <ul class="plain">
     <li>Na stránce <b>Automat</b> si z vlastních zařízení poskládáš <b>joby</b>. Zařízení může být jen v jednom.</li>
     <li>V nočním okně se joby spouštějí <b>postupně shora dolů</b> — pořadí (prioritu) měníš šipkami ▲▼. Co se do konce okna nestihne, jde další noc znovu od prvního.</li>
-    <li>Nová verze se instaluje až po <b>zpoždění</b> od vydání (výchozí pro všechny joby, u jobu jde nastavit vlastní).</li>
+    <li>Nová verze se instaluje až po <b>zpoždění</b> od chvíle, kdy ji MikroTik zveřejnil v kanálu (ne od data sestavení, které bývá o pár dní starší; výchozí pro všechny joby, u jobu jde nastavit vlastní).</li>
     <li><b>Chyba automat nezastaví.</b> Selhané zařízení se ale samo znovu nezkouší, dokud ho na stránce neuvolníš.</li>
     <li>Večer přijde e-mail, co v noci půjde, ráno jeden souhrn za celou noc včetně chyb.</li>
   </ul></div>` : ''}
